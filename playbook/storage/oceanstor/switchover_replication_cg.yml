@@ -1,0 +1,144 @@
+---
+
+# Required Parameters:
+#   deviceName:        storage device name, can be replace with deviceSn
+#   cgName:            consistency group name
+#
+# Examples:
+#   --extra-vars "deviceName='storage1' cgName='cg1'"
+#
+# Optional Parameters:
+#   deviceSn:          storage device SN
+#
+# Examples:
+#
+# --extra-vars "deviceSn='12323019876312325911' cgName='cg1'"
+
+
+- name: Switchover Replication Consistency Group
+  hosts: localhost
+  vars:
+    deletePairs: yes
+  vars_files:
+    - ../../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: login_storage.yml
+
+    - name: Query Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP?filter=NAME%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: ReplicationCG
+      failed_when: ReplicationCG.json.data is not defined
+
+    - name: Get Replication CG ID
+      set_fact:
+        cgId: "{{ ReplicationCG.json.data[0].ID }}"
+
+    - name: Show Replication CG ID
+      debug:
+        msg: 
+          cgId: "{{ cgId }}"
+
+    - name: Pause Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SPLIT_CONSISTENCY_GROUP"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ cgId }}"
+      register: SPLIT_CG
+
+    - name: Show Pause Results
+      debug:
+        msg: "{{ SPLIT_CG.json.error }}"
+
+    - name: Set Secondary to Read/Write
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP/{{cgId}}"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          SECRESACCESS: 3             # 2: read-only, 3: read/write
+      register: SET_RW
+
+    - name: Show Set Read/Write Results
+      debug:
+        msg: "{{ SET_RW.json.error }}"
+
+    - name: Switchover Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SWITCH_GROUP_ROLE"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ cgId }}"
+      register: SWITCH_CG
+
+    - name: Show Switchover CG Results
+      debug:
+        msg: "{{ SWITCH_CG.json.error }}"
+
+    - name: Set Secondary to Read-Only
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP/{{cgId}}"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          SECRESACCESS: 2             # 2: read-only, 3: read/write
+      register: SET_RO
+
+    - name: Show Set Read-Only Results
+      debug:
+        msg: "{{ SET_RO.json.error }}"
+
+    - name: Sync Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SYNCHRONIZE_CONSISTENCY_GROUP"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ cgId }}"
+      register: SYNC_CG
+
+    - name: Check Sync Results
+      debug:
+        msg: "{{ SYNC_CG.json.error }}"

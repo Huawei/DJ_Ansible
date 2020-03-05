@@ -1,0 +1,34 @@
+---
+
+# Required Parameters:
+#   hostName:       host name
+#
+# Examples:
+#   --extra-vars "hostName='test'"
+#
+- name: Get Hosts by Fuzzy Name
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get Hosts by Fuzzy Name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostName}}"
+      register: HOSTS
+
+    - name: Show Hosts
+      debug:
+         msg: "{{ HOSTS.json }}"

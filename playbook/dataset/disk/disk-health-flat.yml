@@ -1,0 +1,23 @@
+---
+
+dummy:
+
+dataset: "stat-storage-disk"
+query:
+  timeRange:
+    beginTime: 1574179200000
+    endTime: 1574665590000
+    granularity: "auto"
+  filters:
+    dimensions:
+      - field: "dimensions.object.name"
+        values:
+          - "DAE001.3"
+  dimensions:
+    - field: "dimensions.object.name"
+      index: 1
+    - field: "timestamp"
+      index: 2
+  metrics:
+    - field: "metrics.healthScore"
+      aggType: "avg"

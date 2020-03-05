@@ -1,0 +1,25 @@
+---
+
+- name: List Object Types
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: List Object Types
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.perfmgr}}/obj-types"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TYPES
+
+    - name: Show Object Types
+      debug:
+        msg: "{{ TYPES.json }}"

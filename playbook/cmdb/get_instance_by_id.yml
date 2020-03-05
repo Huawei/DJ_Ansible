@@ -1,0 +1,39 @@
+---
+# Required Parameters:
+#   objType:     object type name, see ../global.yml to get supported object types in INVENTORY
+#   instanceId:  instance ID
+#
+# Examples:
+#   --extra-vars "objType=volume instanceId=07C1C88199643614A4836E725C73F17D"
+
+# Generated Parameters (can be overwritten):
+#   className:     CI class Name, see ../global.yml to get supported className in INVENTORY.objType.className
+#
+# Examples:
+#   --extra-vars "className=SYS_Lun instanceId=07C1C88199643614A4836E725C73F17D"
+
+- name: GET Instance by ID
+  hosts: localhost
+  vars:
+    className: "{{ INVENTORY[objType].className }}"    # map objType to className
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get Instance
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.instances}}/{{className}}/{{instanceId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: INSTANCE
+
+    - name: Show Instance
+      debug:
+        msg: "{{ INSTANCE.json }}"

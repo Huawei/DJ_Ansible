@@ -1,0 +1,75 @@
+---
+
+# Required Parameters:
+#   volumes:           a list of primary volumes
+#
+# Examples:
+#   --extra-vars '{"volumes": ["DJ_AT_0000", "DJ_AT_0001"]}'
+#
+# Optional Parameters:
+#   suffix:            snapshot name suffix, default: volumeName_yyyymmddThhmiss
+#
+# Examples:
+#   --extra-vars '{"suffix": "20200204", "volumes": ["DJ_AT_0000", "DJ_AT_0001"]}'
+#
+
+- name: Create and Active Snapshots
+  hosts: localhost
+  vars:
+    suffix: "{{ ansible_date_time.iso8601_basic_short }}"
+  vars_files:
+    - ../../global.yml
+  gather_facts: yes
+  become: no
+  tasks:
+    - import_tasks: check_volume_affinity.yml
+
+    - import_tasks: login_storage.yml
+
+    - name: Create Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          NAME: "{{ volumes[item.0] }}_{{ suffix }}"
+          PARENTTYPE: 11         # 11: LUN, 27: Snapshot
+          PARENTID: "{{ item.1 }}"
+      register: SNAPSHOTS
+      with_indexed_items: "{{ volumeIds }}"
+
+    - name: Get Snapshot IDs
+      vars:
+        queryId: "[*].json.data.ID"
+      set_fact:
+        snapIds: "{{ SNAPSHOTS.results | json_query(queryId) }}"
+
+    - name: Show Snapshot IDs
+      debug:
+        msg: 
+          snapIds: "{{ snapIds }}"
+
+    - name: Active Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/activate"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          SNAPSHOTLIST: "{{ snapIds }}"
+      register: ACTIVE_SNAPSHOTS
+
+    - name: Show Active Results
+      debug:
+        msg: "{{ ACTIVE_SNAPSHOTS.json.error }}"

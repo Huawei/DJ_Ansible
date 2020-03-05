@@ -1,0 +1,111 @@
+---
+
+# Required Parameters:
+#   hostName:       host name, can be replaced with hostId
+#
+# Examples:
+#   --extra-vars "hostName='ansible1'"
+
+# Optional Parameters:
+#   hostId:         host ID
+#   showPort:       show host ports, default: true
+#   portName:       port wwn or iqn
+#   portType:       port type, options: UNKNOWN, FC, ISCSI
+#   portStatus:     port status, options: UNKNOWN, ONLINE, OFFLINE, UNBOUND
+#
+# Examples:
+#   --extra-vars "hostId='32fb302d-25cb-4e4b-83d6-03f03498a69b'"
+#   --extra-vars '{"hostName": "ansible1", "showPort": false}'
+#   --extra-vars "hostId='32fb302d-25cb-4e4b-83d6-03f03498a69b' portName='10000090fa1b623e'"
+#   --extra-vars "hostId='32fb302d-25cb-4e4b-83d6-03f03498a69b' portType='ISCSI'"
+#   --extra-vars "hostId='32fb302d-25cb-4e4b-83d6-03f03498a69b' portStatus='ONLINE'"
+
+- name: Get Host by ID
+  hosts: localhost
+  vars:
+    showPort: true
+    portParams: ""
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+
+    - name: Get Host by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostName}}"
+      register: HOSTS
+      when: hostName is defined
+
+    - name: Get Host ID
+      vars:
+        query: "[?name=='{{ hostName }}'].id"
+      set_fact:
+        hostId: "{{ HOSTS.json.hosts | json_query(query) | first }}"
+      failed_when: HOSTS.json.hosts | json_query(query) | length != 1
+      when: hostName is defined
+
+    - name: Get Host Info
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/{{hostId}}/summary"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: HOST
+
+    - name: Show Host
+      debug:
+        msg: "{{ HOST.json }}"
+
+    - name: Set portParams - portName
+      set_fact:
+        portParams: "{{ portParams + 'port_name=' + portName + '&' }}"
+      when: 
+        - showPort == true
+        - portName is defined
+
+    - name: Set portParams - portType
+      set_fact:
+        portParams: "{{ portParams + 'protocol=' + portType + '&' }}"
+      when: 
+        - showPort == true
+        - portType is defined
+
+    - name: Set param - portStatus
+      set_fact:
+        portParams: "{{ portParams + 'status=' + portStatus + '&' }}"
+      when: 
+        - showPort == true
+        - portStatus is defined
+
+    - name: Get Ports
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/{{hostId}}/initiators?{{portParams}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: PORT
+      when: 
+        - showPort == true
+
+    - name: Show Ports
+      debug:
+        msg: "{{ PORT.json }}"
+      when: 
+        - showPort == true

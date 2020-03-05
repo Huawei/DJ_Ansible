@@ -1,0 +1,133 @@
+---
+
+# Optional Parameters:
+#   pageNo:         page number, default 1
+#   pageSize:       page size, default: 10
+#   sortKey:        sort key, options: initiator_count
+#   sortDir:        sort direction, options: desc, asc
+#   hostName:       host name
+#   ip:             ip address
+#   osType:         os type, options: LINUX, WINDOWS, SUSE, EULER, REDHAT, CENTOS, WINDOWSSERVER2012, SOLARIS, HPUX, AIX, XENSERVER, MACOS, VMWAREESX, ORACLE, OPENVMS
+#   displayStatus:  display status, options: OFFLINE, NOT_RESPONDING, NORMAL, RED, GRAY, GREEN, YELLOW
+#   managedStatus:  a list of managed status, options: NORMAL, TAKE_OVERING, TAKE_ERROR, TAKE_OVER_ALARM, UNKNOWN
+#   accessMode:     access mode, options: ACCOUNT, NONE, VCENTER
+#   azName:         availability zone name
+#   projectName:    project name
+#
+# Examples:
+#   --extra-vars "accessMode='NONE' displayStatus='NORMAL' managedStatus=['NORMAL']"
+#   --extra-vars "azName='room1' projectName='project1'"
+
+# Generated Parameters (can be overwritten):
+#   azId:          availability zone ID
+#   projectId:     project ID
+#
+# Examples:
+#   --extra-vars "azId='B2012FF2ECB03CCCA03FFAAD4BA590F1' projectId='2AC426C9F4C535A2BEEFAEE9F2EDF740'"
+
+- name: List Hosts
+  hosts: localhost
+  vars:
+    pageNo: 1
+    pageSize: 10
+    sortKey: null
+    sortDir: null
+    hostName: null
+    ip: null
+    osType: null
+    displayStatus: null
+    managedStatus: []
+    accessMode: null
+    azId: null
+    projectId: null
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Query AZ by name
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.azs }}?az_name={{azName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: AZ
+      failed_when: AZ.json.az_list | json_query(query) | length != 1
+      when: azName is defined
+
+    - name: Get AZ ID
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      set_fact:
+        azId: "{{ AZ.json.az_list | json_query(query) | first }}"
+      when: 
+        - azName is defined
+        - AZ.json.az_list | json_query(query) | length == 1
+
+    - name: Query project by name
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?name={{projectName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: PROJECT
+      failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+      when: projectName is defined
+
+    - name: Get project ID
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      set_fact:
+        projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+      when: 
+        - projectName is defined
+        - PROJECT.json.projectList | json_query(query) | length == 1
+
+    - name: List Hosts
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          limit: "{{pageSize}}"
+          start: "{{ pageSize|int * (pageNo|int - 1) }}"
+          sort_key: "{{sortKey}}"
+          sort_dir: "{{sortDir}}"
+          name: "{{hostName}}"
+          ip: "{{ip}}"
+          os_type: "{{osType}}"
+          display_status: "{{displayStatus}}"
+          managed_status: "{{managedStatus}}"
+          access_mode: "{{accessMode}}"
+          az_id: "{{azId}}"
+          project_id: "{{projectId}}"
+      register: HOSTS
+
+    - name: Show Hosts
+      vars:
+        objList: "{{ HOSTS.json.hosts }}"
+        totalNum: "{{HOSTS.json.total}}"
+        sortDesc: "{{ 'True' if sortDir == 'desc' else 'False'  }}"
+      debug:
+        msg: 
+          objList: "{{ ( objList | sort(attribute=sortKey,reverse=sortDesc) ) if sortKey != 'null' else ( objList | sort(reverse=sortDesc) ) }}"
+          totalNum: "{{ totalNum }}"
+          pageSize: "{{ pageSize }}"
+          pageNo: "{{ pageNo }}"

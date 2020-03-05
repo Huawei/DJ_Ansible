@@ -1,0 +1,64 @@
+---
+
+# Optional Parameters:
+#   pageNo:         page number, default 1
+#   pageSize:       page size, default: 10
+#   sortKey:        sort key, options: name
+#   sortDir:        sort direction, default: asc, options: desc, asc
+#   azName:         availability zone name
+#
+# Examples:
+#   --extra-vars "azName='room' sortKey='name' sortDir='desc'"
+#
+- name: List AZs
+  hosts: localhost
+  vars:
+    pageNo: 1
+    pageSize: 10
+    params: "{{'limit=' + pageSize|string + '&start=' + (pageSize|int * (pageNo|int - 1) + 1) | string }}"
+    sortDir: asc
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Set params - sortKey & sortDir
+      set_fact:
+        params: "{{ params + '&sort_key=' + sortKey + '&sort_dir=' + sortDir }}"
+      when: 
+        - sortKey is defined
+    
+    - name: Set params - azName
+      set_fact:
+        params: "{{ params + '&az_name=' + azName|urlencode }}"
+      when: 
+        - azName is defined
+
+    - name: Show Param
+      debug:
+        msg: "{{params}}"
+        
+    - name: List AZs
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.azs }}?{{params}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: AZs
+
+    - name: Show AZs
+      vars:
+        objList: "{{ AZs.json.az_list }}"
+        totalNum: "{{AZs.json.total}}"
+        sortDesc: "{{ 'True' if sortDir == 'desc' else 'False'  }}"
+      debug:
+        msg: 
+          objList: "{{ ( objList | sort(attribute=sortKey,reverse=sortDesc) ) if sortKey is defined else ( objList | sort(reverse=sortDesc) ) }}"
+          totalNum: "{{ totalNum }}"
+          pageSize: "{{ pageSize }}"
+          pageNo: "{{ pageNo }}"

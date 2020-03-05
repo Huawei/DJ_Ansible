@@ -1,0 +1,45 @@
+---
+
+- name: Flat Query Dataset
+  hosts: localhost
+  vars:
+    pageNo: 1
+    pageSize: 1000
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Show Query
+      debug:
+        msg: "{{ query }}"
+
+    - name: Query Dataset
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.datasets}}/{{dataset}}?pageNo={{pageNo}}&pageSize={{pageSize}}"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body: "{{ query }}"
+      register: RESULT
+
+    - name: Show Result
+      debug:
+        msg: "{{ RESULT.json }}"
+      when: export is not defined
+    
+    - import_tasks: ../util/json2csv.yml
+      vars:
+        data: "{{ RESULT.json.datas }}"
+        keys: "{{ RESULT.json.datas[0] | dict2items | json_query('[*].key') }}"
+        file: "{{ export }}"
+      when: 
+        - export is defined
+        - RESULT.json.datas is defined
+        - RESULT.json.datas|length > 0

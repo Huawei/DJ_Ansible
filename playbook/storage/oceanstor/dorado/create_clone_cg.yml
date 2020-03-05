@@ -1,0 +1,76 @@
+---
+
+# Required Parameters:
+#   deviceName:        storage device name, can be replaced with deviceSn
+#   pgName:            protection group name
+#
+# Examples:
+#   --extra-vars "deviceName='storage1' pgName='pg1'"
+
+# Optional Parameters:
+#   deviceSn:          storage device SN
+#   cgName:            clone consistency group name, default: pgName_yyyymmddThhmiss
+#   sync:              whether to sync immediately, default: yes, options: yes, no
+#   syncSpeed:         sync speed, default: 2, options: 1:low, 2:medium, 3:high, 4:highest
+#
+# Examples:
+#   --extra-vars '{"deviceSn": "21023598258765432076", "pgName": "pg1", "cgName": "cg1", "sync": yes, "syncSpeed": 4}'
+
+- name: Create Clone Consistency Group
+  hosts: localhost
+  vars:
+    cgName: "{{ pgName }}_{{ ansible_date_time.iso8601_basic_short }}"
+    sync: yes
+    syncSpeed: 2
+  vars_files:
+    - ../../../global.yml
+  gather_facts: yes
+  become: no
+  tasks:
+    - import_tasks: ../login_storage.yml
+
+    - name: Query PG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/api/v2/protectgroup?filter=protectGroupName%3A%3A{{pgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: PG
+      failed_when: PG.json.data is not defined
+
+    - name: Get PG ID
+      vars:
+        pg: "{{ PG.json.data[0] }} "
+      set_fact:
+        pgId: "{{ pg.protectGroupId }}"
+
+    - name: Show PG ID
+      debug:
+        msg: 
+          pgId: "{{ pgId }}"
+
+    - name: Create Clone CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/api/v2/clone_consistentgroup"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          name: "{{ cgName }}"
+          sourcePgId: "{{ pgId }}"
+          isNeedSynchronize: "{{ sync }}"
+          copyRate: "{{ syncSpeed }}"
+      register: CLONE_CG
+
+    - name: Show Clone CG
+      debug:
+        msg: "{{ CLONE_CG.json }}"

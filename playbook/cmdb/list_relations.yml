@@ -1,0 +1,57 @@
+---
+# Required Parameters:
+#   relationName:     relation name, see ../global.yml to get supported relations in INVENTORY
+#
+# Examples:
+#   --extra-vars "relationName=M_DjHostAttachedLun"
+#
+# Optional Parameters:
+#   params:      query parameters, see Examples
+#   export:      export file path
+#   sep:         separator, default '|'
+#
+# Examples:
+#   --extra-vars "params='pageNo=1&pageSize=10'"
+#   --extra-vars "params='condition={\"constraint\":[{\"simple\":{\"name\":\"last_Modified\",\"operator\":\"greater%20than\",\"value\":\"1576938117968\"}}]}'"
+#   --extra-vars "export='volume-map.csv' sep='|'"
+
+- name: List Relations
+  hosts: localhost
+  vars:
+    params: 'pageNo=1&pageSize=10'
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: List Relations
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.relations}}/{{relationName}}/instances?{{params}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: RELATIONS
+
+    - name: Show Relations
+      debug:
+        msg: "{{ RELATIONS.json }}"
+      when: export is not defined
+
+    - import_tasks: ../util/json2csv.yml
+      vars:
+        data: "{{RELATIONS.json.objList}}"
+        keys: 
+          - id
+          - last_Modified
+          - source_Instance_Id
+          - target_Instance_Id
+        file: "{{export}}"
+      when: 
+        - export is defined
+        - RELATIONS.json.objList is defined
+        - RELATIONS.json.objList|length > 0

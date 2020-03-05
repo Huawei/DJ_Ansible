@@ -1,0 +1,89 @@
+---
+
+# Required Parameters:
+#   deviceName:     storage device name, can be replaced with storageId
+#
+# Examples:
+# --extra-vars "deviceName='Storage-5500'"
+#
+# Generated Parameters (can be overwritten):
+#   deviceId:       storage device ID
+#
+# Examples:
+# --extra-vars "deviceId='32fb302d-25cb-4e4b-83d6-03f03498a69b'"
+
+- name: Sync Storage
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Query Storages
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.storages }}?start=1&limit=1000"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: DEVICES
+      when: deviceName is defined
+
+    - name: Get Storage ID
+      vars:
+        query: "[?name=='{{ deviceName }}'].id"
+      set_fact:
+        deviceId: "{{ DEVICES.json.datas | json_query(query) | first }}"
+      failed_when: DEVICES.json.datas | json_query(query) | length != 1
+      when: deviceName is defined
+
+    - name: Show Params
+      debug:
+        msg: 
+          id: "{{deviceId}}"
+
+    - name: Sync Storage
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.storages }}/refresh"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          id: "{{deviceId}}"
+      register: SYNCTASK
+
+    - name: Wait Sync Start
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.storages }}/{{deviceId}}/detail"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: DETAIL
+      retries: 60
+      delay: 1
+      until: DETAIL.json.syn_status|int == 1     # 0/NotSync, 1/Syncing, 2/Synced, 3/Unknown
+
+    - name: Wait Sync Complete
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.storages }}/{{deviceId}}/detail"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: DETAIL
+      retries: 60
+      delay: 5
+      until: DETAIL.json.syn_status|int != 1     # 0/NotSync, 1/Syncing, 2/Synced, 3/Unknown

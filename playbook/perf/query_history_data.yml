@@ -1,0 +1,102 @@
+---
+
+# Required Parameters:
+#   objType:     object type name, see ../global.yml to get supported object types in INVENTORY
+#   indicators:  a list of indicator name, see ../global.yml to get supported indicators in INVENTORY.objType.indicators
+#   objName:     object name (fuzzy)
+#
+# Examples:
+#   --extra-vars "objType=volume indicators=['bandwidth','throughput','responseTime'] objName='1113-001'"
+
+# Optional Parameters:
+#   endTime:     epoch in seconds, default value is current time
+#   timeSpan:    time range before endTime, default value is 1h (1 hour), supported unit: s,m,h,d,w,M,y
+#
+# Examples:
+#   --extra-vars "endTime=`date -d '2019-11-21 23:00:00' +%s` timeSpan=30m"
+
+# Generated Parameters (can be overwritten):
+#   beginTime:     epoch in seconds, default value is endTime - timeSpan
+#   interval:      sample rate enum: MINUTE/HOUR/DAY/WEEK/MONTH, default value is depend on timeSpan (<=1d: MINUTE, <=1w: HOUR, >1w: DAY)
+#   objTypeId:     object type id, see ../global.yml to get supported object types in INVENTORY.objType.objTypeId
+#   objIds:        a list object resId, use ../cmdb/list_instances.yml to get object resId
+#   indicatorIds:  a list of indicator id, see ../global.yml to get supported indicators in INVENTORY.objType.indicators
+#
+# Examples:
+#   --extra-vars "beginTime=`date -d '2019-11-20 23:00:00' +%s` interval=HOUR"
+#   --extra-vars "objTypeId='1125921381679104' objIds=['630EA7167C22383F965664860C5FAEEC'] indicatorIds=['1125921381744641','1125921381744642','1125921381744643']"
+
+- name: Query Hisotry Performance
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  vars:
+    endTime: "{{ansible_date_time.epoch}}"     # default current epoch (seconds), use `data +%s` to get current unix time
+    timeSpan: "1h"                             # default last 1 hour, can be s,m,h,d,w,M,y
+    unit: "{{ timeSpan[-1] if timeSpan is regex('^[0-9]+[s|m|h|d|w|M|y]$') else 's' }}"     # default unit set to seconds
+    seconds: 
+      s: 1                        # second
+      m: 60                       # minute
+      h: 3600                     # hour
+      d: "{{ 3600 * 24 }}"        # day
+      w: "{{ 3600 * 24 * 7 }}"    # week
+      M: "{{ 3600 * 24 * 30 }}"   # month
+      y: "{{ 3600 * 24 * 365 }}"  # year
+    beginTime: "{{ endTime|int - timeSpan|replace(unit,'')|int * seconds[unit]|int }}"  # default timeSpan before current epoch (seconds)
+    timeSpanSeconds: "{{ endTime|int - beginTime|int }}"
+    interval: "{{ 'MINUTE' if timeSpanSeconds <= seconds['d'] else 'HOUR' if timeSpanSeconds <= seconds['w'] else 'DAY' }}"
+    objTypeId: "{{ INVENTORY[objType].objTypeId }}"    # map objType to objTypeId
+  gather_facts: yes
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get Indicator IDs                          # map indicator names to IDs
+      set_fact:
+          indicatorIds: "{{ indicatorIds|default([]) + [ INVENTORY[objType].indicators[ item ] ] }}"
+      with_items: "{{ indicators }}"
+      when: indicators is defined
+
+    - name: List Instances
+      vars:
+        className: "{{ INVENTORY[objType].className }}"    # map objType to objTypeId
+        params: "pageNo=1&pageSize=1000&condition={\"constraint\":[{\"simple\":{\"name\":\"dataStatus\",\"operator\":\"equal\",\"value\":\"normal\"}},{\"logOp\":\"and\",\"simple\":{\"name\":\"name\",\"operator\":\"contain\",\"value\":\"{{objName|urlencode}}\"}}]}"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.instances}}/{{className}}?{{params}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: INSTANCES
+      when: objName is defined
+
+    - name: Get Object IDs
+      set_fact:
+          objIds: "{{ INSTANCES.json.objList | json_query('[*].id')  }}"
+      when: objName is defined
+
+    - name: Get Hisotry Performance Data
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.perfdata }}/history-data/action/query"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body: 
+          obj_type_id: "{{ objTypeId }}"
+          indicator_ids: "{{ indicatorIds }}"
+          obj_ids: "{{ objIds }}"
+          interval: "{{ interval }}"
+          range: BEGIN_END_TIME
+          begin_time: "{{ beginTime }}000"
+          end_time: "{{ endTime }}000"
+      register: PERFDATA
+
+    - name: Show Data
+      debug:
+        msg: "{{ PERFDATA.json }}"

@@ -1,0 +1,105 @@
+---
+
+# Optional Parameters:
+#   pageNo:         page number, default 1
+#   pageSize:       page size, default: 10
+#   sortKey:        sort key, options: name, status, start_time, end_time
+#   sortDir:        sort direction, default: asc, options: desc, asc
+#   taskName:       task name
+#   ownerName:      owner name
+#   status:         task status, options: 1/not_start, 2/running, 3/succeeded, 4/partially_succeeded, 5/failed, 6/timeout
+#   startTimeFrom:  query tasks which's start time after this, epoch in seconds
+#   startTimeTo:    query tasks which's start time before this, epoch in seconds
+#   endTimeFrom:    query tasks which's end time after this, epoch in seconds
+#   endTimeTo:      query tasks which's end time before this, epoch in seconds
+#
+# Examples:
+#   --extra-vars "sortKey='start_time' sortDir='desc'"
+#   --extra-vars "taskName='Delete volume'"
+#   --extra-vars "status=3"
+#   --extra-vars "startTimeFrom=`date -d '12:00:00' +%s` startTimeTo=`date -d '16:00:00' +%s`"
+#   --extra-vars "endTimeFrom=`date -d '12:00:00' +%s` endTimeTo=`date -d '16:00:00' +%s`"
+
+- name: List Tasks
+  hosts: localhost
+  vars:
+    pageNo: 1
+    pageSize: 10
+    params: "{{'limit=' + pageSize|string + '&start=' + (pageSize|int * (pageNo|int - 1)) | string }}"
+    sortDir: asc
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Set params - sortKey & sortDir
+      vars:
+        sortAttr: "{{ ('name_en' if DJ.lang == 'en_US' else 'name_cn') if sortKey == 'name' else sortKey }}"
+      set_fact:
+        sortAttr: "{{ sortAttr }}"
+        params: "{{ params + '&sort_key=' + sortAttr + '&sort_dir=' + sortDir }}"
+      when: sortKey is defined
+
+    - name: Set params - taskName
+      set_fact:
+        params: "{{ params + ('&name_en=' if DJ.lang == 'en_US' else '&name_cn=') + taskName|urlencode }}"
+      when: taskName is defined
+
+    - name: Set params - ownerName
+      set_fact:
+        params: "{{ params + '&owner_name=' + ownerName|urlencode }}"
+      when: ownerName is defined
+
+    - name: Set params - status
+      set_fact:
+        params: "{{ params + '&status=' + status }}"
+      when: status is defined
+
+    - name: Set params - startTimeFrom
+      set_fact:
+        params: "{{ params + '&start_time_from=' + startTimeFrom + '000' }}"
+      when: startTimeFrom is defined
+
+    - name: Set params - startTimeTo
+      set_fact:
+        params: "{{ params + '&start_time_to=' + startTimeTo + '000' }}"
+      when: startTimeTo is defined
+
+    - name: Set params - endTimeFrom
+      set_fact:
+        params: "{{ params + '&end_time_from=' + endTimeFrom + '000' }}"
+      when: endTimeFrom is defined
+
+    - name: Set params - endTimeTo
+      set_fact:
+        params: "{{ params + '&end_time_to=' + endTimeTo + '000' }}"
+      when: endTimeTo is defined
+
+    - name: Show Param
+      debug:
+        msg: "{{params}}"
+
+    - name: List Tasks
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tasks }}?{{params}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TASKS
+
+    - name: Show Tasks
+      vars:
+        objList: "{{ TASKS.json.tasks }}"
+        totalNum: "{{TASKS.json.total}}"
+        sortDesc: "{{ 'True' if sortDir == 'desc' else 'False'  }}"
+      debug:
+        msg: 
+          objList: "{{ ( objList | sort(attribute=sortAttr,reverse=sortDesc) ) if sortAttr is defined else ( objList | sort(reverse=sortDesc) ) }}"
+          totalNum: "{{ totalNum }}"
+          pageSize: "{{ pageSize }}"
+          pageNo: "{{ pageNo }}"

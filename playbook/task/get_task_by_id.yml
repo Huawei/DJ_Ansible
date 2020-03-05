@@ -1,0 +1,37 @@
+---
+
+# Required Parameters:
+#   taskId:     Task ID
+#
+# Examples:
+#   --extra-vars "taskId='bd5f2b70-d416-4d61-8e1a-f763e68dbbe1'"
+
+- name: Get Task
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get Task
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tasks }}/{{taskId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TASKS
+
+    - name: Task Details
+      vars:
+        statusMap: { '1': 'Not Start', '2': 'Running', '3': 'Succeeded', '4': 'Partially Succeeded', '5': 'Failed', '6': 'Timeout'}
+        query: "[?id=='{{ taskId }}'].status"
+        status: "{{ TASKS.json | json_query(query) | first }}"
+      debug:
+        msg:
+          Detail: "{{ TASKS.json }}"
+          Status: "{{statusMap[status]}}"

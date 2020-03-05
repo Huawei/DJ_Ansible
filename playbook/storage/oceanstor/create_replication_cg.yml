@@ -1,0 +1,250 @@
+---
+
+# Required Parameters:
+#   cgName:            consistency group name
+#   primaryVolumes:    a list of primary volume names
+#   secondaryVolumes:  a list of secondary volume names, must be the same number of volumes with the primary volumes
+#   mode:              replication mode, options: 1/sync, 2/async
+#
+# Examples:
+#   --extra-vars '{"cgName": "cg1", "mode": 2, "primaryVolumes": ["DJ_AT_0000", "DJ_AT_0001"], "secondaryVolumes": ["DJ_BC_0000", "DJ_BC_0001"]}'
+#
+# Optional Parameters:
+#   recoveryPolicy:    recover policy, default: 1, options: 1/automatic, 2/manual
+#   syncSpeed:         initial speed, default: 2, options: 1/low, 2/medium, 3/high, 4/highest
+#
+# Examples:
+#   --extra-vars '{"recoverPolicy": 2, "syncSpeed": 4}'
+#
+# Optional Parameters (async mode):
+#   syncType:          synchronize type for async replication, default: 3, options: 1/manual, 2/wait after last sync begin, 3/wait after last sync ends
+#   interval           synchronize interval in seconds (when syncType is not manual), default: 600, options: 10 ~ 86400
+#   compress:          enable compress for async replication, default false, options: true, false
+# 
+# Examples:
+#   --extra-vars '{"syncType": 2, "interval": 300, "compress": true}'
+#
+# Optional Parameters (sync mode): 
+#   timeout:           remote I/O timeout threshold in seconds, default: 10, options: 10~30, or set to 255 to disable timeout
+#
+# Examples:
+#   --extra-vars '{"timeout": 30}'
+
+
+- name: Create Replication Consistency Group
+  hosts: localhost
+  vars:
+    syncType: 3
+    interval: 600
+    compress: false
+    timeout: 10
+    recoveryPolicy: 1
+    syncSpeed: 2
+  vars_files:
+    - ../../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: check_volume_pairs.yml
+      vars:
+        primaryVolumes: "{{primaryVolumes}}"
+        secondaryVolumes: "{{secondaryVolumes}}"
+
+    - name: Set storage SN
+      set_fact:
+        deviceSn: "{{ devicePair.primary }}"
+        remoteSn: "{{ devicePair.secondary }}"
+
+    - import_tasks: login_storage.yml
+
+    - name: Get Remote Devices
+      vars:
+        queryId: "[? SN=='{{remoteSn}}'].ID"
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/remote_device?range=[0-100]"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: REMOTE_DEVICES
+      failed_when: ( REMOTE_DEVICES.json.data is not defined ) or (REMOTE_DEVICES.json.data | json_query(queryId) | length != 1)
+
+    - name: Get Remote Device ID
+      vars:
+        queryId: "[? SN=='{{remoteSn}}'].ID"
+      set_fact:
+        remoteDeviceId: "{{ REMOTE_DEVICES.json.data | json_query(queryId) | first}}"
+
+    - name: Check Exist Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR?filter=LOCALRESID%3A%3A{{item.LOCALOBJID}}%20and%20REMOTERESID%3A%3A{{item.REMOTEOBJID}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: ExistReplicationPairs
+      with_items: "{{ volumePairs }}"
+
+    - name: Get Exist Pair IDs
+      vars:
+        queryPairId: "[? REMOTEDEVICEID=='{{remoteDeviceId}}'].ID"
+        queryObjId: "[? REMOTEDEVICEID=='{{remoteDeviceId}}'].LOCALRESID"
+      set_fact:
+        existPairIds: "{{ existPairIds|default([]) + ExistReplicationPairs.results[item.0].json.data | json_query(queryPairId) }}"
+        existObjIds: "{{ existObjIds|default([]) + ExistReplicationPairs.results[item.0].json.data | json_query(queryObjId) }}"
+      with_indexed_items: "{{ volumePairs }}"
+
+    - name: Split Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/split"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: SPLIT_PAIRS
+      with_items: "{{ existPairIds }}"
+      when: existPairIds|length > 0
+
+    - name: Show Split Results
+      vars:
+        queryError: "[*].json.error"
+      debug:
+        msg: "{{ SPLIT_PAIRS.results | json_query(queryError)  }}"
+      when: existPairIds|length > 0
+
+    - name: Create New Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          LOCALRESID: "{{ item.LOCALOBJID }}"
+          REMOTEDEVICEID: "{{ remoteDeviceId }}"
+          REMOTERESID: "{{ item.REMOTEOBJID }}"
+          SYNCHRONIZETYPE: "{{ syncType }}"
+          RECOVERYPOLICY: "{{ recoveryPolicy }}"
+          SPEED: "{{ syncSpeed }}"
+          TIMINGVAL: "{{ interval }}"
+          REPLICATIONMODEL: "{{ mode }}"
+          ENABLECOMPRESS: "{{ compress }}"
+          REMTIMEOUTPERIOD: "{{ timeout }}"
+      register: NewReplicationPairs
+      when: item.LOCALOBJID not in existObjIds
+      with_items: "{{ volumePairs }}"
+
+    - name: Get Replication Pair IDs
+      vars:
+        queryPairId: "[*].json.data.ID"
+        newPairIds: "{{ NewReplicationPairs.results | json_query(queryPairId) }}"
+      set_fact:
+        pairIds: "{{ existPairIds + newPairIds }}"
+      failed_when: pairIds|length != volumePairs|length
+      
+    - name: Show All Replication Pair IDs
+      debug:
+        msg: 
+          pairIds: "{{ pairIds }}"
+
+    - name: Check Replication CG name conflicts
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP?filter=NAME%3A%3A{{cgName}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: ExistReplicationCG
+      failed_when: ExistReplicationCG.json.data is defined 
+
+    - name: Create Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          NAME: "{{ cgName }}"
+          SYNCHRONIZETYPE: "{{ syncType }}"
+          RECOVERYPOLICY: "{{ recoveryPolicy }}"
+          SPEED: "{{ syncSpeed }}"
+          TIMINGVALINSEC: "{{ interval }}"
+          REPLICATIONMODEL: "{{ mode }}"
+          ENABLECOMPRESS: "{{ compress }}"
+      register: ReplicationCG
+
+    - name: Get Replication CG ID
+      set_fact:
+        cgId: "{{ ReplicationCG.json.data.ID }}"
+
+    - name: Show Replication CG
+      debug:
+        msg: 
+          cgId: "{{ cgId }}"
+
+    - name: Add Replication Pairs to CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/ADD_MIRROR"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ cgId }}"
+          RMLIST: 
+            - "{{ item }}"
+      register: ADD_PAIRS
+      with_items: "{{ pairIds }}"
+
+    - name: Check Add Pair Results
+      vars:
+        queryError: "[*].json.error"
+      debug:
+        msg: "{{ ADD_PAIRS.results | json_query(queryError) }}"
+
+    - name: Sync Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SYNCHRONIZE_CONSISTENCY_GROUP"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ cgId }}"
+      register: SYNC
+
+    - name: Check Sync Results
+      debug:
+        msg: "{{ SYNC.json.error }}"

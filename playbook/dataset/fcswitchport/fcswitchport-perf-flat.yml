@@ -1,0 +1,32 @@
+---
+
+dummy:
+
+dataset: "perf-fcswitch-port"
+query:
+  timeRange:
+    beginTime: 1574179200000
+    endTime: 1574665590000
+    granularity: "auto"
+  filters:
+    dimensions:
+      - field: "dimensions.object.name"
+        values:
+          - "port0"
+          - "port2"
+  dimensions:
+    - field: "dimensions.object.name"
+      index: 1
+    - field: "dimensions.port.wwn"
+      index: 2
+    - field: "timestamp"
+      index: 3
+  metrics:
+    - field: "metrics.bandwidth"
+      aggType: "sum"
+    - field: "metrics.utility"
+      aggType: "avg"
+    - field: "metrics.error"
+      aggType: "sum"
+    - field: "metrics.bbCreditZero"
+      aggType: "sum"

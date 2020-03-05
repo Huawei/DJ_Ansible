@@ -1,0 +1,69 @@
+---
+
+# Required Parameters:
+#   deviceName:        storage device name, can be replaced with deviceSn
+#   cgName:            clone consistency group name
+#
+# Examples:
+#   --extra-vars "deviceName='storage1' cgName='cg1'"
+#
+# Optional Parameters:
+#   deviceSn:          storage device SN
+#   deleteReplica:     delete replica LUN, default: no, options: yes, no
+#
+# Examples:
+#   --extra-vars '{"deviceSn": "21023598258765432076", "cgName": "cg1", "deleteReplica": yes}'
+#
+
+- name: Delete Clone Consistency Group
+  hosts: localhost
+  vars:
+    deleteReplica: no
+  vars_files:
+    - ../../../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../login_storage.yml
+
+    - name: Query Clone CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/api/v2/clone_consistentgroup?cgType=1&filter=name%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CLONE_CG
+      failed_when: CLONE_CG.json.data is not defined
+
+    - name: Get Clone CG ID
+      set_fact:
+        cgId: "{{ CLONE_CG.json.data[0].ID }}"
+
+    - name: Show Clone CG ID
+      debug:
+        msg: 
+          cgId: "{{ cgId }}"
+
+    - name: Delete Clone CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/api/v2/clone_consistentgroup"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ cgId }}"
+          isDeleteDstLun: "{{ deleteReplica }}"
+      register: DELETE_CG
+
+    - name: Show Delete Result
+      debug:
+        msg: "{{ DELETE_CG.json.error }}"

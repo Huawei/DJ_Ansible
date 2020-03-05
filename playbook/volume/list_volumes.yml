@@ -1,0 +1,271 @@
+---
+
+# Optional Parameters:
+#   pageNo:         page number, default 1
+#   pageSize:       page size, default: 10
+#   sortKey:        sort key, options: size
+#   sortDir:        sort direction, default: asc, options: desc, asc
+#   volumeName:     volume name
+#   volumeWwn:      volume WWN
+#   status:         volume status, options: creating, normal, mapping, unmapping, deleting, error, expanding
+#   allocType:      allocate type, options: thin, thick
+#   attached:       is attached, options: true, false
+#   mode:           service mode, options: service, non-service, all
+#   tierName:       service level name
+#   projectName:    project name
+#   hostName:       host name
+#   hostGroupName:  host group name
+#   deviceName:     storage device name
+#   poolName:       storage pool name
+#
+# Examples:
+#   --extra-vars "projectName='project1'"
+
+# Generated Parameters (can be overwritten):
+#   tierId:        service level ID
+#   projectId:     project ID
+#   hostId:        host ID
+#   hostGroupId:   host group ID
+#   deviceId:      storage device ID
+#   poolId:        storage pool ID
+#
+# Examples:
+#   --extra-vars "projectId='2AC426C9F4C535A2BEEFAEE9F2EDF740'"
+
+- name: List Volumes
+  hosts: localhost
+  vars:
+    pageNo: 1
+    pageSize: 10
+    params: "{{'limit=' + pageSize|string + '&start=' + (pageSize|int * (pageNo|int - 1)) | string }}"
+    sortDir: asc
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Set params - sortKey & sortDir
+      set_fact:
+        params: "{{ params + '&sort_key=' + sortKey + '&sort_dir=' + sortDir }}"
+      when: sortKey is defined
+
+    - name: Set params - volumeName
+      set_fact:
+        params: "{{ params + '&name=' + volumeName|urlencode }}"
+      when: volumeName is defined
+
+    - name: Set params - volumeWwn
+      set_fact:
+        params: "{{ params + '&volume_wwn=' + volumeWwn }}"
+      when: volumeWwn is defined
+
+    - name: Set params - status
+      set_fact:
+        params: "{{ params + '&status=' + status }}"
+      when: status is defined
+
+    - name: Set params - allocType
+      set_fact:
+        params: "{{ params + '&allocate_type=' + allocType }}"
+      when: allocType is defined
+
+    - name: Set params - attached
+      set_fact:
+        params: "{{ params + '&attached=' + attached }}"
+      when: attached is defined
+
+    - name: Set params - mode
+      set_fact:
+        params: "{{ params + '&query_mode=' + mode }}"
+      when: mode is defined
+    
+    - name: Query Tier by Name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tiers }}?name={{tierName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TIER
+      when: tierName is defined
+    
+    - name: Get Tier ID
+      vars:
+        query: "[?name=='{{ tierName }}'].id"
+      set_fact:
+        tierId: "{{ TIER.json[\"service-levels\"] | json_query(query) | first }}"
+      failed_when: TIER.json['service-levels'] | json_query(query) | length != 1
+      when: tierName is defined
+    
+    - name: Set params - tierId
+      set_fact:
+        params: "{{ params + '&service_level_id=' + tierId }}"
+      when: tierId is defined
+
+    - name: Query project by name
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?name={{projectName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: PROJECT
+      when: projectName is defined
+
+    - name: Get project ID
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      set_fact:
+        projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+      failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+      when: projectName is defined
+
+    - name: Set params - projectId
+      set_fact:
+        params: "{{ params + '&project_id=' + projectId }}"
+      when: projectId is defined
+  
+    - name: Query Host by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostName}}"
+      register: HOST
+      when: hostName is defined
+
+    - name: Get Host ID
+      vars:
+        query: "[?name=='{{ hostName }}'].id"
+      set_fact:
+        hostId: "{{ HOST.json.hosts | json_query(query) | first }}"
+      failed_when: HOST.json.hosts | json_query(query) | length != 1
+      when: hostName is defined
+
+    - name: Set params - hostId
+      set_fact:
+        params: "{{ params + '&host_id=' + hostId }}"
+      when: hostId is defined
+
+    - name: Query Host Group by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostGroupName}}"
+      register: HOSTGROUP
+      when: hostGroupName is defined
+
+    - name: Get Host Group ID
+      vars:
+        query: "[?name=='{{ hostGroupName }}'].id"
+      set_fact:
+        hostGroupId: "{{ HOSTGROUP.json.hostgroups | json_query(query) | first }}"
+      failed_when: HOSTGROUP.json.hostgroups | json_query(query) | length != 1
+      when: hostGroupName is defined
+
+    - name: Set params - hostGroupId
+      set_fact:
+        params: "{{ params + '&hostgroup_id=' + hostGroupId }}"
+      when: hostGroupId is defined
+
+    - name: Query Device by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.instances}}/{{INVENTORY.storage.className}}?pageNo=1&pageSize=10&condition={\"constraint\":[{\"simple\":{\"name\":\"dataStatus\",\"operator\":\"equal\",\"value\":\"normal\"}},{\"logOp\":\"and\",\"simple\":{\"name\":\"deviceName\",\"operator\":\"equal\",\"value\":\"{{deviceName|urlencode}}\"}}]}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: DEVICE
+      when: deviceName is defined
+
+    - name: Get Device ID
+      vars:
+        query: "[?deviceName=='{{ deviceName }}'].nativeId"
+      set_fact:
+        deviceId: "{{ DEVICE.json.objList | json_query(query) | first }}"
+      failed_when: DEVICE.json.objList | json_query(query) | length != 1
+      when: deviceName is defined
+
+    - name: Set params - deviceId
+      set_fact:
+        params: "{{ params + '&storage_id=' + deviceId }}"
+      when: deviceId is defined
+
+    - name: Query Pool by deviceId and poolName
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.instances}}/{{INVENTORY.pool.className}}?pageNo=1&pageSize=10&condition={\"constraint\":[{\"simple\":{\"name\":\"nativeId\",\"operator\":\"contain\",\"value\":\"nedn={{deviceId}}\"}},{\"logOp\":\"and\",\"simple\":{\"name\":\"name\",\"operator\":\"equal\",\"value\":\"{{poolName|urlencode}}\"}}]}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: POOL
+      when: 
+        - poolName is defined
+        - deviceId is defined
+
+    - name: Get Pool ID
+      vars:
+        query: "[?name=='{{ poolName }}'].poolId"
+      set_fact:
+        poolId: "{{ POOL.json.objList | json_query(query) | first }}"
+      failed_when: POOL.json.objList | json_query(query) | length != 1
+      when: 
+        - poolName is defined
+        - deviceId is defined
+
+    - name: Set params - poolId
+      set_fact:
+        params: "{{ params + '&pool_raw_id=' + poolId }}"
+      when: poolId is defined
+
+    - name: Show Param
+      debug:
+        msg: "{{params}}"
+
+    - name: List Volumes
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}?{{params}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: VOLUMES
+
+    - name: Show Volumes
+      vars:
+        objList: "{{ VOLUMES.json.volumes }}"
+        sortDesc: "{{ 'True' if sortDir == 'desc' else 'False'  }}"
+        sortAttr: "{{ ('capacity' if sortKey == 'size' else sortKey) if sortKey is defined else 'null' }}"
+      debug:
+        msg: 
+          objList: "{{ ( objList | sort(attribute=sortAttr,reverse=sortDesc) ) if sortAttr != 'null' else ( objList | sort(reverse=sortDesc) ) }}"
+          totalNum: "{{VOLUMES.json.count}}"
+          pageSize: "{{ pageSize }}"
+          pageNo: "{{ pageNo }}"

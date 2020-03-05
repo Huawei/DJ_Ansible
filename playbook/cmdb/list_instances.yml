@@ -1,0 +1,61 @@
+---
+# Required Parameters:
+#   objType:     object type name, see ../global.yml to get supported object types in INVENTORY
+#
+# Examples:
+#   --extra-vars "objType=volume"
+#
+# Optional Parameters:
+#   params:      query parameters, see Examples
+#   export:      export file path
+#   sep:         separator, default '|'
+#
+# Examples:
+#   --extra-vars "params='pageNo=1&pageSize=10'"
+#   --extra-vars "params='condition={\"constraint\":[{\"simple\":{\"name\":\"dataStatus\",\"operator\":\"equal\",\"value\":\"normal\"}},{\"logOp\":\"and\",\"simple\":{\"name\":\"name\",\"operator\":\"contain\",\"value\":\"ansible\"}}]}'"
+#   --extra-vars "export='volumes.csv' sep='|'"
+#
+# Generated Parameters (can be overwritten):
+#   className:     CI class Name, see ../global.yml to get supported className in INVENTORY.objType.className
+#
+# Examples:
+#   --extra-vars "className=SYS_Lun"
+#
+- name: List Instances
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  vars:
+    params: 'pageNo=1&pageSize=10'    
+    className: "{{ INVENTORY[objType].className }}"    # map objType to className
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: List Instances
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.instances}}/{{className}}?{{params|replace(' ','%20')}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: INSTANCES
+
+    - name: Show Instances
+      debug:
+        msg: "{{ INSTANCES.json }}"
+      when: export is not defined
+    
+    - import_tasks: ../util/json2csv.yml
+      vars:
+        data: "{{INSTANCES.json.objList}}"
+        keys: "{{INVENTORY[objType].attributes}}"
+        file: "{{export}}"
+      when: 
+        - export is defined
+        - INSTANCES.json.objList is defined
+        - INSTANCES.json.objList|length > 0
+

@@ -1,0 +1,50 @@
+---
+
+- name: Show Indicators Detail
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  vars:
+    # Required Parameters:
+    #   objType:     object type name, see ../global.yml to get supported object types in INVENTORY
+    #   indicators:  a list of indicator names, see ../global.yml to get supported indicators in INVENTORY.objType.indicators
+    #
+    # Examples:
+    #   --extra-vars "objType=volume indicators=['bandwidth','throughput','responseTime']"
+    
+    # Generated Parameters (can be overwritten):
+    #   objTypeId:     object type id, see ../global.yml to get supported object types in INVENTORY.objType.objTypeId
+    #   indicatorIds:  a list of indicator id, see ../global.yml to get supported indicators in INVENTORY.objType.indicators
+    #
+    # Examples:
+    #   --extra-vars "objTypeId='1125921381679104' indicatorIds=['1125921381744641','1125921381744642','1125921381744643']"
+    
+    objTypeId: "{{ INVENTORY[objType].objTypeId }}"    # map objType to objTypeId
+
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get Indicator IDs                          # map indicator names to IDs
+      set_fact:
+          indicatorIds: "{{ indicatorIds|default([]) + [ INVENTORY[objType].indicators[ item ] ] }}"
+      with_items: "{{ indicators }}"
+      when: indicators is defined
+
+    - name: Get Indicators Detail
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.perfmgr}}/indicators"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body: "{{ indicatorIds }}"
+      register: DETAILS
+
+    - name: Show Indicators Detail
+      debug:
+        msg: "{{ DETAILS.json }}"

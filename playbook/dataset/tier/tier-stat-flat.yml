@@ -1,0 +1,25 @@
+---
+
+dummy:
+
+dataset: "stat-lun"
+query:
+  timeRange:
+    beginTime: 1574265600000
+    endTime: 1574651742000
+    granularity: "30m"
+  filters:
+    dimensions:
+      - field: "dimensions.lun.tier"
+        values:
+          - "Gold"
+  dimensions:
+    - field: "dimensions.lun.tier"
+      index: 1
+    - field: "timestamp"
+      index: 2
+  metrics:
+    - field: "metrics.totalCapacity"
+      aggType: "sum"
+    - field: "metrics.allocCapacity"
+      aggType: "sum"

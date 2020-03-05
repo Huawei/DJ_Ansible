@@ -1,0 +1,41 @@
+---
+
+# Required Parameters:
+#   tierName:       service level name
+#
+# Examples:
+#   --extra-vars "tierName='Gold'"
+#
+- name: Get Tier by name
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get Tier by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tiers }}?name={{tierName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TIER
+
+    - name: Check Tier
+      vars:
+        query: "[?name=='{{ tierName }}']"
+      debug:
+        msg: "No matched service level: '{{ tierName }}'"
+      when: TIER.json['service-levels'] | json_query(query) | length < 1
+
+    - name: Show Tier
+      vars:
+        query: "[?name=='{{ tierName }}']"
+      debug:
+         msg: "{{ TIER.json['service-levels'] | json_query(query) }}"
+      when: TIER.json['service-levels'] | json_query(query) | length >= 1

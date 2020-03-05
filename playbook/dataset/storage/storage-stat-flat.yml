@@ -1,0 +1,27 @@
+---
+
+dummy:
+
+dataset: "stat-storage-device"
+query:
+  timeRange:
+    beginTime: 1574265600000
+    endTime: 1574651742000
+    granularity: "auto"
+  filters:
+    dimensions:
+      - field: "dimensions.device.ipAddress"
+        values:
+          - "8.46.186.15"
+  dimensions:
+    - field: "dimensions.object.name"
+      index: 1
+    - field: "timestamp"
+      index: 2
+  metrics:
+    - field: "metrics.totalCapacity"
+      aggType: "sum"
+    - field: "metrics.usedCapacity"
+      aggType: "sum"
+    - field: "metrics.freeDisksCapacity"
+      aggType: "sum"

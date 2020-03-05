@@ -1,0 +1,41 @@
+---
+
+# Required Parameters:
+#   azName:         availability zone name
+#
+# Examples:
+#   --extra-vars "azName='room1'"
+#
+- name: Get AZ by name
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get AZ by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.azs }}?az_name={{azName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: AZ
+
+    - name: Check AZ
+      vars:
+        query: "[?name=='{{ azName }}']"
+      debug:
+        msg: "No matched AZ: '{{ azName }}'"
+      when: AZ.json.az_list | json_query(query) | length < 1
+
+    - name: Show AZ
+      vars:
+        query: "[?name=='{{ azName }}']"
+      debug:
+         msg: "{{ AZ.json.az_list | json_query(query) }}"
+      when: AZ.json.az_list | json_query(query) | length >= 1

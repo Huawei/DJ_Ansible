@@ -1,0 +1,28 @@
+---
+
+dummy:
+
+dataset: "perf-lun"
+query:
+  timeRange:
+    beginTime: 1581422400000
+    endTime: 1581426235000
+    granularity: "auto"
+  filters:
+    dimensions:
+      - field: "dimensions.object.name"
+        values:
+          - "DJ_AT_0000"
+          - "DJ_AT_0001"
+  dimensions:
+    - field: "dimensions.object.name"
+      index: 1
+    - field: "timestamp"
+      index: 2
+  metrics:
+    - field: "metrics.throughput"
+      aggType: "sum"
+    - field: "metrics.bandwidth"
+      aggType: "sum"
+    - field: "metrics.responseTime"
+      aggType: "avg"

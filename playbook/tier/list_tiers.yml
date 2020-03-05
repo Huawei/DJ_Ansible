@@ -1,0 +1,109 @@
+---
+# Optional Parameters:
+#   detail:         show detail, default: false, options: true, false
+#   sortKey:        sort key, options: name, total_capacity, created_at
+#   sortDir:        sort direction, default: asc, options: desc, asc
+#   tierName:       service level name
+#   azName:         availability zone name
+#   projectName:    project name
+#
+# Examples:
+#   --extra-vars "tierName='Gold'"
+#   --extra-vars "sortKey='total_capacity' sortDir='desc'"
+#   --extra-vars "azName='room1' projectName='project1'"
+
+- name: List Tiers
+  hosts: localhost
+  vars:
+    detail: false
+    params: "detail={{ detail }}"
+    sortDir: asc
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Set params - sortKey & sortDir
+      set_fact:
+        params: "{{ params + '&sort_key=' + sortKey + '&sort_dir=' + sortDir }}"
+      when: 
+        - sortKey is defined
+    
+    - name: Set params - tierName
+      set_fact:
+        params: "{{ params + '&name=' + tierName|urlencode }}"
+      when: 
+        - tierName is defined
+
+    - name: Query AZ by name
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.azs }}?az_name={{azName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: AZ
+      failed_when: AZ.json.az_list | json_query(query) | length != 1
+      when: azName is defined
+
+    - name: Set params - azName
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      set_fact:
+        params: "{{ params + '&available_zone_id=' + AZ.json.az_list | json_query(query) | first }}"
+      when: 
+        - azName is defined
+        - AZ.json.az_list | json_query(query) | length == 1
+
+    - name: Query project by name
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?name={{projectName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: PROJECT
+      failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+      when: projectName is defined
+
+    - name: Set params - projectName
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      set_fact:
+        params: "{{ params + '&project_id=' + PROJECT.json.projectList | json_query(query) | first }}"
+      when: 
+        - projectName is defined
+        - PROJECT.json.projectList | json_query(query) | length == 1
+
+    - name: List Tiers
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tiers }}?{{params}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TIERS
+
+    - name: Show Tiers
+      vars:
+        objList: "{{ TIERS.json[\"service-levels\"] }}"
+        totalNum: "{{ TIERS.json[\"service-levels\"] | length }}"
+        sortDesc: "{{ 'True' if sortDir == 'desc' else 'False'  }}"
+      debug:
+        msg:
+          objList: "{{ ( objList | sort(attribute=sortKey,reverse=sortDesc) ) if sortKey is defined else ( objList | sort(reverse=sortDesc) ) }}"
+          totalNum: "{{ totalNum }}"
+          pageSize: "{{ totalNum }}"
+          pageNo: "1"

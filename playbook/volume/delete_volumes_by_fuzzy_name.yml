@@ -1,0 +1,72 @@
+---
+
+# Required Parameters:
+#   volumeName:     volume name
+#
+# Examples:
+#   --extra-vars "volumeName='ansible'"
+
+- name: Delete Volumes by Fuzzy Name
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: List Volumes
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}?limit=1000&start=0&name={{volumeName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: VOLUMES
+
+    - name: Show Volumes 
+      debug:
+         msg: "{{ VOLUMES.json.volumes | json_query('[*].name') }}"
+
+    - name: Delete Volumes
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}/delete"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        status_code: 202
+        body_format: json
+        body: 
+          volume_ids: "{{ VOLUMES.json.volumes | json_query('[*].id') }}"
+      register: DELETE_VOLUME
+
+    - name: Wait Task Complete
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tasks }}/{{ DELETE_VOLUME.json.task_id }}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TASKS
+      vars:
+        query: "[?id=='{{ DELETE_VOLUME.json.task_id }}'].status"
+      retries: 60
+      delay: 5                      
+      until: (TASKS.json | json_query(query) | first | int) not in [1, 2]    # 1/not_start, 2/running, 3/succeeded, 4/partially_succeeded, 5/failed, 6/timeout
+
+    - name: Task Details
+      vars:
+        statusMap: { '1': 'Not Start', '2': 'Running', '3': 'Succeeded', '4': 'Partially Succeeded', '5': 'Failed', '6': 'Timeout'}
+        query: "[?id=='{{ DELETE_VOLUME.json.task_id }}'].status"
+        status: "{{ TASKS.json | json_query(query) | first }}"
+      debug:
+        msg: 
+          Detail: "{{ TASKS.json }}"
+          Result: "{{statusMap[status]}}"

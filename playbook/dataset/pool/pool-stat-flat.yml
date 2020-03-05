@@ -1,0 +1,39 @@
+---
+
+dummy:
+
+dataset: "stat-storage-pool"
+query:
+  timeRange:
+    beginTime: 1574265600000
+    endTime: 1574651742000
+    granularity: "auto"
+  filters:
+    dimensions:
+      - field: "dimensions.object.name"
+        values:
+          - "pool"
+  dimensions:
+    - field: "dimensions.object.name"
+      index: 1
+    - field: "timestamp"
+      index: 2
+  metrics:
+    - field: "metrics.totalCapacity"
+      aggType: "sum"
+    - field: "metrics.usedCapacity"
+      aggType: "sum"
+    - field: "metrics.compressedCapacity"
+      aggType: "sum"
+    - field: "metrics.dedupedCapacity"
+      aggType: "sum"
+    - field: "metrics.subscribedCapacity"
+      aggType: "sum"
+    - field: "metrics.protectionCapacity"
+      aggType: "sum"
+    - field: "metrics.tier0Capacity"
+      aggType: "sum"
+    - field: "metrics.tier1Capacity"
+      aggType: "sum"
+    - field: "metrics.tier2Capacity"
+      aggType: "sum"

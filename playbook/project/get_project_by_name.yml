@@ -1,0 +1,41 @@
+---
+
+# Required Parameters:
+#   projectName:       project name
+#
+# Examples:
+#   --extra-vars "projectName='project1'"
+#
+- name: Get Project by name
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Get Project by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?name={{projectName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: PROJECT
+
+    - name: Check Project
+      vars:
+        query: "[?name=='{{ projectName }}']"
+      debug:
+        msg: "No matched project: '{{ projectName }}'"
+      when: PROJECT.json.projectList | json_query(query) | length < 1
+
+    - name: Show Project
+      vars:
+        query: "[?name=='{{ projectName }}']"
+      debug:
+         msg: "{{ PROJECT.json.projectList | json_query(query) }}"
+      when: PROJECT.json.projectList | json_query(query) | length >= 1

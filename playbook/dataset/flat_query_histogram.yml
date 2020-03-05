@@ -1,0 +1,114 @@
+---
+
+# Required Parameters:
+#   dataSet:       data set name, see ../global.yml to get supported data sets in INVENTORY.objType.dataset
+#   filterValues:  filter values, default filter by object.name
+#   metrics:       metrics, see ../global.yml to find metrics
+#
+# Examples:
+#   --extra-vars "dataSet=perf-lun filterValues=['1113-001','1113-1815'] metrics=['throughput','responseTime']"
+
+# Optional Parameters:
+#   endTime:         epoch in seconds, default value is current time
+#   timeSpan:        time range before endTime, default value is 1h (1 hour), supported unit: s,m,h,d,w,M,y
+#   granularity:     sample rate, default value is: auto, supported values: auto,1m,30m,1d
+#   filterDimension: filter dimension, default value is: object.name
+#   dimensions:      a list of dimensions, default ['object.id','object.name']
+#   agg:             aggregate type, supported values: avg,max,min,sum
+#   pageNo:          page NO., default 1
+#   pageSize:        page size, default 60
+#   export:          export file path
+#   sep:             separator, default '|'
+#
+# Examples:
+#   --extra-vars "endTime=`date -d '2019-11-21 23:00:00' +%s` timeSpan=30m granularity=1m" \
+#   --extra-vars "filterDimension=object.name filterValues=['1113-001','1113-1815']" \
+#   --extra-vars "dimensions=['object.id','object.name']" \
+#   --extra-vars "metrics=['throughput','responseTime'] agg=avg" \
+#   --extra-vars "pageNo=1 pageSize=120"
+#   --extra-vars "export='perf-lun-last1h.csv' sep='|'"
+
+- name: Query Histogram Time Series data
+  hosts: localhost
+  vars:
+    pageNo: 1
+    pageSize: 60
+    granularity: "auto"                                 # default auto, valid values: auto, 1m, 30m, 1d
+    filterDimension: "object.name"                      # default object name
+    agg: "avg"                                          # default average, valid values: min, avg, max, sum
+    endTime: "{{ansible_date_time.epoch}}"              # default current epoch (seconds), use `data +%s` to get current unix time
+    timeSpan: "1h"                                      # default last 1 hour, can be s,m,h,d,w,M,y
+    dimensions: ['object.id','object.name']             # dimensions 
+
+
+    # Generated Parameters (can be overwritten):
+    #   beginTime:     epoch in seconds, default value is endTime - timeSpan
+    #
+    # Examples:
+    #   --extra-vars "beginTime=`date -d '2019-11-20 23:00:00' +%s`"
+
+    unit: "{{ timeSpan[-1] if timeSpan is regex('^[0-9]+[s|m|h|d|w|M|y]$') else 's' }}"     # default unit set to seconds
+    seconds: 
+      s: 1                        # second
+      m: 60                       # minute
+      h: 3600                     # hour
+      d: "{{ 3600 * 24 }}"        # day
+      w: "{{ 3600 * 24 * 7 }}"    # week
+      M: "{{ 3600 * 24 * 30 }}"   # month
+      y: "{{ 3600 * 24 * 365 }}"  # year
+    
+    beginTime: "{{ endTime|int - timeSpan|replace(unit,'')|int * seconds[unit]|int }}"  # default timeSpan before current epoch (seconds)
+  vars_files:
+    - ../global.yml
+  gather_facts: yes
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Generate Indexed Dimensions
+      set_fact:
+        indexed_dimensions: "{{ indexed_dimensions|default([{ 'field': 'timestamp', 'index': 1 }]) + [{ 'field': 'dimensions.' + item.1, 'index': item.0 | int + 2 }] }}"
+      with_indexed_items: "{{ dimensions }}"
+
+    - name: Generate Aggregated Metrics
+      set_fact:
+        aggregated_metrics: "{{ aggregated_metrics|default([]) + [{ 'field': 'metrics.' + item, 'aggType': agg }] }}"
+      with_items: "{{ metrics }}"
+
+    - name: Post Query
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.datasets}}/{{dataSet}}?pageNo={{pageNo}}&pageSize={{pageSize}}"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+            timeRange:
+              beginTime: "{{ beginTime }}000"
+              endTime: "{{ endTime }}000"
+              granularity: "{{ granularity }}"
+            filters:
+              dimensions:
+                - field: "dimensions.{{ filterDimension }}"
+                  values: "{{ filterValues }}"
+            dimensions: "{{ indexed_dimensions }}"
+            metrics: "{{ aggregated_metrics }}"
+      register: RESULT
+
+    - name: Show Result
+      debug:
+        msg: "{{ RESULT.json }}"
+      when: export is not defined
+    
+    - import_tasks: ../util/json2csv.yml
+      vars:
+        data: "{{ RESULT.json.datas }}"
+        keys: "{{ RESULT.json.datas[0] | dict2items | json_query('[*].key') }}"
+        file: "{{export}}"
+      when: 
+        - export is defined
+        - RESULT.json.datas is defined
+        - RESULT.json.datas|length > 0

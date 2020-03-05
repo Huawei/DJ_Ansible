@@ -1,0 +1,102 @@
+---
+
+# Required Parameters:
+#   hostGroupName:  host group name, can be replaced with hostId
+#
+# Examples:
+#   --extra-vars "hostGroupName='group1'"
+#
+# Optional Parameters:
+#   hostGroupId:    host group ID
+#   showHost:       show hosts, default: true
+#   hostName:       host name
+#   ip:             ip address
+#   osType:         os type, options: LINUX, WINDOWS, SUSE, EULER, REDHAT, CENTOS, WINDOWSSERVER2012, SOLARIS, HPUX, AIX, XENSERVER, MACOS, VMWAREESX, ORACLE, OPENVMS
+#   displayStatus:  a list of display status, options: OFFLINE, NOT_RESPONDING, NORMAL, RED, GRAY, GREEN, YELLOW
+#   managedStatus:  a list of managed status, options: NORMAL, TAKE_OVERING, TAKE_ERROR, TAKE_OVER_ALARM, UNKNOWN
+#
+# Examples:
+#   --extra-vars "hostGroupId='bade27c4-6a27-449c-a9c2-d8d122e9b360'"
+#   --extra-vars '{"hostGroupName":"group1","showHost":false}'
+#   --extra-vars '{"hostGroupName":"group1","displayStatus":["NORMAL"],"managedStatus":["NORMAL"]}'
+
+- name: Get Host Group
+  hosts: localhost
+  vars:
+    showHost: true
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+
+    - name: Get Host Group by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostGroupName}}"
+      register: HOSTGROUPS
+      when: hostGroupName is defined
+
+    - name: Get Host Group ID
+      vars:
+        query: "[?name=='{{ hostGroupName }}'].id"
+      set_fact:
+        hostGroupId: "{{ HOSTGROUPS.json.hostgroups | json_query(query) | first }}"
+      failed_when: HOSTGROUPS.json.hostgroups | json_query(query) | length != 1
+      when: hostGroupName is defined
+
+    - name: Get Host Group
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/{{hostGroupId}}/summary"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: HOSTGROUP
+
+    - name: Show Host Group
+      debug:
+        msg: "{{ HOSTGROUP.json }}"
+
+    - name: List Hosts in the Host Group
+      vars:
+        hostName: null
+        ip: null
+        osType: null
+        displayStatus: []
+        managedStatus: []
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/{{hostGroupId}}/hosts/list"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostName}}"
+          ip: "{{ip}}"
+          os_type: "{{osType}}"
+          display_status: "{{displayStatus}}"
+          managed_status: "{{managedStatus}}"
+      register: HOSTS
+      when: 
+        - showHost == true
+
+    - name: Show Hosts in the Host Group
+      debug:
+        msg: "{{ HOSTS.json }}"
+      when: 
+        - showHost == true

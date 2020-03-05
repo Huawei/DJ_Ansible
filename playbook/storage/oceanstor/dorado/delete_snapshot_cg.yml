@@ -1,0 +1,61 @@
+---
+
+# Required Parameters:
+#   deviceName:        storage device name, can be replaced with deviceSn
+#   cgName:            snapshot consistency group name
+#
+# Examples:
+#   --extra-vars "deviceName='storage1' cgName='pg1_20200204'"
+
+# Optional Parameters:
+#   deviceSn:          storage device SN
+#
+# Examples:
+#   --extra-vars "deviceSn='12323019876312325911' cgName='pg1_20200204'"
+
+- name: Delete Snapshot Consistency Group
+  hosts: localhost
+  vars_files:
+    - ../../../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../login_storage.yml
+
+    - name: Query Snapshot CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT_CONSISTENCY_GROUP?filter=NAME%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: SNAP_CG
+      failed_when: SNAP_CG.json.data is not defined
+
+    - name: Get Snapshot CG ID
+      set_fact:
+        cgId: "{{ SNAP_CG.json.data[0].ID }}"
+
+    - name: Show Snapshot CG ID
+      debug:
+        msg: 
+          cgId: "{{ cgId }}"
+
+    - name: Delete Snapshot CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT_CONSISTENCY_GROUP/{{cgId}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_CG
+
+    - name: Show Delete Result
+      debug:
+        msg: "{{ DELETE_CG.json.error }}"

@@ -1,0 +1,50 @@
+# Include this tasks at the beginning of playbooks to login to DJ
+# 
+# Required to load var file ../global.yml
+#
+# Examples:
+#  vars_files:
+#    - ../global.yml
+#  tasks:
+#    - import_tasks: ../user/login.yml
+
+- name: Check DJ Session
+  uri:
+    url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tasks }}?status=2"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{DJ.token}}"
+    status_code: 200, 401
+  register: CHECK
+
+- name: Login DJ
+  uri:
+    url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.sessions }}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+    body_format: json
+    body:
+      grantType: "password"
+      userName: "{{DJ.user}}"
+      value: "{{DJ.pswd}}"
+  register: SESSION
+  when: CHECK.status|int == 401     # 401: Unauthorized
+
+- name: Update DJ Token
+  set_fact: 
+    DJ: "{{ DJ | combine({'token': SESSION.json.accessSession}) }}"
+  when: CHECK.status|int == 401
+
+- name: Update global.yml
+  replace: 
+    path: "{{BASE_DIR}}/global.yml"
+    regexp: '^  token:.*$'
+    replace: "  token: {{DJ.token}}"
+  when: CHECK.status|int == 401
+

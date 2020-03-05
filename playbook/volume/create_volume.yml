@@ -1,0 +1,264 @@
+---
+
+# Required Parameters:
+#   volumes:            a list of volumes: [{
+#                         name:          volume name or prefix, 
+#                         capacity:      capacity in GiB, 
+#                         count:         number of volumes,
+#                         start_suffix:  suffix start number, default 0
+#                       }]
+#   tierName:           service level name, can be instead with tierId
+#
+# Examples:
+#   --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible1_", "capacity": 10, "count": 2}] }'
+#   --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible1_", "capacity": 10, "count": 2, "start_suffix": 2}] }'
+#   --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible2_", "capacity": 10, "count": 2}, {"name": "ansible3_", "capacity": 10, "count": 2}] }'
+#
+# Optional Parameters:
+#   projectName:        project name
+#   azName:             availability zone name
+#   affinity:           create multiple volumes on 1 storage, default: true, options: true, false
+#   affinityVolume:     create target volume on the same storage of this affinityVolume
+#   hostName:           map to host
+#   hostGroupName:      map to host group
+#
+# Examples:
+#   --extra-vars "projectName='project1'" --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible4_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "azName='room1'" --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible5_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "affinity='false'" --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible6_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "affinityVolume='ansible1_0000'" --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible7_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "hostName='79rbazhs'" --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible8_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "hostGroupName='exclusive-df06cf7456dc485d'" --extra-vars '{"tierName": "Gold", "volumes": [{"name": "ansible9_", "capacity": 10, "count": 2}] }'
+#
+# Generated Parameters (can be overwritten):
+#   tierId:             service level ID
+#   projectId:          project ID
+#   azId:               az ID
+#   affinityVolumeId    affinity volume ID
+#   hostId:             host ID
+#   hostGroupId         host group ID
+#
+# Examples:
+#   --extra-vars '{"tierId": "bdd129e1-6fbf-4456-91d8-d1fe426bf8e0", "volumes": [{"name": "ansibleA_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "projectId='2AC426C9F4C535A2BEEFAEE9F2EDF740'" --extra-vars '{"tierId": "bdd129e1-6fbf-4456-91d8-d1fe426bf8e0", "volumes": [{"name": "ansibleB_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "azId='02B770926FCB3AE5A413E8A74F9A576B'" --extra-vars '{"tierId": "bdd129e1-6fbf-4456-91d8-d1fe426bf8e0", "volumes": [{"name": "ansibleC_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "affinityVolumeId='cfe7eb0f-73f8-4110-bff4-07cb46121566'" --extra-vars '{"tierId": "bdd129e1-6fbf-4456-91d8-d1fe426bf8e0", "volumes": [{"name": "ansibleD_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "hostId='32fb302d-25cb-4e4b-83d6-03f03498a69b'" --extra-vars '{"tierId": "bdd129e1-6fbf-4456-91d8-d1fe426bf8e0", "volumes": [{"name": "ansibleE_", "capacity": 10, "count": 2}] }'
+#   --extra-vars "hostGroupId='bade27c4-6a27-449c-a9c2-d8d122e9b360'" --extra-vars '{"tierId": "bdd129e1-6fbf-4456-91d8-d1fe426bf8e0", "volumes": [{"name": "ansibleF_", "capacity": 10, "count": 2}] }'
+
+- name: Create Volumes
+  hosts: localhost
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Query Tier by Name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tiers }}?name={{tierName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TIER
+      when: tierName is defined
+    
+    - name: Get Tier ID
+      vars:
+        query: "[?name=='{{ tierName }}'].id"
+      set_fact:
+        tierId: "{{ TIER.json[\"service-levels\"] | json_query(query) | first }}"
+      failed_when: TIER.json['service-levels'] | json_query(query) | length != 1
+      when: tierName is defined    
+    
+    - name: Set Param - volumes, tierId, affinity
+      set_fact:
+        params:
+          volumes: "{{ volumes }}"
+          service_level_id: "{{ tierId }}"
+          scheduler_hints:
+            affinity: "{{ affinity | default('true') }}"
+
+    - name: Query project by name
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?name={{projectName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: PROJECT
+      when: projectName is defined
+
+    - name: Get project ID
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      set_fact:
+        projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+      failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+      when: projectName is defined
+
+    - name: Set Param - projectId
+      set_fact:
+        params: "{{ params | combine( { 'project_id': projectId } ) }}"
+      when: projectId is defined
+
+    - name: Query AZ by name
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.azs }}?az_name={{azName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: AZ
+      when: azName is defined
+
+    - name: Get AZ ID
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      set_fact:
+        azId: "{{ AZ.json.az_list | json_query(query) | first }}"
+      failed_when: AZ.json.az_list | json_query(query) | length != 1
+      when: azName is defined
+
+    - name: Set Param - azId
+      set_fact:
+        params: "{{ params | combine( { 'availability_zone': azId } ) }}"
+      when: azId is defined
+
+    - name: Query Host by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostName}}"
+      register: HOST
+      when: hostName is defined
+
+    - name: Get Host ID
+      vars:
+        query: "[?name=='{{ hostName }}'].id"
+      set_fact:
+        hostId: "{{ HOST.json.hosts | json_query(query) | first }}"
+      failed_when: HOST.json.hosts | json_query(query) | length != 1
+      when: hostName is defined
+
+    - name: Set Param - hostId
+      set_fact:
+        params: "{{ params | combine( { 'mapping': { 'host_id': hostId } } ) }}"
+      when: hostId is defined
+
+    - name: Query Host Group by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          name: "{{hostGroupName}}"
+      register: HOSTGROUP
+      when: hostGroupName is defined
+
+    - name: Get Host Group ID
+      vars:
+        query: "[?name=='{{ hostGroupName }}'].id"
+      set_fact:
+        hostGroupId: "{{ HOSTGROUP.json.hostgroups | json_query(query) | first }}"
+      failed_when: HOSTGROUP.json.hostgroups | json_query(query) | length != 1
+      when: hostGroupName is defined
+
+    - name: Set Param - hostGroupId
+      set_fact:
+        params: "{{ params | combine( { 'mapping': { 'hostgroup_id': hostGroupId } } ) }}"
+      when: hostGroupId is defined
+
+    - name: Query Affinity Volume by name
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}?name={{affinityVolume}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: AFFVOL
+      when: affinityVolume is defined
+
+    - name: Get Affinity Volume ID
+      vars:
+        query: "[?name=='{{ affinityVolume }}'].id"
+      set_fact:
+        affinityVolumeId: "{{ AFFVOL.json.volumes | json_query(query) | first }}"
+      failed_when: AFFVOL.json.volumes | json_query(query) | length != 1
+      when: affinityVolume is defined
+
+    - name: Set Param - affinityVolumeId
+      set_fact:
+        params: "{{ params | combine( { 'scheduler_hints': { 'affinity': true, 'affinity_volume': affinityVolumeId } } ) }}"
+      when: affinityVolumeId is defined
+
+    - name: Show Param
+      debug:
+        msg: "{{params}}"
+
+    - name: Create Volumes
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        status_code: 202
+        body_format: json
+        body: "{{params}}"
+      register: CREATE_VOLUME
+
+    - name: Wait Task Complete
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tasks }}/{{ CREATE_VOLUME.json.task_id }}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: TASKS
+      vars:
+        query: "[?id=='{{ CREATE_VOLUME.json.task_id }}'].status"
+      retries: 60
+      delay: 5                      
+      until: (TASKS.json | json_query(query) | first | int) not in [1, 2]    # 1/not_start, 2/running, 3/succeeded, 4/partially_succeeded, 5/failed, 6/timeout
+
+    - name: Show Task Details
+      vars:
+        statusMap: { '1': 'Not Start', '2': 'Running', '3': 'Succeeded', '4': 'Partially Succeeded', '5': 'Failed', '6': 'Timeout'}
+        query: "[?id=='{{ CREATE_VOLUME.json.task_id }}'].status"
+        status: "{{ TASKS.json | json_query(query) | first }}"
+      debug:
+        msg: 
+          Detail: "{{ TASKS.json }}"
+          Result: "{{statusMap[status]}}"
+

@@ -1,0 +1,105 @@
+# Check data protection volume pairs
+# Include this check tasks before remote protection actions
+#
+# Required Parameters:
+#   primaryVolumes:    a list of primary volume names
+#   secondaryVolumes:  a list of secondary volume names, must be the same number of volumes with the primary volumes
+#
+# Examples:
+#   - import_tasks: check_volume_pairs.yml
+#     vars:
+#       primaryVolumes: ["DJ_AT_0002", "DJ_AT_0003"]
+#       secondaryVolumes: ["DJ_BC_0002", "DJ_BC_0003"]
+#
+# Outputs:
+#   devicePair:        a pair of device SN: [primaryDeviceSN, secondaryDeviceSN]
+#   volumePairs:       a list of volume pairs: [ [primaryVolumeId1, secondaryVolumeId1], [primaryVolumeId2, secondaryVolumeId2],]
+#   
+
+- import_tasks: ../../user/login.yml
+
+- name: Get Primary Volumes
+  uri:
+    url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}?name={{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{DJ.token}}"
+  register: PRIMARY_VOLUMES
+  with_items: "{{ primaryVolumes }}"
+
+- name: Get Primary Storage SN and Volume IDs
+  vars:
+    queryStorageSn:  "[? name=='{{item.1}}'].storage_sn"
+    queryVolumeId: "[? name=='{{item.1}}'].volume_raw_id"
+    queryVolumeSize: "[? name=='{{item.1}}'].capacity"
+  set_fact:
+    primaryStorageSns: "{{ primaryStorageSns|default([]) + PRIMARY_VOLUMES.results[item.0].json.volumes | json_query(queryStorageSn) }}"
+    primaryVolumeIds: "{{ primaryVolumeIds|default([]) + PRIMARY_VOLUMES.results[item.0].json.volumes | json_query(queryVolumeId) }}"
+    primaryVolumeSize: "{{ primaryVolumeSize|default([]) + PRIMARY_VOLUMES.results[item.0].json.volumes | json_query(queryVolumeSize) }}"
+  with_indexed_items: "{{ primaryVolumes }}"
+
+- name: Check Primary Volumes Affinity
+  set_fact:
+    primaryStorageSn: "{{ primaryStorageSns | unique | first }}"
+  failed_when: primaryStorageSns | unique | length != 1
+
+- name: Show Primary Volumes
+  debug:
+    msg: 
+      primaryStorageSn: "{{primaryStorageSn}}"
+      primaryVolumeIds: "{{primaryVolumeIds}}"
+      primaryVolumeSize: "{{primaryVolumeSize}}"
+
+- name: Get Secondary Volumes
+  uri:
+    url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}?name={{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{DJ.token}}"
+  register: SECONDARY_VOLUMES
+  with_items: "{{ secondaryVolumes }}"
+
+- name: Get Secondary Storage SN and Volume IDs
+  vars:
+    queryStorageSn:  "[? name=='{{item.1}}'].storage_sn"
+    queryVolumeId: "[? name=='{{item.1}}'].volume_raw_id"
+    queryVolumeSize: "[? name=='{{item.1}}'].capacity"
+  set_fact:
+    secondaryStorageSns: "{{ secondaryStorageSns|default([]) + SECONDARY_VOLUMES.results[item.0].json.volumes | json_query(queryStorageSn) }}"
+    secondaryVolumeIds: "{{ secondaryVolumeIds|default([]) + SECONDARY_VOLUMES.results[item.0].json.volumes | json_query(queryVolumeId) }}"
+    secondaryVolumeSize: "{{ secondaryVolumeSize|default([]) + SECONDARY_VOLUMES.results[item.0].json.volumes | json_query(queryVolumeSize) }}"
+  with_indexed_items: "{{ secondaryVolumes }}"
+
+- name: Check Secondary Volumes Affinity
+  set_fact:
+    secondaryStorageSn: "{{ secondaryStorageSns | unique | first }}"
+  failed_when: secondaryStorageSns | unique | length != 1
+
+- name: Show Secondary Volumes
+  debug:
+    msg: 
+      secondaryStorageSn: "{{secondaryStorageSn}}"
+      secondaryVolumeIds: "{{secondaryVolumeIds}}"
+      secondaryVolumeSize: "{{secondaryVolumeSize}}"
+  failed_when: primaryVolumeIds|length != secondaryVolumeIds|length
+
+- name: Generate Volume ID Pairs
+  vars:
+    LOCALOBJID: "{{ item.1 }}"
+    REMOTEOBJID: "{{ secondaryVolumeIds[item.0] }}"
+  set_fact:
+    volumePairs: "{{ volumePairs|default([]) + [{'LOCALOBJID': LOCALOBJID, 'REMOTEOBJID': REMOTEOBJID}] }}"
+  failed_when: primaryVolumeSize[item.0]|int != secondaryVolumeSize[item.0]|int
+  with_indexed_items: "{{ primaryVolumeIds }}"
+
+- name: Generate Storage SN Pair
+  set_fact:
+    devicePair: 
+      primary: "{{ primaryStorageSn }}"
+      secondary: "{{ secondaryStorageSn }}"

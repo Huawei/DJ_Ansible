@@ -1,0 +1,121 @@
+---
+
+# Optional Parameters:
+#   pageNo:         page number, default 1
+#   pageSize:       page size, default: 10
+#   sortKey:        sort key, options: host_count
+#   sortDir:        sort direction, options: desc, asc
+#   hostGroupName:  host group name
+#   managedStatus:  a list of managed status, options: NORMAL, TAKE_OVERING, TAKE_ERROR, TAKE_OVER_ALARM, UNKNOWN
+#   azName:         availability zone name
+#   projectName:    project name
+#
+# Examples:
+#   --extra-vars "hostGroupName='test'"
+#   --extra-vars "azName='room1' projectName='project1'"
+
+# Generated Parameters (can be overwritten):
+#   azIds:         a list of availability zone IDs
+#   projectId:     project ID
+#
+# Examples:
+#   --extra-vars "azIds=['B2012FF2ECB03CCCA03FFAAD4BA590F1'] projectId='2AC426C9F4C535A2BEEFAEE9F2EDF740'"
+
+- name: List Host Groups
+  hosts: localhost
+  vars:
+    pageNo: 1
+    pageSize: 10
+    sortKey: null
+    sortDir: null
+    hostGroupName: null
+    managedStatus: []
+    azIds: []
+    projectId: null
+  vars_files:
+    - ../global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: ../user/login.yml
+    
+    - name: Query AZ by name
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.azs }}?az_name={{azName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: AZ
+      failed_when: AZ.json.az_list | json_query(query) | length != 1
+      when: azName is defined
+
+    - name: Get AZ ID
+      vars:
+        query: "[?name=='{{ azName }}'].id"
+      set_fact:
+        azIds: "{{ azIds + AZ.json.az_list | json_query(query) }}"
+      when: 
+        - azName is defined
+        - AZ.json.az_list | json_query(query) | length == 1
+
+    - name: Query project by name
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?name={{projectName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+      register: PROJECT
+      failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+      when: projectName is defined
+
+    - name: Get project ID
+      vars:
+        query: "[?name=='{{ projectName }}'].id"
+      set_fact:
+        projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+      when: 
+        - projectName is defined
+        - PROJECT.json.projectList | json_query(query) | length == 1
+
+    - name: List Host Groups
+      uri:
+        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/summary"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{DJ.token}}"
+        body_format: json
+        body:
+          limit: "{{pageSize}}"
+          start: "{{ pageSize|int * (pageNo|int - 1) }}"
+          sort_key: "{{sortKey}}"
+          sort_dir: "{{sortDir}}"
+          name: "{{hostGroupName}}"
+          managed_status: "{{managedStatus}}"
+          az_ids: "{{azIds}}"
+          project_id: "{{projectId}}"
+      register: HOSTGROUPS
+
+    - name: Show Host Groups
+      vars:
+        objList: "{{ HOSTGROUPS.json.hostgroups }}"
+        totalNum: "{{HOSTGROUPS.json.total}}"
+        sortDesc: "{{ 'True' if sortDir == 'desc' else 'False'  }}"
+      debug:
+        msg:
+          objList: "{{ ( objList | sort(attribute=sortKey,reverse=sortDesc) ) if sortKey != 'null' else ( objList | sort(reverse=sortDesc) ) }}"
+          totalNum: "{{ totalNum }}"
+          pageSize: "{{ pageSize }}"
+          pageNo: "{{ pageNo }}"
