@@ -1,0 +1,43 @@
+# Check DR Stars Exists or Not
+#
+# Required parameters:
+#   drStarNames:                # a list of Protection Group Name
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedDRStars:             # a list of Checked DR Stars
+
+- name: Set default variables
+  set_fact:
+    drStarIds: []
+    checkedDRStars: []
+
+- name: Query DR Stars by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/dr_star?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DRSTARS
+  with_items: "{{ drStarNames }}"
+
+- name: Get DR Star IDs
+  vars:
+    queryDRStarIds: "[? NAME=='{{item.1}}'].ID"
+    queryDRStars: "[? NAME=='{{item.1}}']"
+  set_fact:
+    drStarIds: "{{ drStarIds + DRSTARS.results[item.0].json.data | default([]) | json_query(queryDRStarIds) }}"
+    checkedDRStars: "{{ checkedDRStars + DRSTARS.results[item.0].json.data | default([]) | json_query(queryDRStars) }}"
+  with_indexed_items: "{{ drStarNames }}"
+
+- name: Check DR Star Name Exist
+  debug:
+    msg:
+      drStarIds: "{{ drStarIds }}"
+  failed_when: (checkExist|default(True)|bool == True and drStarIds|length != drStarNames|length) or (checkExist|default(True)|bool == False and drStarIds|length > 0)

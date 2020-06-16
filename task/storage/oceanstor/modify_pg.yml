@@ -1,0 +1,67 @@
+# Modify Protection Group
+#
+# Required parameters:
+#   pgName:                 Protection Group name, can be replaced with modifyPgId
+#
+# Optional parameters:
+#   newPgName:              New Protection Group name
+#   desc:                   Description
+#
+# Generated parameters:
+#   modifyPgId:            Protection Group ID
+
+- block:
+    - name: Query Protection Group by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup?filter=protectGroupName%3A%3A{{pgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: PG
+
+    - name: Check Protection Group Name Exist
+      debug:
+        msg:
+          exist: "{{ (PG.json.error.code|int == 0) and ('data' in PG.json) and (PG.json.data|length == 1) }}"
+      failed_when: (PG.json.error.code|int != 0) or ('data' not in PG.json) or (PG.json.data|length != 1)
+
+    - set_fact:
+        modifyPgId: "{{ PG.json.data[0].protectGroupId }}"
+
+  when: pgName|default(none) is not none
+
+- set_fact:
+    params: {}
+
+- set_fact:
+    params: "{{ params | combine({'protectGroupName':newPgName}) }}"
+  when: newPgName|default(none) is not none
+
+- set_fact:
+    params: "{{ params | combine({'description':desc}) }}"
+  when: desc|default(none) is not none
+
+- name: Modify Protection Group
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup/{{modifyPgId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ params }}"
+  register: MODIFY_PG
+
+- name: Check Modify Protection Group Result
+  debug:
+    msg:
+      params: "{{ params }}"
+      result: "{{ MODIFY_PG.json.error }}"
+  failed_when: MODIFY_PG.json.error.code|int != 0

@@ -1,0 +1,264 @@
+# Check volumes, get volumes attributes
+#
+# Required parameters:
+#   volumeNames:            # a list of volume names, can be replaced with volumeIds
+#
+# Generated parameters (can be overwritten):
+#   volumeIds:              # a list of volume IDs
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+#   checkStatus:            # check if volumes status is normal, default: true, options: true/false
+#   checkUsage:             # check if volumes usage exceed a specific threshold (input threshold)
+#   checkBelongTier:        # check if volumes belong to tier or not, options: true/false
+#   checkTier:              # check if volumes belong to specific tier (input service level name)
+#   checkBelongProject:     # check if volumes belong to project or not, options: true/false
+#   checkProject:           # check if volumes belong to specific project (input project name)
+#   checkStorage:           # check if volumes belong to specific storage (input storage name)
+#   checkAttached:          # check attached or not attached, options: true/false
+#   checkHost:              # check if volumes attached to specific host (input host name)
+#   checkHostGroup:         # check if volumes attached to specific host group (input host group name)
+#
+# Optional parameters:
+#   waitExist:              wait volumes to exist, default: no, options: yes,no
+#   waitSeconds:            wait seconds, default 600
+#   waitInterval:           wait interval, default 10
+# 
+# Optional parameters (default load from global.yml):
+#   djHost:                 # DJ host name or ip address
+#   djPort:                 # DJ northbond api port, default: 26335
+#   djToken:                # DJ token, after login, use this to replace djUser & djPswd
+#   tokenFile:              # token file, default: temp/tokens.json
+#
+# Generated variables:
+#   checkedVolumes:         # a list of volumes
+#
+
+- name: Get volume IDs by Name
+  block:
+    - name: Set default variables
+      set_fact:
+        volumeIds: []
+
+    - name: Query Volumes by Name
+      uri:
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{djToken}}"
+      register: VOLUMES
+      vars:
+        queryVolumeId: "[? name=='{{item}}'].id"
+      retries: "{{ (waitSeconds|default(600)|int / waitInterval|default(10)|int) | int }}"
+      delay: "{{ waitInterval|default(10) }}"
+      until: (waitExist|default(False)|bool == False) or (waitExist|default(False)|bool == True and VOLUMES.json.volumes | json_query(queryVolumeId) | length != 0)
+      with_items: "{{ volumeNames }}"
+
+    - name: Get Volume IDs
+      vars:
+        queryVolumeId: "[? name=='{{item.1}}'].id"
+      set_fact:
+        volumeIds: "{{ volumeIds + VOLUMES.results[item.0].json.volumes | json_query(queryVolumeId) }}"
+      with_indexed_items: "{{ volumeNames }}"
+
+    - name: Check Volume Name Exist
+      debug:
+        msg:
+          volumeIds: "{{ volumeIds }}"
+      failed_when: (checkExist|default(True)|bool == True and volumeIds|length != volumeNames|length) or (checkExist|default(True)|bool == False and volumeIds|length > 0)
+  when: 
+    - volumeNames|default(none) is not none
+    - volumeNames|length > 0
+
+- name: Query Volumes by ID
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}/{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: VOLUME_DETAILS
+  with_items: "{{ volumeIds }}"
+
+- name: Get Volumes
+  vars:
+    queryVolumes: "[*].json.volume"
+  set_fact:
+    checkedVolumes: "{{ VOLUME_DETAILS.results | json_query(queryVolumes) }}"
+
+- name: Check Volume Exist
+  debug:
+    msg:
+      checkedVolumes: "{{checkedVolumes|json_query('[*].name')}}"
+  failed_when: (checkExist|default(True)|bool == True and volumeIds|length != checkedVolumes|length) or (checkExist|default(True)|bool == False and checkedVolumes|length > 0)
+
+- name: Check Volume Status
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      status: "{{ checkedVolumes[item.0].status }}"
+  failed_when: checkedVolumes[item.0].status != 'normal'
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkStatus|default(True)|bool == True
+
+- name: Check Volume Usage
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      type: "{{checkedVolumes[item.0].alloctype}}"
+      usage: "{{ checkedVolumes[item.0].capacity_usage }}"
+  failed_when: checkedVolumes[item.0].alloctype == 'thin' and checkedVolumes[item.0].capacity_usage|int > checkUsage|int
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkUsage|default(none) is not none
+
+- name: Check Volume belong Tier or not
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      tier: "{{ checkedVolumes[item.0].service_level_name}}"
+  failed_when: (checkBelongTier|bool == True and checkedVolumes[item.0].service_level_name|string == '') or (checkBelongTier|bool == False and checkedVolumes[item.0].service_level_name|string != '')
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkBelongTier|default(none) is not none
+
+- name: Check Volume Tier
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      tier: "{{ checkedVolumes[item.0].service_level_name}}"
+  failed_when: checkedVolumes[item.0].service_level_name != checkTier
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkTier|default(none) is not none
+
+- name: Check Volume belong Project or not
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      project: "{{ checkedVolumes[item.0].project_id}}"
+  failed_when: (checkBelongProject|bool == True and checkedVolumes[item.0].project_id is none ) or (checkBelongProject|bool == False and checkedVolumes[item.0].project_id is not none )
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkBelongProject|default(none) is not none
+
+- name: Query project by name
+  vars:
+    query: "[?name=='{{ checkProject }}'].id"
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?name={{checkProject|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: PROJECT
+  when: checkExist|default(True)|bool == True and checkProject|default(none) is not none
+
+- name: Get project ID
+  vars:
+    query: "[?name=='{{ checkProject }}'].id"
+  set_fact:
+    checkProjectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+  failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+  when: checkExist|default(True)|bool == True and checkProject|default(none) is not none
+
+- name: Check Volume Project
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      project: "{{ checkedVolumes[item.0].project_id}}"
+  failed_when: checkedVolumes[item.0].project_id != checkProjectId
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkProject|default(none) is not none
+
+- name: Check Volume Storage
+  vars:
+    query: "[?name=='{{ checkStorage }}'].sn"
+    storageSn: "{{ STORAGES | json_query(query) | first }}"
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      storage: "{{ checkedVolumes[item.0].storage_sn}}"
+  failed_when: checkedVolumes[item.0].storage_sn != storageSn
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkStorage|default(none) is not none
+
+- name: Check Volume Attached
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      attached: "{{ checkedVolumes[item.0].attached}}"
+  failed_when: checkedVolumes[item.0].attached|bool != checkAttached|bool
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkAttached|default(none) is not none
+
+- name: Query Host by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{checkHost}}"
+  register: HOST
+  when: checkExist|default(True)|bool == True and checkHost|default(none) is not none
+
+- name: Get Host ID
+  vars:
+    query: "[?name=='{{ checkHost }}'].id"
+  set_fact:
+    checkHostId: "{{ HOST.json.hosts | json_query(query) | first }}"
+  failed_when: HOST.json.hosts | json_query(query) | length != 1
+  when: checkExist|default(True)|bool == True and checkHost|default(none) is not none
+
+- name: Check Volume Attached Host
+  vars:
+    query: "[?host_id=='{{checkHostId}}']"
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      attach: "{{ checkedVolumes[item.0].attachments | json_query(query) }}"
+  failed_when: checkedVolumes[item.0].attachments | json_query(query) | length == 0
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkHost|default(none) is not none
+
+- name: Query Host Group by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{checkHostGroup}}"
+  register: HOSTGROUP
+  when: checkExist|default(True)|bool == True and checkHostGroup|default(none) is not none
+
+- name: Get Host Group ID
+  vars:
+    query: "[?name=='{{ checkHostGroup }}'].id"
+  set_fact:
+    checkHostGroupId: "{{ HOSTGROUP.json.hostgroups | json_query(query) | first }}"
+  failed_when: HOSTGROUP.json.hostgroups | json_query(query) | length != 1
+  when: checkExist|default(True)|bool == True and checkHostGroup|default(none) is not none
+
+- name: Check Volume Attached Host Group
+  vars:
+    query: "[?attached_host_group=='{{checkHostGroupId}}']"
+  debug:
+    msg:
+      name: "{{checkedVolumes[item.0].name}}"
+      attach: "{{ checkedVolumes[item.0].attachments | json_query(query) }}"
+  failed_when: checkedVolumes[item.0].attachments | json_query(query) | length == 0
+  with_indexed_items: "{{ volumeIds }}"
+  when: checkExist|default(True)|bool == True and checkHostGroup|default(none) is not none

@@ -1,0 +1,204 @@
+# Required Parameters:
+#   lgName:            LUN group name, can be replaced with addLgId
+#   lunNames:          a list of LUN Names, can be replaced with addLunIds
+#
+# Optional Parameters:
+#   addLgId
+#   addLunIds
+#   startScsiId        change the SCSI ID when mapped to host or host group, can be replaced with addLunScsiIds
+#   addLunScsiIds      a list of SCSI IDs
+
+- block:
+    - name: Query LG by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup?filter=NAME%3A%3A{{lgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LG
+      failed_when: (LG.json.error.code|int != 0) or ('data' not in LG.json) or (LG.json.data|length != 1)
+
+    - name: Get LG ID
+      set_fact:
+        addLgId: "{{ LG.json.data[0].ID }}"
+  when: lgName|default(none) is not none
+
+- block:
+    - set_fact:
+        addLunIds: []
+
+    - name: Query LUNs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LUNs
+      with_items: "{{ lunNames }}"
+
+    - name: Get LUN IDs
+      vars:
+        queryId: "[? NAME=='{{item.1}}'].ID"
+      set_fact:
+        addLunIds: "{{ addLunIds + LUNs.results[item.0].json.data | default([]) | json_query(queryId) }}"
+      with_indexed_items: "{{ lunNames }}"
+
+    - name: Check LUN Name Exist
+      debug:
+        msg:
+          addLunIds: "{{ addLunIds }}"
+      failed_when: addLunIds|length != lunNames|length
+  when:
+    - lunNames|default(none) is not none
+    - lunNames|length > 0
+
+
+- name: Add LUNs to LG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup/associate"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ addLgId }}"
+      ASSOCIATEOBJTYPE: 11
+      ASSOCIATEOBJID: "{{ item }}"
+  register: LG_ADD_LUNS
+  with_items: "{{ addLunIds }}"
+
+- name: Check Add LUNs Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ LG_ADD_LUNS.results | json_query(queryMsg) }}"
+  failed_when: LG_ADD_LUNS.results | json_query(queryError) | difference([0]) | length > 0
+
+
+- block:
+    - name: Query Mappings
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/associate?ASSOCIATEOBJTYPE=256&ASSOCIATEOBJID={{addLgId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: MAPPINGS
+
+    - name: Get Mapped Host IDs
+      vars:
+        queryHostId: "[? hostId!=''].hostId"
+      set_fact:
+        modifyHostIds: "{{ MAPPINGS.json.data | default([]) | json_query(queryHostId) }}"
+
+    - name: Get Mapped Host Group IDs
+      vars:
+        queryHostGroupId: "[? hostGroupId!=''].hostGroupId"
+      set_fact:
+        modifyHostGroupIds: "{{ MAPPINGS.json.data | default([]) | json_query(queryHostGroupId) }}"
+
+    - set_fact:
+        newScsiIds: {}
+
+    - set_fact:
+        newScsiIds: "{{ newScsiIds | combine( { item.1: (startScsiId|int + item.0)|string } ) }}"
+      with_indexed_items: "{{ addLunIds }}"
+      when: startScsiId|default(none) is not none
+
+    - set_fact:
+        newScsiIds: "{{ newScsiIds | combine( { item.1: addLunScsiIds[item.0] } ) }}"
+      with_indexed_items: "{{ addLunIds }}"
+      when: addLunScsiIds|default(none) is not none
+
+    - name: Modify Host SCSI ID
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostLunInfo"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          hostId: "{{ item[0] }}"
+          assoMetaData:
+            - lunId: "{{ item[1] }}"
+              hostLunId: "{{ newScsiIds[item[1]] }}"
+      register: MODIFY_HOSTS
+      with_nested:
+        - "{{ modifyHostIds }}"
+        - "{{ addLunIds }}"
+      when:
+        - modifyHostIds|default(none) is not none
+        - modifyHostIds|length > 0
+
+    - name: Check Modify Host SCSI ID Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ MODIFY_HOSTS.results | json_query(queryMsg) }}"
+      when:
+        - modifyHostIds|default(none) is not none
+        - modifyHostIds|length > 0
+
+    - name: Show Modify Host SCSI Id Request Info
+      debug:
+        msg:
+          modifyHostGroupIds: "{{ modifyHostGroupIds|default(none) }}"
+          addLunIds: "{{ addLunIds|default(none) }}"
+          newScsiIds: "{{ newScsiIds|default(none) }}"
+
+    - name: Modify Host Group SCSI ID
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostLunInfo"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          hostGroupId: "{{ item[0] }}"
+          assoMetaData:
+            - lunId: "{{ item[1] }}"
+              hostLunId: "{{ newScsiIds[item[1]] }}"
+      register: MODIFY_HOSTGROUPS
+      with_nested:
+        - "{{ modifyHostGroupIds }}"
+        - "{{ addLunIds | reverse | list }}"
+      when:
+        - modifyHostGroupIds|default(none) is not none
+        - modifyHostGroupIds|length > 0
+
+    - name: Check Modify Host Group SCSI ID Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ MODIFY_HOSTGROUPS.results | json_query(queryMsg) }}"
+      when:
+        - modifyHostGroupIds|default(none) is not none
+        - modifyHostGroupIds|length > 0
+
+  when: (startScsiId|default(none) is not none) or (addLunScsiIds|default(none) is not none)

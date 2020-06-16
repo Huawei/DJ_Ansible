@@ -1,0 +1,78 @@
+- defaultTab: monitor
+  description: Update QoS based on the Class of LUNs
+  executionEnabled: true
+  id: b9ace0c3-1af8-4130-b9c3-ffcef4c98070
+  loglevel: INFO
+  name: 20_update_class
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Update QoS based on the Class of LUNs
+    description: <BR><h2>Select LUNs or Upload CSV File</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - enforced: true
+    name: Mapped
+    value: 'true'
+    values:
+      - 'false'
+      - 'true'
+  - name: Class
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - label: Search LUN Name
+    name: LUN_Search
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Select_LUN
+    valuesUrl: http://localhost:26336/rest/data/v1/join/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"${option.Mapped.value}"}},{"logOp":"and","simple":{"name":"djTierId","operator":"not%20null"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"tier","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Class.value}"}}]}}]
+  - description: Upload the file exported by job "12_export_lun"
+    name: Upload_LUN
+    type: file
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          Select_LUN: ${option.Select_LUN}
+          Upload_LUN: ${file.Upload_LUN}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/20_update_class.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: b9ace0c3-1af8-4130-b9c3-ffcef4c98070

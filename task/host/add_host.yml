@@ -1,0 +1,125 @@
+# Required Parameters:
+#   hostName:           Host Name
+#   osType:             OS Type, options: UNKNOWN, LINUX, WINDOWS, SUSE, EULER, REDHAT, CENTOS, WINDOWSSERVER2012, SOLARIS, HPUX, AIX, XENSERVER, MACOS, VMWAREESX, ORACLE, OPENVMS
+#
+# Optional Parameters:
+#   ip:                 IP Address
+#   wwns:               a list of WWNs
+#   iqns:               a list of IQNs
+#   projectName:        project name, can be replaced with projectId
+#   azNames:            a list of AZ name, can be replaced with azIds
+#
+# Generated Parameters:
+#   projectId:          project ID
+#   azIds:              a list of AZ IDs
+#
+
+- name: Set default variables
+  set_fact:
+    accessMode: "NONE"                              # enum: ACCOUNT, NONE
+    initiators: []
+
+- name: Generate WWN initiators
+  set_fact:
+    initiators: "{{ initiators + [{'protocol': 'FC', 'port_name': item }] }}"
+  with_items: "{{ wwns }}"
+  when: wwns is defined
+
+- name: Generate IQN initiators
+  set_fact:
+    initiators: "{{ initiators + [{'protocol': 'ISCSI', 'port_name': item }] }}"
+  with_items: "{{ iqns }}"
+  when: iqns is defined
+
+- name: Generate Params
+  set_fact:
+    params:
+      access_mode: "{{ accessMode }}"
+      type: "{{ osType }}"
+      host_name: "{{ hostName }}"
+
+- name: Set Param - ip
+  set_fact:
+    params: "{{ params | combine( { 'ip': ip } ) }}"
+  when: ip is defined
+
+- name: Set Param - initiators
+  set_fact:
+    params: "{{ params | combine( { 'initiator': initiators } ) }}"
+  when: initiators|length > 0
+
+- name: Query project by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?name={{projectName}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: PROJECT
+  when: projectName is defined
+
+- name: Get project ID
+  vars:
+    query: "[?name=='{{ projectName }}'].id"
+  set_fact:
+    projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+  failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+  when: projectName is defined
+
+- name: Set Param - projectId
+  set_fact:
+    params: "{{ params | combine( { 'project_id': projectId } ) }}"
+  when: projectId is defined
+
+- name: Query AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: AZs
+  with_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Purge AZ IDs
+  set_fact:
+    azIds: []
+  when: azNames is defined
+
+- name: Get AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ AZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    azIds: "{{ azIds + azId }}"
+  with_indexed_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Set Param - azIds
+  set_fact:
+    params: "{{ params | combine( { 'azs': azIds } ) }}"
+  when: 
+    - azIds is defined
+    - azIds|length > 0
+
+- name: Add Host
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body: "{{ params }}"
+  register: HOST
+
+- name: Show Host
+  debug:
+    msg: "{{ HOST.json }}"

@@ -1,0 +1,227 @@
+- name: Change Snapshots for Cluster
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: yes
+  become: no
+  tasks:
+
+    # Check Params
+    - block:
+        - set_fact:
+            checked_params:
+              Source_Cluster: "{{ Source_Cluster is not none and Source_Cluster != DEFAULT.noneValue }}"
+              Source_LUN_Group: "{{ Source_LUN_Group is not none and Source_LUN_Group != DEFAULT.noneValue }}"
+              Source_Protection_Group: "{{ Source_Protection_Group is not none and Source_Protection_Group != DEFAULT.noneValue }}"
+              Storage: "{{ (Storage is not none and Storage != DEFAULT.noneValue) and (Storage|string|length == 20) }}"
+              Target_Cluster: "{{ Target_Cluster is not none and Target_Cluster != DEFAULT.noneValue }}"
+              Check_Result_1: "{{ ('lun' in Check_Result_1) }}"
+
+        - name: Precheck_0_1 - Check Params
+          debug:
+            msg: "{{checked_params}}"
+          failed_when: checked_params.values()|unique != [True]
+
+    - set_fact:
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        sourceClusterName: "{{ Source_Cluster }}"
+        sourceLgName: "{{ Source_LUN_Group }}"
+        sourcePgName: "{{ Source_Protection_Group }}"
+        osType: "{{ Target_Cluster.split('_')[1] }}"
+        deviceSn: "{{ Storage|string }}"
+        room: "{{ Storage_Room }}"
+        site: "{{ AZ[Storage_Room]['dc'] }}"
+        targetClusterName: "{{ Target_Cluster }}"
+        targetLgName: "{{ Target_LUN_Group }}"
+        snapCgName: "{{ Snapshot_CG }}"
+        snapCgId: "{{ Snapshot_CG_ID }}"
+        timestamp: "{{ansible_date_time.year}}{{ansible_date_time.month}}{{ansible_date_time.day}}{{ansible_date_time.hour}}{{ansible_date_time.minute}}{{ansible_date_time.second}}"
+
+    - set_fact:
+        snapCgNameNew: "{{targetLgName}}_SNAP_{{timestamp}}"
+
+    - set_fact:
+        Precheck_1_Execute: True
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+
+    - block:
+        - name: Precheck_1 - Check LUNs and Snapshots
+          debug:
+            msg:
+              host: "{{ targetClusterName }}"
+              device: "{{ deviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: ["{{ sourceLgName }}"]
+
+        - set_fact:
+            sourceLunNames: "{{ checkedLuns[sourceLgName] | json_query('[*].NAME') }}"
+            sourceLunSectors: "{{ checkedLuns[sourceLgName] | json_query('[*].CAPACITY') }}"
+
+        - name: Query Snapshots in CG
+          uri:
+            url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{snapCgId}}"
+            method: GET
+            validate_certs: no
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json;charset=utf8"
+              iBaseToken: "{{ deviceToken }}"
+              Cookie: "session={{ deviceSession }}"
+          register: SNAPSHOTS
+
+        - set_fact:
+            snapIds: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].ID') }}"
+            snapNames: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].NAME') }}"
+            snapSectors: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].USERCAPACITY') }}"
+
+        - name: Check Number of Source LUNs same as Target Snapshots
+          debug:
+            msg:
+              sourceLunNames: "{{ sourceLunNames }}"
+              snapNames: "{{ snapNames }}"
+          failed_when: sourceLunNames|length != snapNames|length
+          when: Operation in ['reactivate','activate']
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+          vars:
+            volumeNames: "{{ snapNames }}"
+
+        - set_fact:
+            snapClass: []
+            snapsInTier: {}
+            tierNames: "{{ checkedVolumes | json_query('[*].service_level_name') | unique }}"
+
+        - set_fact:
+            snapClass: "{{ snapClass + [ checkedVolumes[item.0].service_level_name ] }}"
+          with_indexed_items: "{{ snapNames }}"
+
+        - set_fact:
+            snapsInTier: "{{ snapsInTier | combine( { item: checkedVolumes | json_query(queryVolumesInTier)  } ) }}"
+          vars:
+            queryVolumesInTier: "[? service_level_name == '{{ item }}' ].id"
+          with_items: "{{ tierNames }}"
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Step_1_1 - Remove Snapshot from Class
+          debug:
+            msg:
+              params:
+                snapsInTier: "{{snapsInTier}}"
+
+        - include_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+          vars:
+            volumeIds: "{{ snapsInTier[tierName] }}"
+          loop: "{{ tierNames }}"
+          loop_control:
+            loop_var: tierName
+
+        - name: Step_1_2 - Remove Source Snapshots from Target LUN Group
+          debug:
+            msg:
+              params:
+                luns:
+                  lunNames: "{{ snapNames }}"
+                  lgName: "{{ targetLgName }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_luns_from_lg.yml"
+          vars:
+            lgName: "{{ targetLgName }}"
+            lunNames: "{{ snapNames }}"
+
+        - name: Step_1_3 - Update KPI Table
+          debug:
+            msg:
+              params:
+                snapIds: "{{snapIds}}"
+
+        - include_tasks: "update_lun_kpi_table.yml"
+          vars:
+            TYPE_OF_OPERATION: "delete"
+            WBE_CODE: "{{ WBE_CODE }}"
+            TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+            SYSTEM_NAME: "{{ targetClusterName }}"
+            SITE: "{{ site }}"
+            ENVIRONMENT: "{{ osType }}"
+            STORAGE_CLASS: "{{ snapClass[item.0] }}"
+            CAPACITY_GB: "-{{ ( snapSectors[item.0]|int / 1024 / 1024 / 2 ) | int }}"
+            STORAGE: "{{ deviceName }}"
+            VDISK_UID: "{{ item.1 }}"
+          with_indexed_items: "{{ snapIds }}"
+
+      when: Operation == 'delete'
+
+    - block:
+        - name: "Step_2_1 - {{Operation}} snapshot CG"
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                cgName: "{{ snapCgName }}"
+                operation: "{{ Operation }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/{{Operation}}_snapshot_cg.yml"
+          vars:
+            cgName: "{{ snapCgName }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+    - block:
+        - name: Step_3_1 - Update Snapshot CG Name
+          debug:
+            msg:
+              params:
+                snapCgName:
+                  old: "{{snapCgName}}"
+                  new: "{{snapCgNameNew}}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_snapshot_cg.yml"
+          vars:
+            cgName: "{{ snapCgName }}"
+            newCgName: "{{ snapCgNameNew }}"
+
+        - name: Step_3_2 - Update QoS of Snapshots
+          debug:
+            msg:
+              params:
+                snapsInTier: "{{snapsInTier}}"
+
+        - include_tasks: "{{GLOBAL.baseDir}}/task/volume/comply_volumes_with_tier.yml"
+          vars:
+            volumeIds: "{{ snapsInTier[tierName] }}"
+          loop: "{{ tierNames }}"
+          loop_control:
+            loop_var: tierName
+
+        - name: Step_3_3 - Update KPI Table
+          debug:
+            msg:
+              params:
+                snapIds: "{{snapIds}}"
+
+        - include_tasks: "update_lun_kpi_table.yml"
+          vars:
+            TYPE_OF_OPERATION: "modify"
+            WBE_CODE: "{{ WBE_CODE }}"
+            TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+            SYSTEM_NAME: "{{ targetClusterName }}"
+            SITE: "{{ site }}"
+            ENVIRONMENT: "{{ osType }}"
+            STORAGE_CLASS: "{{ snapClass[item.0] }}"
+            CAPACITY_GB: "{{ ( (sourceLunSectors[item.0]|int - snapSectors[item.0]|int)/1024/1024/2 ) | int }}"
+            STORAGE: "{{ deviceName }}"
+            VDISK_UID: "{{ item.1 }}"
+          when: sourceLunSectors[item.0] != snapSectors[item.0]
+          with_indexed_items: "{{ snapIds }}"
+
+      when: Operation in ['reactivate','activate']

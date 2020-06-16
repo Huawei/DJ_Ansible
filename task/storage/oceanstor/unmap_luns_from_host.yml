@@ -1,0 +1,132 @@
+# UnMap LUNs from host
+#
+# Required parameters:
+#   hostName:               # host name
+#   lunNames:               # a list of LUN names
+#   deviceName:             # storage device name
+
+- name: Query Host by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?filter=NAME%3A%3A{{hostName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOST
+
+- name: Check Host Exists
+  debug:
+    msg: 
+      hostName: "{{hostName}}"
+  failed_when: (HOST.json.error.code|int != 0) or ('data' not in HOST.json) or (HOST.json.data | length != 1)
+
+- name: Get Host ID
+  set_fact:
+    hostId: "{{ HOST.json.data[0].ID }}"
+
+- name: Query Mapped LUN on Host
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun/associate?ASSOCIATEOBJTYPE=21&ASSOCIATEOBJID={{hostId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: MAPPED_LUNs
+
+- name: Check Mapped LUN Exist
+  vars:
+    queryId: "[*].ID"
+  set_fact:
+    mappedLunIds: "{{ MAPPED_LUNs.json.data | json_query(queryId) }}"
+  failed_when: (MAPPED_LUNs.json.error.code|int != 0) or (MAPPED_LUNs.json.data | length == 0)
+
+- name: Query LUNs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LUNs
+  with_items: "{{lunNames}}"
+
+- name: Check LUN Exists
+  set_fact:
+    lunIds: "{{ lunIds|default([]) + [LUNs.results[item.0].json.data[0].ID] }}"
+    luns: "{{ luns|default([]) + [LUNs.results[item.0].json.data[0]] }}"
+  failed_when: (LUNs.results[item.0].json.error.code|int != 0) or (LUNs.results[item.0].json.data | length != 1)
+  with_indexed_items: "{{lunNames}}"
+
+- name: Check LUN Mapped to Host
+  debug:
+    msg:
+      name: "{{ lunNames[item.0] }}"
+      mapped: "{{luns[item.0].mapped}}"
+      onHost: "{{ item.1 in mappedLunIds }}"
+  failed_when: item.1 not in mappedLunIds
+  with_indexed_items: "{{lunIds}}"
+
+- name: Check LUN status
+  vars:
+    statusMap: {"1":"Normal","2":"Faulty","15":"Write Protected"}
+  debug:
+    msg:
+      name: "{{ item.1 }}"
+      healthStatus: "{{ statusMap[ luns[item.0].HEALTHSTATUS ] }}"
+  failed_when: luns[item.0].HEALTHSTATUS|int != 1
+  with_indexed_items: "{{lunNames}}"
+
+- name: UnMap LUNs from Host
+  block:
+    - name: Delete Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping?hostId={{hostId}}&lunId={{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOST_UNMAPPING
+      with_items: "{{ lunIds }}"
+
+    - name: Check Un-Mapping Result
+      vars:
+        queryMsg: "[*].json.error"
+        queryError: "[*].json.error.code"
+      debug:
+        msg: "{{ HOST_UNMAPPING.results | json_query(queryMsg) }}"
+      failed_when: HOST_UNMAPPING.results | json_query(queryError) | difference([0]) | length > 0
+
+  rescue:
+    - name: Rollback Un-mapped LUNs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          hostId: "{{hostId}}"
+          lunId: "{{item.1}}"
+      register: HOST_MAPPING
+      when: HOST_UNMAPPING.results[item.0].json.error.code == 0
+      with_indexed_items: "{{ lunIds }}"
+  when:
+    - hostId is defined
+    - lunIds is defined
+    - lunIds | length > 0

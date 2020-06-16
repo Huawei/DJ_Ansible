@@ -1,0 +1,77 @@
+- defaultTab: monitor
+  description: Set AZ for Host (apply for manually created hosts)
+  executionEnabled: true
+  id: 14658c33-bc0d-4cae-933b-85cbdab46869
+  loglevel: INFO
+  name: 47_set_host_az
+  nodeFilterEditable: false
+  options:
+  - description: <BR><h2>Select Hosts or Upload CSV File</h2>
+    name: Job_Description
+    value: Set AZ for Host (apply for manually created hosts)
+  - enforced: true
+    name: Site
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/DC?nameAttr=desc&valueAttr=key
+  - enforced: true
+    name: Room
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/AZ?nameAttr=desc&valueAttr=key&filter={"dc":"${option.Site.value}"}
+  - enforced: true
+    name: Storage
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Room.value}"}}]}}]
+  - label: Search Host Name
+    name: Host_Search
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Select_Host
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Storage.value}"}}]}}]
+  - description: Upload the CSV file with a field of 'name'
+    name: Upload_Host
+    type: file
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          Room: ${option.Room}
+          Select_Host: ${option.Select_Host}
+          Upload_Host: ${file.Upload_Host}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/47_set_host_az.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 14658c33-bc0d-4cae-933b-85cbdab46869

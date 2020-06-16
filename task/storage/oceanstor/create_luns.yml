@@ -1,0 +1,103 @@
+# Create LUNs
+#
+# Required parameters:
+#   lunNamePrefix:          LUN Name Prefix (27 chars), can be replaced with newLunNames
+#   lunSize:                LUN Size (GB)
+#   lunNum:                 Number of LUNs
+#
+# Optional parameters:
+#   startSuffix:            Start Suffix Number, default 0
+#   suffixDigits:           Suffix digits, default DEFAULT.suffixDigits
+#   startLunId:             Set LUN IDs
+#   startScsiId             Change the SCSI ID when mapped to host or host group
+#   poolId                  Pool ID
+#   workload:               Workload Type: default 0, options: 1: Oracle_OLAP, 2: Oracle_OLTP, ...
+#   desc:                   Description
+#   addLgName:              Add LUN to LUN Group (Name)
+#   addLgId:                Add LUN to LUN Group (ID)
+#   newLunSectors:          New LUN Sizes (sector)
+#
+# Generated Parameters (can be overwritten):
+#   newLunIds:              New LUN IDs
+#   newLunNames:            New LUN Names
+
+
+- block:
+    - set_fact:
+        newLunNames: []
+        lunNameSuffix: "%0{{suffixDigits|default(DEFAULT.suffixDigits)}}d"
+
+    - set_fact:
+        newLunNames: "{{ newLunNames + [ newLunName ] }}"
+      vars:
+        newLunName: "{{ lunNamePrefix }}{{ lunNameSuffix | format( item|int + startSuffix|default(0)|int ) }}"
+      with_sequence: start=0 count="{{lunNum}}"
+
+  when: lunNamePrefix|default(none) is not none
+
+- set_fact:
+    newLunIds: []
+    nameParams: {}
+    sizeParams: {}
+    newLunParams:
+      PARENTID: "{{ poolId|default(0) }}"
+      WORKLOADTYPEID: "{{ workload|default(0) }}"
+
+- set_fact:
+    newLunParams: "{{ newLunParams | combine({'DESCRIPTION': desc}) }}"
+  when: desc|default(none) is not none
+
+- set_fact:
+    nameParams: "{{ nameParams | combine( { item: {'NAME':item} } ) }}"
+  with_items: "{{ newLunNames }}"
+
+- set_fact:
+    newLunIds: "{{ newLunIds + [ newLunId ] }}"
+    nameParams: "{{ nameParams | combine( { item.1: {'NAME':item.1, 'ID': newLunId} } ) }}"
+  vars:
+    newLunId: "{{ (item.0|int + startLunId|int) | string }}"
+  with_indexed_items: "{{ newLunNames }}"
+  when: startLunId|default(none) is not none
+
+- set_fact:
+    sizeParams: "{{ sizeParams | combine( { item.1: {'CAPACITY': newLunSectors[item.0]} } ) }}"
+  with_indexed_items: "{{ newLunNames }}"
+  when: newLunSectors|default(none) is not none
+
+- set_fact:
+    sizeParams: "{{ sizeParams | combine( { item: {'CAPACITY': lunSize|int * 1024 * 1024 * 2 } } ) }}"
+  with_items: "{{ newLunNames }}"
+  when: lunSize|default(none) is not none
+
+- name: Create LUNs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ newLunParams | combine( nameParams[item] ) | combine( sizeParams[item] ) }}"
+  register: NEW_LUNS
+  with_items: "{{ newLunNames }}"
+
+- name: Check Create LUN Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ NEW_LUNS.results | json_query(queryMsg) }}"
+  failed_when: NEW_LUNS.results | json_query(queryError) | difference([0]) | length > 0
+
+- set_fact:
+    newLunIds: "{{ NEW_LUNS.results | json_query('[*].json.data.ID') }}"
+
+- import_tasks: add_luns_to_lg.yml
+  vars:
+    lgName: "{{ addLgName }}"
+    addLunIds: "{{ newLunIds }}"
+  when: addLgName|default(none) is not none
+

@@ -1,0 +1,419 @@
+- name: Create Snapshots for Cluster
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: yes
+  become: no
+  tasks:
+
+    # Check Params
+    - block:
+        - set_fact:
+            checked_params:
+              Source_Cluster: "{{ Source_Cluster is not none and Source_Cluster != DEFAULT.noneValue }}"
+              Source_LUN_Group: "{{ Source_LUN_Group is not none and Source_LUN_Group != DEFAULT.noneValue }}"
+              Source_Protection_Group: "{{ Source_Protection_Group is not none and Source_Protection_Group != DEFAULT.noneValue }}"
+              Target_Cluster: "{{ Target_Cluster is not none and Target_Cluster != DEFAULT.noneValue }}"
+              Target_LUN_Group: "{{ Target_LUN_Group is not none and Target_LUN_Group != DEFAULT.noneValue }}"
+              Target_HyperMetro: "{{ (Target_HyperMetro is not none) and (Target_HyperMetro != DEFAULT.noneValue) and (Target_HyperMetro == 'N') }}"
+              Target_Protection_Level: "{{ (Target_Protection_Level is not none) and (Target_Protection_Level != DEFAULT.noneValue) and (Target_Protection_Level|int == 1) }}"
+              Storage: "{{ (Storage is not none and Storage != DEFAULT.noneValue) and (Storage|string|length == 20) }}"
+              Snapshot_Description: "{{ (Snapshot_Description is none) or (Snapshot_Description|string|length <= 200) }}"
+              Class_1: "{{ Class_1 in ['A','B','C','D'] }}"
+              Designate_Class_1: "{{ (Designate_Class_1 is none) or (Designate_Class_1 in ['A','B','C','D']) }}"
+              Check_Result_1: "{{ ('lun' in Check_Result_1) }}"
+
+        - name: Precheck_0_1 - Check Params
+          debug:
+            msg: "{{checked_params}}"
+          failed_when: checked_params.values()|unique != [True]
+
+    - set_fact:
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        sourceClusterName: "{{ Source_Cluster }}"
+        sourceLgName: "{{ Source_LUN_Group }}"
+        sourcePgName: "{{ Source_Protection_Group }}"
+        osType: "{{ Target_Cluster.split('_')[1] }}"
+        deviceSn: "{{ Storage|string }}"
+        room: "{{ Storage_Room }}"
+        site: "{{ AZ[Storage_Room]['dc'] }}"
+        targetClusterName: "{{ Target_Cluster }}"
+        targetLgName: "{{ Target_LUN_Group }}"
+        snapActivate: "{{ Activate }}"
+        snapRemarks: "{{ Snapshot_Description|string if (Snapshot_Description is not none) else '' }}"
+        class1: "{{ Designate_Class_1 if (Designate_Class_1 is not none) else Class_1 }}"
+        timestamp: "{{ansible_date_time.year}}{{ansible_date_time.month}}{{ansible_date_time.day}}{{ansible_date_time.hour}}{{ansible_date_time.minute}}{{ansible_date_time.second}}"
+        metroEnable: N
+        protectLevel: 1
+
+    - set_fact:
+        protectType: "{{ REPTYPE[metroEnable+protectLevel|string]['enum'] }}"              # See ../../config/project001.yml
+        replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
+
+    - set_fact:
+        sourceCgName: "{{targetLgName}}_SNAP_{{timestamp}}"
+        targetLunPrefix: "{{targetClusterName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
+        targetLunDesc: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else site}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1|{{snapRemarks}}"
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+
+    - set_fact:
+        Precheck_1_Execute: True
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - block:
+        - name: Precheck_1 - Check Cluster
+          debug:
+            msg:
+              host: "{{ targetClusterName }}"
+              device: "{{ deviceSn }}"
+
+        - name: Login Device
+          set_fact:
+            deviceSn: "{{ deviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+          vars:
+            hostGroupNames: ["{{ sourceClusterName }}"]
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: ["{{ sourceLgName }}"]
+
+        - set_fact:
+            lunNum: "{{ checkedLuns[sourceLgName] | length }}"
+            lunSectors: "{{ checkedLuns[sourceLgName] | json_query('[*].CAPACITY') }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+          vars:
+            hostGroupNames: ["{{ targetClusterName }}"]
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id.yml"
+          vars:
+            hostGroupName: "{{ targetClusterName }}"
+
+        - set_fact:
+            nextScsiId: "{{ checkedHostLunIdMax|int + 1 }}"
+            lastScsiId: "{{ checkedHostLunIdMax|int + lunNum|int }}"
+            targetLunNames: []
+
+        - set_fact:
+            targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(targetLunPrefix, nextScsiId|int + item|int) ] }}"
+          with_sequence: start=0 count="{{lunNum}}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+          vars:
+            lunNames: "{{ targetLunNames }}"
+            checkExist: False
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+
+    - block:
+
+        # Begin Workflow Steps
+
+        - set_fact:
+
+            # Create Source Snapshot CG
+            Step_1_1_Execute: True
+            Step_1_1_Completed: False
+            Step_1_1_Rollbacked: False
+
+            # Add Source Snapshots to Target LUN Group
+            Step_1_2_Execute: True
+            Step_1_2_Completed: False
+            Step_1_2_Rollbacked: False
+
+            deviceSynced: False
+
+            # Set Class for Target LUNs
+            Step_2_1_Execute: True
+            Step_2_1_Completed: False
+            Step_2_1_Rollbacked: False
+
+            # Insert Target LUNs to KPI table
+            Step_3_1_Execute: True
+            Step_3_1_Completed: False
+
+        - name: Workflow - Create LUNs for Host
+          debug:
+            msg:
+              Step_1_1: "[{{Step_1_1_Execute}}] Create Source Snapshot CG"
+              Step_1_2: "[{{Step_1_2_Execute}}] Add Source Snapshots to Target LUN Group"
+              Step_2_1: "[{{Step_2_1_Execute}}] Set Class for Target LUNs"
+              Step_3_1: "[{{Step_3_1_Execute}}] Insert Target LUNs to KPI table"
+
+        - block:
+            - name: Step_1_1 - Create Source Snapshot CG
+              debug:
+                msg:
+                  params:
+                    snapCg:
+                      pgName: "{{ sourcePgName }}"
+                      cgName: "{{ sourceCgName }}"
+                      snapNames: "{{ targetLunNames }}"
+                      activate: "{{ snapActivate }}"
+                      snapDesc: "{{ targetLunDesc }}"
+                    device: "{{ deviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
+              vars:
+                pgName: "{{ sourcePgName }}"
+                cgName: "{{ sourceCgName }}"
+                snapNames: "{{ targetLunNames }}"
+                activate: "{{ snapActivate }}"
+                snapDesc: "{{ targetLunDesc }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+            - set_fact:
+                deviceSynced: True
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+              vars:
+                lunNames: "{{ targetLunNames }}"
+                checkExist: True
+
+            - set_fact:
+                targetLunIds: "{{ lunIds }}"
+                Step_1_1_Completed: True
+
+            # End Step_1_1
+
+          # End block
+          when: Step_1_1_Execute
+
+        - block:
+            - name: Step_1_2 - Add Source Snapshots to Target LUN Group
+              debug:
+                msg:
+                  params:
+                    luns:
+                      lgName: "{{ targetLgName }}"
+                      lunNames: "{{ targetLunNames }}"
+                      startScsiId: "{{ nextScsiId }}"
+                    device: "{{ deviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_luns_to_lg.yml"
+              vars:
+                lgName: "{{ targetLgName }}"
+                lunNames: "{{ targetLunNames }}"
+                startScsiId: "{{ nextScsiId }}"
+
+            - set_fact:
+                Step_1_2_Completed: True
+
+            # End Step_1_2
+
+          # End block
+          when: Step_1_2_Execute
+
+        # End Device Steps
+
+        # Begin DJ Steps
+
+        - block:
+            - name: Step_2_1 - Set Class for Target LUNs
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ targetLunNames }}"
+                    tierName: "{{ class1 }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+              vars:
+                volumeNames: "{{ targetLunNames }}"
+                waitExist: True
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ targetLunNames }}"
+                tierName: "{{ class1 }}"
+
+            - set_fact:
+                Step_2_1_Completed: True
+
+            # End Step_2_1
+
+          # End block
+          when: Step_2_1_Execute
+
+        - block:
+            - name: Step_3_1 - Insert Target LUNs to KPI table
+              debug:
+                msg:
+                  params:
+                    lunIds: "{{ targetLunIds }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: update_lun_kpi_table.yml
+              vars:
+                TYPE_OF_OPERATION: "create"
+                WBE_CODE: "{{ WBE_CODE }}"
+                TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+                SYSTEM_NAME: "{{ targetClusterName }}"
+                SITE: "{{ site }}"
+                ENVIRONMENT: "{{ osType }}"
+                STORAGE_CLASS: "{{ class1 }}"
+                CAPACITY_GB: "{{ (lunSectors[item.0]|int / 1024 / 1024 / 2)|int }}"
+                STORAGE: "{{ deviceName }}"
+                VDISK_UID: "{{ item.1 }}"
+              with_indexed_items: "{{ targetLunIds }}"
+
+            - set_fact:
+                Step_3_1_Completed: True
+
+            # End Step_3_1
+
+          # End block
+          when: Step_3_1_Execute
+
+      # End Block
+      rescue:
+        # Begin Rollback
+
+        - block:
+            - name: Rollback_2_1 - Remove Class for Target LUNs
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ targetLunNames }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+              vars:
+                volumeNames: "{{ targetLunNames }}"
+
+            - set_fact:
+                Step_2_1_Rollbacked: True
+
+            # End Rollback_2_1
+
+          # End block
+          when: Step_2_1_Completed
+
+        - block:
+            - name: Rollback_1_2 - Remove Source Snapshots from Target LUN Group
+              debug:
+                msg:
+                  params:
+                    luns:
+                      lunNames: "{{ targetLunNames }}"
+                      lgName: "{{ targetLgName }}"
+                    device: "{{ deviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_luns_from_lg.yml"
+              vars:
+                lgName: "{{ targetLgName }}"
+                lunNames: "{{ targetLunNames }}"
+
+            - set_fact:
+                Step_1_2_Rollbacked: True
+
+            # End Rollback_1_2
+
+          # End block
+          when: Step_1_2_Completed
+
+        - block:
+            - name: Rollback_1_1 - Delete Source Snapshot CG
+              debug:
+                msg:
+                  params:
+                    cgName: "{{ sourceCgName }}"
+                    device: "{{ deviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_snapshot_cg.yml"
+              vars:
+                cgName: "{{ sourceCgName }}"
+
+            - set_fact:
+                Step_1_1_Rollbacked: True
+
+            # End Rollback_1_1
+
+          # End block
+          when: Step_1_1_Completed
+
+        - block:
+            - name: Re-Sync Storage Devices
+              debug:
+                msg:
+                  params:
+                    devices: "{{ deviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+          when: deviceSynced
+
+      # End Rollbacks
+
+    # End Workflow
+
+    # Begin Validate Results
+
+    - block:
+        - name: Result_1_1 - Create Source Snapshot CG
+          debug:
+            msg:
+              params:
+                snapCg:
+                  pgName: "{{ sourcePgName }}"
+                  cgName: "{{ sourceCgName }}"
+                  snapNames: "{{ targetLunNames }}"
+                  activate: True
+                  snapDesc: "{{ targetLunDesc }}"
+              result:
+                succeeded: "{{ Step_1_1_Completed }}"
+                rollbacked: "{{ Step_1_1_Rollbacked }}"
+          failed_when: Step_1_1_Completed|bool == False
+          when: Step_1_1_Execute
+
+        - name: Result_1_2 - Add Source Snapshots to Target LUN Group
+          debug:
+            msg:
+              params:
+                luns:
+                  lgName: "{{ targetLgName }}"
+                  lunNames: "{{ targetLunNames }}"
+                  startScsiId: "{{ nextScsiId }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_1_2_Completed }}"
+                rollbacked: "{{ Step_1_2_Rollbacked }}"
+          failed_when: Step_1_2_Completed|bool == False
+          when: Step_1_2_Execute
+
+        - name: Result_2_1 - Set Class for Target LUNs
+          debug:
+            msg:
+              params:
+                volumeNames: "{{ targetLunNames }}"
+                tierName: "{{ class1 }}"
+              result:
+                succeeded: "{{ Step_2_1_Completed }}"
+                rollbacked: "{{ Step_2_1_Rollbacked }}"
+          failed_when: Step_2_1_Completed|bool == False
+          when: Step_2_1_Execute
+
+        - name: Result_3_1 - Insert Target LUNs to KPI table
+          debug:
+            msg:
+              params:
+                lunIds: "{{ targetLunIds }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_3_1_Completed }}"
+          failed_when: Step_3_1_Completed|bool == False
+          when: Step_3_1_Execute
+
+    # End Validate Results
+
+  # End Tasks
+
+# End Playbook

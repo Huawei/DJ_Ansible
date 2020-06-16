@@ -1,0 +1,127 @@
+# Required Parameters:
+#   cgName:            consistency group name
+#
+# Optional Parameters:
+#   cgId:              CG ID
+
+
+- block:
+    - name: Query Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP?filter=NAME%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data | length != 1)
+
+    - name: Get Replication CG
+      set_fact:
+        cgId: "{{ CG.json.data[0].ID }}"
+
+  when: cgName|default(none) is not none
+
+
+- name: Split Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SPLIT_CONSISTENCY_GROUP"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ cgId }}"
+  register: SPLIT_CG
+
+- name: Check Split Result
+  debug:
+    msg: "{{ SPLIT_CG.json.error }}"
+  failed_when: SPLIT_CG.json.error.code|int != 0
+
+- name: Set Secondary to Read/Write
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP/{{cgId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      SECRESACCESS: 3             # 2: read-only, 3: read/write
+  register: SET_RW
+
+- name: Check Set Read/Write Result
+  debug:
+    msg: "{{ SET_RW.json.error }}"
+  failed_when: SET_RW.json.error.code|int != 0
+
+- name: Switchover Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SWITCH_GROUP_ROLE"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ cgId }}"
+  register: SWITCH_CG
+
+- name: Check Switchover CG Result
+  debug:
+    msg: "{{ SWITCH_CG.json.error }}"
+  failed_when: SWITCH_CG.json.error.code|int != 0
+
+- name: Set Secondary to Read-Only
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP/{{cgId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      SECRESACCESS: 2             # 2: read-only, 3: read/write
+  register: SET_RO
+
+- name: Check Set Read-Only Result
+  debug:
+    msg: "{{ SET_RO.json.error }}"
+  failed_when: SET_RO.json.error.code|int != 0
+
+- name: Sync Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SYNCHRONIZE_CONSISTENCY_GROUP"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ cgId }}"
+  register: SYNC_CG
+
+- name: Check Sync Result
+  debug:
+    msg: "{{ SYNC_CG.json.error }}"
+  failed_when: SYNC_CG.json.error.code|int != 0

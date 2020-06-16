@@ -1,0 +1,106 @@
+# Required Parameters:
+#   localLunIds:       a list of local LUN IDs
+#   remoteLunIds:      a list of remote LUN IDs
+#   remoteSn:          Remote Device SN, can be replaced with domainId
+
+# Optional Parameters:
+#   domainId:          Domain ID
+
+- block:
+    - name: Get HyperMetro Domain
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroDomain"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DOMAINS
+
+    - name: Get HyperMetro Domain ID
+      vars:
+        remoteDevices: "{{ DOMAINS.json.data[item|int].REMOTEDEVICES }}"
+      set_fact:
+        domainId: "{{ DOMAINS.json.data[item|int].ID }}"
+      when: remoteDevices[0].devESN == remoteSn
+      with_sequence: start=0 count="{{DOMAINS.json.data|length}}"
+
+  when: remoteSn|default(none) is not none
+
+- set_fact:
+    existPairIds: []
+    pausePairIds: []
+
+- name: Check Exist HyperMetro Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair?filter=DOMAINID%3A%3A{{domainId}}%20and%20LOCALOBJID%3A%3A{{item.1}}%20and%20REMOTEOBJID%3A%3A{{remoteLunIds[item.0]}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: EXIST_PAIRS
+  with_indexed_items: "{{ localLunIds }}"
+
+- name: Get Exist HyperMetro Pair IDs
+  vars:
+    queryPairId: "[*].ID"
+    queryPausePairId: "[? RUNNINGSTATUS != '41'].ID"          # 41: Paused
+  set_fact:
+    existPairIds: "{{ existPairIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(queryPairId) }}"
+    pausePairIds: "{{ pausePairIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(queryPausePairId) }}"
+  with_indexed_items: "{{ localLunIds }}"
+
+
+- block:
+    - name: Pause HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/disable_hcpair"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+          ISPRIMARY: "false"                        # Disable Non-Preferred
+      register: PAUSE_METRO_PAIRS
+      with_items: "{{ pausePairIds }}"
+
+    - name: Check Pause Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ PAUSE_METRO_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: PAUSE_METRO_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: pausePairIds|length > 0
+
+
+- name: Delete HyperMetro Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/{{item}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DELETE_PAIRS
+  with_items: "{{ existPairIds }}"
+
+- name: Check Delete Pairs Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ DELETE_PAIRS.results | json_query(queryMsg) }}"
+  failed_when: DELETE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0

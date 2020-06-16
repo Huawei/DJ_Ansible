@@ -1,0 +1,66 @@
+# Delete Clone Pair
+#
+# Required parameters:
+#   deviceName:            # storage device name
+#   pairName:              # pair name
+#
+# Optional parameters:
+#   delDstLun:             # delete destination LUN, default: no, options: yes, no
+
+- name: Query Clone Pair by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair?filter=name%3A%3A{{pairName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: PAIR
+
+- name: Check Clone Pair Exists
+  set_fact:
+    pairId: "{{ PAIR.json.data[0].ID }}"
+    targetId: "{{ PAIR.json.data[0].targetID }}"
+    targetName: "{{ PAIR.json.data[0].targetName }}"
+    syncStatus: "{{ PAIR.json.data[0].syncStatus }}"
+  failed_when: PAIR.json.error.code|int !=0 or PAIR.json.data | length != 1
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/{{pairId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: WAIT_SYNC
+  vars:
+    syncStatus: "{{ WAIT_SYNC.json.data.syncStatus }}"
+  retries: "{{ GLOBAL.clone.syncRetries }}"
+  delay: "{{ GLOBAL.clone.syncDelay }}"
+  until: syncStatus != GLOBAL.clone.syncStatus.syncing
+
+- name: Delete Clone Pair
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/{{pairId}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{pairId}}"
+      isDeleteDstLun: "{{ delDstLun | default(False) | bool }}"
+  register: DEL_PAIR
+
+- name: Check Delete Pair Result
+  debug:
+    msg: "{{ DEL_PAIR.json.error }}"
+  failed_when: DEL_PAIR.json.error.code|int != 0

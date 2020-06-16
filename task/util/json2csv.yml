@@ -1,0 +1,10 @@
+# Required Parameters:
+#   data:      a list of dict
+#   keys:      keys to export
+#   file:      file to export to
+#
+# Optional Parameters:
+#   sep:       separator, default '|'
+
+- name: Export to {{file}}
+  local_action: command python "{{GLOBAL.baseDir}}"/task/util/json2csv.py -d "{{data}}" -k "{{keys}}" -f "{{file}}" -s "{{ sep | default('|') }}"

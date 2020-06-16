@@ -1,0 +1,93 @@
+# Create Protection Group
+#
+# Required parameters:
+#   pgName:                 Proteciton Group Name
+#
+# Optional parameters:
+#   lgName:                 LUN Group Name
+#   desc:                   Description
+#   addLunNames:            Add a list of LUNs to PG
+#
+# Generated Parameters:
+#   newPgId:           New PG ID
+
+- name: Set default variables
+  set_fact:
+    newPgId: "{{ none }}"
+    paramCreatePg:
+      protectGroupName: "{{ pgName }}"
+
+- name: Set param - desc
+  set_fact:
+    paramCreatePg: "{{ paramCreatePg | combine({'description':desc}) }}"
+  when:
+    - desc|default(none) is not none
+
+- import_tasks: check_lgs.yml
+  vars:
+    lgNames: ["{{ lgName }}"]
+    checkExist: True
+  when: lgName|default(none) is not none
+
+- name: Set param - lunGroupId
+  set_fact:
+    paramCreatePg: "{{ paramCreatePg | combine( { 'lunGroupId': lgIds[0] } ) }}"
+  when: lgName|default(none) is not none
+
+- name: Create PG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ paramCreatePg }}"
+  register: NEW_PG
+
+- name: Check Create PG Result
+  debug:
+    msg: "{{ NEW_PG.json.error }}"
+  failed_when: (NEW_PG.json.error.code|int != 0)  or ('data' not in NEW_LG.json)
+
+- set_fact:
+    newPgId: "{{ NEW_PG.json.data.protectGroupId }}"
+
+- block:
+    - import_tasks: check_luns.yml
+      vars:
+        lunNames: "{{ addLunNames }}"
+
+    - name: Add LUN to PG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup/associate"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          protectGroupId: "{{ newPgId }}"
+          ASSOCIATEOBJTYPE: 11
+          ASSOCIATEOBJID: "{{ item }}"
+      register: PG_ADD_LUNS
+      with_items: "{{ lunIds }}"
+
+    - name: Check Add LUN Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ PG_ADD_LUNS.results | json_query(queryMsg) }}"
+      failed_when: PG_ADD_LUNS.results | json_query(queryError) | difference([0]) | length > 0
+
+  # End Block
+  when: 
+    - addLunNames|default(none) is not none
+    - addLunNames|length > 0

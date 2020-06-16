@@ -1,0 +1,9 @@
+- name: Disable Volumes QoS
+  hosts: localhost
+  vars_files:
+    - ../../config/global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/disable_volumes_qos.yml"

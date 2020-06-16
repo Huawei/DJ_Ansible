@@ -1,0 +1,104 @@
+# Required Parameters:
+#   localLunIds:       a list of local LUN IDs
+#   remoteLunIds:      a list of remote LUN IDs
+#   remoteSn:          remote device SN
+#
+# Optional Parameters:
+#   remoteDevId:       remote device ID
+
+- block:
+    - name: Query Remote Devices
+      vars:
+        queryId: "[? SN=='{{remoteSn}}'].ID"
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/remote_device?range=[0-100]&filter=ARRAYTYPE::1"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: REMOTE_DEVICES
+      failed_when: ( 'data' not in REMOTE_DEVICES.json ) or (REMOTE_DEVICES.json.data | json_query(queryId) | length != 1)
+
+    - set_fact:
+        remoteDevId: "{{ REMOTE_DEVICES.json.data | json_query(queryId) | first}}"
+      vars:
+        queryId: "[? SN=='{{remoteSn}}'].ID"
+  when: remoteSn|default(none) is not none
+
+- set_fact:
+    existPairIds: []
+    splitPairIds: []
+
+- name: Check Exist Replication Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR?filter=LOCALRESID%3A%3A{{item.1}}%20and%20REMOTERESID%3A%3A{{remoteLunIds[item.0]}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: EXIST_PAIRS
+  with_indexed_items: "{{ localLunIds }}"
+
+- name: Get Exist Pair IDs
+  vars:
+    queryPairId: "[? REMOTEDEVICEID=='{{remoteDevId}}'].ID"
+    querySplitPairId: "[? REMOTEDEVICEID=='{{remoteDevId}}' && RUNNINGSTATUS != '26' && RUNNINGSTATUS != '110'].ID"          # 26: Split, 110: Standby
+  set_fact:
+    existPairIds: "{{ existPairIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(queryPairId) }}"
+    splitPairIds: "{{ splitPairIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(querySplitPairId) }}"
+  with_indexed_items: "{{ localLunIds }}"
+
+
+- block:
+    - name: Split Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/split"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: SPLIT_REP_PAIRS
+      with_items: "{{ splitPairIds }}"
+
+    - name: Check Split Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ SPLIT_REP_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: SPLIT_REP_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: splitPairIds|length > 0
+
+
+- name: Delete Replication Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/{{item}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DELETE_PAIRS
+  with_items: "{{ existPairIds }}"
+
+- name: Check Delete Pairs Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ DELETE_PAIRS.results | json_query(queryMsg) }}"
+  failed_when: DELETE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0

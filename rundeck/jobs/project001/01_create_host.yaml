@@ -1,0 +1,221 @@
+- defaultTab: monitor
+  description: Create Host with LUN Group, Protection Group, Replication CG, and HyperMetro CG
+  executionEnabled: true
+  id: c51a8cf2-415e-4ca5-b8ef-702d64104147
+  loglevel: INFO
+  name: 01_create_host
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Create Host with LUN Group, Protection Group, Replication CG, and HyperMetro CG
+    description: Requires add at least 1 WWN to the host
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Country, OS Type and Location</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - enforced: true
+    name: OS_Type
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - enforced: true
+    name: Site
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/DC?nameAttr=desc&valueAttr=key
+  - enforced: true
+    name: Room
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/AZ?nameAttr=desc&valueAttr=key&filter={"dc":"${option.Site.value}"}
+  - enforced: true
+    name: Storage
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Room.value}"}}]}}]
+    description: <BR><h2>Primary Host</h2>
+  - name: Host_Name
+    description: Input Host Name (required, max 16 chars, '_' not permitted)
+    required: true
+  - name: Host_Description
+    description: Input Host Description (optional, max 64 chars)
+  - name: Host_Rack
+    description: Set Rack Number (optional, max 4 chars, '_' not permitted)
+  - label: Search WWN on Storage
+    name: Search_WWN
+  - delimiter: ','
+    label: FC Port WWNs
+    multivalued: true
+    required: true
+    name: Host_WWN
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/fc_initiator?range=[0-100]&nameAttr=ID&valueAttr=ID&ISFREE=true&filter=ID:${option.Search_WWN.value}
+  - description: Input cluster name
+    label: Search Cluster on Storage
+    name: Search_Cluster
+  - name: Cluster_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/hostgroup?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.Search_Cluster.value}
+  - enforced: true
+    name: Class_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"%20on%20storage:%20"${option.Storage.value}"&wwn=2.%20Add%20WWNs%20"${option.Host_WWN.value}"%20to%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"&cluster=3.%20Add%20host%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"%20to%20cluster:%20"${option.Cluster_Name.value}"
+    description: Select to confirm primary host result <BR><BR><h2>Protection Settings</h2>
+  - name: Session_Name
+    description: Input Session Name used for CGs (optional, max 16 chars, '_' not permitted, default is Primary Host Name)
+  - enforced: true
+    name: Enable_HyperMetro
+    value: 'N'
+    required: true
+    values:
+      - 'N'
+      - 'Y'
+  - enforced: true
+    name: Protection_Level
+    value: '1'
+    required: true
+    values:
+      - '1'
+      - '2'
+      - '3'
+  - enforced: true
+    name: DR_Sync_Mode
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/REPMODE?nameAttr=desc&valueAttr=enum
+    description: <BR><h2>Metro Host</h2>
+  - name: Metro_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/HyperMetroDomain?range=[0-100]&nameAttr=REMOTEDEVICES:11&nameSplit=%22&valueAttr=REMOTEDEVICES:7&valueSplit=%22
+  - enforced: true
+    name: Metro_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Metro_Storage.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_2
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"%20on%20storage:%20"${option.Metro_Storage.value}"&wwn=2.%20Add%20WWNs%20"${option.Host_WWN.value}"%20to%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"&cluster=3.%20Add%20host%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"%20to%20cluster:%20"${option.Cluster_Name.value}"
+    description: Select to confirm metro host result <BR><BR><h2>DR Host</h2>
+  - name: DR_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/remote_device?nameAttr=NAME&valueAttr=SN&filter=ARRAYTYPE!!2
+  - enforced: true
+    name: DR_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.DR_Storage.value}"}}]}}]
+  - name: DR_Host_Name
+    description: Input Host Name (required if protection level >=2, max 16 chars, '_' not permitted )
+  - name: DR_Host_Description
+    description: Input Host Description (optional, max 64 chars)
+  - name: DR_Host_Rack
+    description: Set Rack Number (optional, max 4 chars, '_' not permitted)
+  - label: Search WWN on Storage
+    name: DR_Search_WWN
+  - delimiter: ','
+    multivalued: true
+    name: DR_Host_WWN
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/fc_initiator?range=[0-100]&nameAttr=ID&valueAttr=ID&ISFREE=true&filter=ID:${option.DR_Search_WWN.value}
+  - description: Input cluster name
+    label: Search Cluster on Storage
+    name: DR_Search_Cluster
+  - name: DR_Cluster_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/hostgroup?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.DR_Search_Cluster.value}
+  - enforced: true
+    name: Class_2
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_3
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Host_Name.value}_2"%20on%20storage:%20"${option.DR_Storage.value}"&wwn=2.%20Add%20WWNs%20"${option.DR_Host_WWN.value}"%20to%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Host_Name.value}_2"&cluster=3.%20Add%20host%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Host_Name.value}_2"%20to%20cluster:%20"${option.DR_Cluster_Name.value}"
+    description: Select to confirm the DR Host result <BR><BR><h2>DR Test Host</h2>
+  - name: DR_Test_Cluster_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/hostgroup?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.DR_Search_Cluster.value}
+  - enforced: true
+    name: Class_3
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_4
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Host_Name.value}_3"%20on%20storage:%20"${option.DR_Storage.value}"&cluster=2.%20Add%20host%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Host_Name.value}_3"%20to%20cluster:%20"${option.DR_Test_Cluster_Name.value}"
+    description: Select to confirm the DR Test Host result
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Host_Name: ${option.Host_Name}
+          Host_Description: ${option.Host_Description}
+          Country: ${option.Country}
+          OS_Type: ${option.OS_Type}
+          Site: ${option.Site}
+          Room: ${option.Room}
+          Host_Rack: ${option.Host_Rack}
+          Storage: ${option.Storage}
+          Class_1: ${option.Class_1}
+          Host_WWN: ${option.Host_WWN}
+          Cluster_Name: ${option.Cluster_Name}
+          Session_Name: ${option.Session_Name}
+          Enable_HyperMetro: ${option.Enable_HyperMetro}
+          Metro_Storage: ${option.Metro_Storage}
+          Metro_Storage_Room: ${option.Metro_Storage_Room}
+          Protection_Level: ${option.Protection_Level}
+          DR_Sync_Mode: ${option.DR_Sync_Mode}
+          DR_Host_Name: ${option.DR_Host_Name}
+          DR_Host_Description: ${option.DR_Host_Description}
+          DR_Host_Rack: ${option.DR_Host_Rack}
+          DR_Storage: ${option.DR_Storage}
+          DR_Storage_Room: ${option.DR_Storage_Room}
+          Class_2: ${option.Class_2}
+          DR_Host_WWN: ${option.DR_Host_WWN}
+          DR_Cluster_Name: ${option.DR_Cluster_Name}
+          DR_Test_Cluster_Name: ${option.DR_Test_Cluster_Name}
+          Class_3: ${option.Class_3}
+          Check_Result_1: ${option.Check_Result_1}
+          Check_Result_2: ${option.Check_Result_2}
+          Check_Result_3: ${option.Check_Result_3}
+          Check_Result_4: ${option.Check_Result_4}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/01_create_host.yml
+      description: Create Host
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: c51a8cf2-415e-4ca5-b8ef-702d64104147

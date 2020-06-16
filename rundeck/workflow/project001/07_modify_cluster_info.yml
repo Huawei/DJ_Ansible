@@ -1,0 +1,2476 @@
+- name: Modify Cluster Info
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    # Check Cluster Params
+    - block:
+        - set_fact:
+            checked_cluster_params:
+              Cluster: "{{ Cluster is not none and Cluster != DEFAULT.noneValue}}"
+              Storage: "{{ (Storage is not none and Storage != DEFAULT.noneValue) and (Storage|string|length == 20) }}"
+              Modify_Cluster_Name: "{{ (Modify_Cluster_Name is none) or (Modify_Cluster_Name|length <= 16 and '_' not in Modify_Cluster_Name) }}"
+              Modify_Cluster_Description: "{{ (Modify_Cluster_Description is none) or (Modify_Cluster_Description|length <= 64) }}"
+              Modify_Class_1: "{{ (Modify_Class_1 is none) or (Modify_Class_1 in ['A','B','C','D']) }}"
+              Modify_Session_Name: "{{ (Modify_Session_Name is none) or (Modify_Session_Name[0:3] == Country + '0' and Modify_Session_Name|length <= 19 and '_' not in Modify_Session_Name) }}"
+              Check_Result_1: "{{ ('cluster' in Check_Result_1) }}"
+
+        - name: Precheck_0_1 - Check Host Params
+          debug:
+            msg: "{{checked_cluster_params}}"
+          failed_when: checked_cluster_params.values()|unique != [True]
+
+    # Check Metro Params
+    - block:
+        - set_fact:
+            checked_metro_params:
+              Metro_Cluster: "{{ Metro_Cluster is not none and Metro_Cluster != DEFAULT.noneValue }}"
+              Metro_Storage: "{{ (Metro_Storage is not none and Metro_Storage != DEFAULT.noneValue) and (Metro_Storage|string|length == 20) }}"
+              Check_Result_2: "{{ ('cluster' in Check_Result_2) }}"
+
+        - name: Precheck_0_2 - Check Metro Params
+          debug:
+            msg: "{{checked_metro_params}}"
+          failed_when: checked_metro_params.values()|unique != [True]
+
+      when: Enable_HyperMetro == 'Y'
+
+    # Check DR Cluster Params
+    - block:
+        - set_fact:
+            checked_dr_cluster_params:
+              DR_Cluster: "{{ DR_Cluster is not none and DR_Cluster != DEFAULT.noneValue }}"
+              DR_Storage: "{{ (DR_Storage is not none and DR_Storage != DEFAULT.noneValue) and (DR_Storage|string|length == 20) }}"
+              Modify_DR_Cluster_Name: "{{ (Modify_DR_Cluster_Name is none) or (Modify_DR_Cluster_Name|length <= 16 and '_' not in Modify_DR_Cluster_Name) }}"
+              Modify_DR_Cluster_Description: "{{ (Modify_DR_Cluster_Description is none) or (Modify_DR_Cluster_Description|length <= 64) }}"
+              Modify_Class_2: "{{ (Modify_Class_2 is none) or (Modify_Class_2 in ['A','B','C','D']) }}"
+              Check_Result_3: "{{ ('cluster' in Check_Result_3) }}"
+
+        - name: Precheck_0_3 - Check DR Host Params
+          debug:
+            msg: "{{checked_dr_cluster_params}}"
+          failed_when: checked_dr_cluster_params.values()|unique != [True]
+      when: Protection_Level|int >= 2
+
+    # Check DR Test Params
+    - block:
+        - set_fact:
+            checked_dr_test_params:
+              DR_Test_Cluster: "{{ DR_Test_Cluster is not none and DR_Test_Cluster != DEFAULT.noneValue }}"
+              Modify_Class_3: "{{ (Modify_Class_3 is none) or (Modify_Class_3 in ['A','B','C','D']) }}"
+              Check_Result_4: "{{ ('cluster' in Check_Result_4) }}"
+
+        - name: Precheck_0_4 - Check DR Test Params
+          debug:
+            msg: "{{checked_dr_test_params}}"
+          failed_when: checked_dr_test_params.values()|unique != [True]
+      when: Protection_Level|int == 3
+
+    - set_fact:
+        primaryDeviceSn: "{{ Storage|string }}"
+        primaryRoom: "{{ Storage_Room }}"
+        primarySite: "{{ AZ[Storage_Room]['dc'] }}"
+        primaryClusterName: "{{ Cluster }}"
+        primaryClusterNetName: "{{ Cluster_Name }}"
+        primaryClusterDesc: "{{ Cluster_Description if (Cluster_Description != DEFAULT.noneValue) else '' }}"
+        primaryClusterDescNew: "{{ Modify_Cluster_Description if (Modify_Cluster_Description is not none) else Cluster_Description if (Cluster_Description != DEFAULT.noneValue) else '' }}"
+        metroEnable: "{{ Enable_HyperMetro if (Enable_HyperMetro is not none) else '0' }}"
+        primaryLgName: "{{ LUN_Group }}"
+        primaryPgName: "{{ Protection_Group if (Protection_Group is not none and Protection_Group != DEFAULT.noneValue) else none }}"
+        sessionName: "{{ Session_Name if(Session_Name is not none) else Cluster_Name }}"
+        protectLevel: "{{ Protection_Level|string if(Protection_Level is not none) else '0' }}"
+        class1: "{{ Class_1 if (Class_1 is not none and Class_1 != DEFAULT.noneValue) else '0' }}"
+        class2: "{{ Class_2 if (Class_2 is not none and Class_2 != DEFAULT.noneValue) else '0' }}"
+        class3: "{{ Class_3 if (Class_3 is not none and Class_2 != DEFAULT.noneValue) else '0' }}"
+        metroClusterName: "{{ Metro_Cluster }}"
+        metroDeviceSn: "{{ Metro_Storage|string }}"
+        metroCgName: "{{ Metro_CG }}"
+        metroCgId: "{{ Metro_CG_ID }}"
+        drCgName: "{{ DR_CG }}"
+        drCgId: "{{ DR_CG_ID }}"
+        drDeviceSn: "{{ DR_Storage|string }}"
+        drClusterName: "{{ DR_Cluster }}"
+        drClusterNetName: "{{ DR_Cluster_Name }}"
+        drClusterDesc: "{{ DR_Cluster_Description if (DR_Cluster_Description != DEFAULT.noneValue) else '' }}"
+        drClusterDescNew: "{{ Modify_DR_Cluster_Description if (Modify_DR_Cluster_Description is not none) else DR_Cluster_Description if (DR_Cluster_Description != DEFAULT.noneValue) else '' }}"
+        drLgName: "{{ DR_LUN_Group }}"
+        drPgName: "{{ DR_Protection_Group if (DR_Protection_Group is not none and DR_Protection_Group != DEFAULT.noneValue) else none }}"
+        drTestClusterName: "{{ DR_Test_Cluster }}"
+        drTestLgName: "{{ DR_Test_LUN_Group }}"
+        drStarCgName: "{{ DR_Star }}"
+        drStarCgId: "{{ DR_Star_ID }}"
+        standbyCgName: "{{ Standby_CG }}"
+        standbyCgId: "{{ Standby_CG_ID }}"
+
+    - set_fact:
+        protectType: "{{ REPTYPE[metroEnable+protectLevel|string]['enum'] }}"              # See ../../config/project001.yml
+        replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
+
+    - set_fact:
+        primaryClusterNetNameNew: "{{ Modify_Cluster_Name if (Modify_Cluster_Name is not none) else primaryClusterNetName }}"
+        sessionNameNew: "{{ Modify_Session_Name if( Modify_Session_Name is not none ) else sessionName }}"
+        class1New: "{{ Modify_Class_1 if (Modify_Class_1 is not none) else class1 }}"
+        class2New: "{{ Modify_Class_2 if (Modify_Class_2 is not none) else class2 }}"
+        class3New: "{{ Modify_Class_3 if (Modify_Class_3 is not none) else class3 }}"
+        drClusterNetNameNew: "{{ Modify_DR_Cluster_Name if (Modify_DR_Cluster_Name is not none) else drClusterNetName }}"
+        drTestCgName: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
+
+    - set_fact:
+        primaryClusterNameNew: "{{ primaryClusterName | replace(primaryClusterNetName, primaryClusterNetNameNew) }}"
+        drClusterNameNew: "{{ drClusterName | replace(drClusterNetName, drClusterNetNameNew) }}"
+        drTestClusterNameNew: "{{ drTestClusterName | replace(drClusterNetName, drClusterNetNameNew) }}"
+
+    - set_fact:
+        primaryLgNameNew: "{{ primaryClusterNameNew + primaryLgName[-5:] }}"
+        primaryPgNameNew: "{{ primaryClusterNameNew + primaryPgName[-5:] }}"
+        primaryLgDesc: "{{metroEnable}}{{protectLevel}}{{class1}}{{class2}}{{class3}}_{{sessionName}}"
+        primaryLgDescNew: "{{metroEnable}}{{protectLevel}}{{class1New}}{{class2New}}{{class3New}}_{{sessionNameNew}}"
+        metroCgNameNew: "{{ metroCgName | replace(sessionName, sessionNameNew) }}"
+        drCgNameNew: "{{ drCgName | replace(sessionName, sessionNameNew) }}"
+        drLgNameNew: "{{ drClusterNameNew + drLgName[-5:] }}"
+        drPgNameNew: "{{ drClusterNameNew + drPgName[-5:] }}"
+        drLgDesc: "0{{protectLevel}}{{class1}}{{class2}}{{class3}}_{{sessionName}}"
+        drLgDescNew: "0{{protectLevel}}{{class1New}}{{class2New}}{{class3New}}_{{sessionNameNew}}"
+        drTestLgNameNew: "{{ drTestClusterNameNew + drTestLgName[-5:] }}"
+        drTestCgNameNew: "{{ drTestCgName | replace(sessionName, sessionNameNew) }}"
+        drStarCgNameNew: "{{ drStarCgName | replace(sessionName, sessionNameNew) }}"
+        standbyCgNameNew: "{{ standbyCgName | replace(sessionName, sessionNameNew) }}"
+
+    - set_fact:
+        primaryLunIds: []
+        primaryLunNames: []
+        primaryLunDesc: []
+        primaryLunNamesNew: []
+        primaryLunDescNew: []
+        metroLunIds: []
+        metroLunNames: []
+        metroLunDesc: []
+        metroLunNamesNew: []
+        metroLunDescNew: []
+        drLunIds: []
+        drLunNames: []
+        drLunDesc: []
+        drLunNamesNew: []
+        drLunDescNew: []
+        drTestLunIds: []
+        drTestLunNames: []
+        drTestLunDesc: []
+        drTestLunNamesNew: []
+        drTestLunDescNew: []
+
+    - set_fact:
+        Precheck_1_Execute: True
+        Precheck_2_Execute: "{{ (metroEnable == 'Y') }}"
+        Precheck_3_Execute: "{{ (protectLevel|int >= 2) }}"
+        Precheck_4_Execute: "{{ (protectLevel|int == 3) }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - block:
+        - name: Precheck_1 - Check Cluster
+          debug:
+            msg:
+              hostGroup: "{{ primaryClusterName }}"
+              device: "{{ primaryDeviceSn }}"
+
+        - name: Login Primary Device
+          set_fact:
+            deviceSn: "{{ primaryDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            primaryDeviceName: "{{ deviceName }}"
+            primaryDeviceHost: "{{ deviceHost }}"
+            primaryDevicePort: "{{ devicePort }}"
+            primaryDeviceToken: "{{ deviceToken }}"
+            primaryDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+          vars:
+            hostGroupNames: ["{{ primaryClusterName }}"]
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: ["{{ primaryLgName }}"]
+
+        - set_fact:
+            primaryLgId: "{{ lgIds[0] }}"
+            primaryLunIds: "{{ checkedLuns[primaryLgName] | json_query('[*].ID') }}"
+            primaryLunNames: "{{ checkedLuns[primaryLgName] | json_query('[*].NAME') }}"
+            primaryLunDesc: "{{ checkedLuns[primaryLgName] | json_query('[*].DESCRIPTION') }}"
+
+        - set_fact:
+            primaryLunNamesNew: "{{ primaryLunNamesNew + [ primaryClusterNameNew + primaryLunNames[item.0][-6:] ] }}"
+            primaryLunDescNew: "{{ primaryLunDescNew + [ class1New + primaryLunDesc[item.0][1:] | replace(sessionName, sessionNameNew) ] }}"
+          with_indexed_items: "{{ primaryLunIds }}"
+          when: primaryLunIds|length > 0
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
+          vars:
+            pgNames: ["{{ primaryPgName }}"]
+
+        - set_fact:
+            primaryPgId: "{{ pgIds[0] }}"
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Cluster on Metro Device
+          debug:
+            msg:
+              hostGroup: "{{ primaryClusterName }}"
+              device: "{{ metroDeviceSn }}"
+
+        - name: Login Metro Device
+          set_fact:
+            deviceSn: "{{ metroDeviceSn }}"
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            metroDeviceName: "{{ deviceName }}"
+            metroDeviceHost: "{{ deviceHost }}"
+            metroDevicePort: "{{ devicePort }}"
+            metroDeviceToken: "{{ deviceToken }}"
+            metroDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+          vars:
+            hostGroupNames: ["{{ primaryClusterName }}"]
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: ["{{ primaryLgName }}"]
+
+        - set_fact:
+            metroLgId: "{{ lgIds[0] }}"
+            metroLunIds: "{{ checkedLuns[primaryLgName] | json_query('[*].ID') }}"
+            metroLunNames: "{{ checkedLuns[primaryLgName] | json_query('[*].NAME') }}"
+            metroLunDesc: "{{ checkedLuns[primaryLgName] | json_query('[*].DESCRIPTION') }}"
+
+        - set_fact:
+            metroLunNamesNew: "{{ metroLunNamesNew + [ primaryClusterNameNew + metroLunNames[item.0][-6:] ] }}"
+            metroLunDescNew: "{{ metroLunDescNew + [ class1New + metroLunDesc[item.0][1:] | replace(sessionName, sessionNameNew)] }}"
+          with_indexed_items: "{{ metroLunIds }}"
+          when: metroLunIds|length > 0
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
+          vars:
+            pgNames: ["{{ primaryPgName }}"]
+
+        - set_fact:
+            metroPgId: "{{ pgIds[0] }}"
+
+        # End Precheck_2
+      when: Precheck_2_Execute
+
+    - block:
+        - name: Precheck_3 - Check DR Cluster
+          debug:
+            msg:
+              hostGroup: "{{ drClusterName }}"
+              device: "{{ drDeviceSn }}"
+
+        - name: Login DR Device
+          set_fact:
+            deviceSn: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            drDeviceName: "{{ deviceName }}"
+            drDeviceHost: "{{ deviceHost }}"
+            drDevicePort: "{{ devicePort }}"
+            drDeviceToken: "{{ deviceToken }}"
+            drDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+          vars:
+            hostGroupNames: ["{{ drClusterName }}"]
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: ["{{ drLgName }}"]
+
+        - set_fact:
+            drLgId: "{{ lgIds[0] }}"
+            drLunIds: "{{ checkedLuns[drLgName] | json_query('[*].ID') }}"
+            drLunNames: "{{ checkedLuns[drLgName] | json_query('[*].NAME') }}"
+            drLunDesc: "{{ checkedLuns[drLgName] | json_query('[*].DESCRIPTION') }}"
+
+        - set_fact:
+            drLunNamesNew: "{{ drLunNamesNew + [ drClusterNameNew + drLunNames[item.0][-6:] ] }}"
+            drLunDescNew: "{{ drLunDescNew + [ class1New + drLunDesc[item.0][1:] | replace(sessionName, sessionNameNew)] }}"
+          with_indexed_items: "{{ drLunIds }}"
+          when: drLunIds|length > 0
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
+          vars:
+            pgNames: ["{{ drPgName }}"]
+
+        - set_fact:
+            drPgId: "{{ pgIds[0] }}"
+
+        # End Precheck_3
+      when: Precheck_3_Execute
+
+    - block:
+        - name: Precheck_4 - Check DR Test Cluster
+          debug:
+            msg:
+              hostGroup: "{{ drTestClusterName }}"
+              device: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+          vars:
+            hostGroupNames: ["{{ drTestClusterName }}"]
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: ["{{ drTestLgName }}"]
+
+        - set_fact:
+            drTestLgId: "{{ lgIds[0] }}"
+            drTestLunIds: "{{ checkedLuns[drTestLgName] | json_query('[*].ID') }}"
+            drTestLunNames: "{{ checkedLuns[drTestLgName] | json_query('[*].NAME') }}"
+            drTestLunDesc: "{{ checkedLuns[drTestLgName] | json_query('[*].DESCRIPTION') }}"
+
+        - set_fact:
+            drTestLunNamesNew: "{{ drTestLunNamesNew + [ drTestClusterNameNew + drTestLunNames[item.0][-6:] ] }}"
+            drTestLunDescNew: "{{ drTestLunDescNew + [ class1New + drTestLunDesc[item.0][1:] | replace(sessionName, sessionNameNew)] }}"
+          with_indexed_items: "{{ drTestLunIds }}"
+          when: drTestLunIds|length > 0
+
+        - name: Query Snapshot CG by Name
+          uri:
+            url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT_CONSISTENCY_GROUP?filter=NAME%3A%3A{{drTestCgName|urlencode}}"
+            method: GET
+            validate_certs: no
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json;charset=utf8"
+              iBaseToken: "{{ deviceToken }}"
+              Cookie: "session={{ deviceSession }}"
+          register: DR_TEST_CG
+          failed_when: (DR_TEST_CG.json.error.code|int != 0) or ('data' not in DR_TEST_CG.json) or (DR_TEST_CG.json.data|length != 1)
+          when: drTestLunIds|length > 0
+
+        - set_fact:
+            drTestCgId: "{{ DR_TEST_CG.json.data[0].ID }}"
+          when: drTestLunIds|length > 0
+
+        # End Precheck_4
+      when: Precheck_4_Execute
+
+
+    - block:
+        - set_fact:
+
+            # Modify Primary LUN Class on DJ
+            Step_0_3_Execute: "{{ (class1 != class1New) and (primaryLunIds|length > 0) }}"
+            Step_0_3_Completed: False
+            Step_0_3_Rollbacked: False
+
+            # Modify Metro LUN Class on DJ
+            Step_0_4_Execute: "{{ (metroEnable == 'Y') and (class1 != class1New) and (metroLunIds|length > 0) }}"
+            Step_0_4_Completed: False
+            Step_0_4_Rollbacked: False
+
+            # Modify DR LUN Class on DJ
+            Step_0_5_Execute: "{{ (protectLevel|int >= 2) and (class2 != class2New) and (drLunIds|length > 0) }}"
+            Step_0_5_Completed: False
+            Step_0_5_Rollbacked: False
+
+            # Modify DR Test LUN Class on DJ
+            Step_0_6_Execute: "{{ (protectLevel|int == 3) and (class3 != class3New) and (drTestLunIds|length > 0) }}"
+            Step_0_6_Completed: False
+            Step_0_6_Rollbacked: False
+
+            # Modify Primary Cluster
+            Step_1_1_Execute: "{{ (primaryClusterName != primaryClusterNameNew) or (primaryClusterDesc != primaryClusterDescNew) }}"
+            Step_1_1_Completed: False
+            Step_1_1_Rollbacked: False
+
+            # Modify Primary LUNs
+            Step_1_2_Execute: "{{ (primaryLunIds|length > 0) and ((primaryLunNames|sort != primaryLunNamesNew|sort) or (primaryLunDesc|sort != primaryLunDescNew|sort) ) }}"
+            Step_1_2_Completed: False
+            Step_1_2_Rollbacked: False
+
+            # Modify Primary LUN Group
+            Step_1_3_Execute: "{{ (primaryLgName != primaryLgNameNew or primaryLgDesc != primaryLgDescNew) }}"
+            Step_1_3_Completed: False
+            Step_1_3_Rollbacked: False
+
+            # Modify Primary Protection Group
+            Step_1_4_Execute: "{{ (primaryPgName != primaryPgNameNew or primaryLgDesc != primaryLgDescNew) }}"
+            Step_1_4_Completed: False
+            Step_1_4_Rollbacked: False
+
+            # Modify DR Consist Group Name
+            Step_1_5_Execute: "{{ (protectLevel|int >= 2) and (drCgName != drCgNameNew) }}"
+            Step_1_5_Completed: False
+            Step_1_5_Rollbacked: False
+
+            # Modify Metro Consist Group Name
+            Step_1_6_Execute: "{{ (metroEnable == 'Y') and (metroCgName != metroCgNameNew) }}"
+            Step_1_6_Completed: False
+            Step_1_6_Rollbacked: False
+
+            # Modify DR Star Name
+            Step_1_7_Execute: "{{ (metroEnable == 'Y') and (protectLevel|int >= 2) and (primaryLunIds|length > 0) and (drStarCgName != drStarCgNameNew) }}"
+            Step_1_7_Completed: False
+            Step_1_7_Rollbacked: False
+
+            # Modify Metro Cluster
+            Step_2_1_Execute: "{{ (metroEnable == 'Y') and ( (primaryClusterName != primaryClusterNameNew) or (primaryClusterDesc != primaryClusterDescNew) ) }}"
+            Step_2_1_Completed: False
+            Step_2_1_Rollbacked: False
+
+            # Modify Metro LUNs
+            Step_2_2_Execute: "{{ (metroEnable == 'Y') and (metroLunIds|length > 0) and ((metroLunNames|sort != metroLunNamesNew|sort) or (metroLunDesc|sort != metroLunDescNew|sort) ) }}"
+            Step_2_2_Completed: False
+            Step_2_2_Rollbacked: False
+
+            # Modify Metro LUN Group
+            Step_2_3_Execute: "{{ (metroEnable == 'Y') and (primaryLgName != primaryLgNameNew or primaryLgDesc != primaryLgDescNew) }}"
+            Step_2_3_Completed: False
+            Step_2_3_Rollbacked: False
+
+            # Modify Metro Protection Group
+            Step_2_4_Execute: "{{ (metroEnable == 'Y') and (primaryPgName != primaryPgNameNew or primaryLgDesc != primaryLgDescNew) }}"
+            Step_2_4_Completed: False
+            Step_2_4_Rollbacked: False
+
+            # Modify Standby DR Consist Group Name
+            Step_2_5_Execute: "{{ (metroEnable == 'Y') and (protectLevel|int >= 2)  and (standbyCgName != standbyCgNameNew) }}"
+            Step_2_5_Completed: False
+            Step_2_5_Rollbacked: False
+
+            # Modify DR Cluster
+            Step_3_1_Execute: "{{ (protectLevel|int >= 2) and ( (drClusterName != drClusterNameNew) or (drClusterDesc != drClusterDescNew) ) }}"
+            Step_3_1_Completed: False
+            Step_3_1_Rollbacked: False
+
+            # Modify DR LUNs
+            Step_3_2_Execute: "{{ (protectLevel|int >= 2) and (drLunIds|length > 0) and ((drLunNames|sort != drLunNamesNew|sort) or (drLunDesc|sort != drLunDescNew|sort) ) }}"
+            Step_3_2_Completed: False
+            Step_3_2_Rollbacked: False
+
+            # Modify DR LUN Group
+            Step_3_3_Execute: "{{ (protectLevel|int >= 2) and (drLgName != drLgNameNew or drLgDesc != drLgDescNew) }}"
+            Step_3_3_Completed: False
+            Step_3_3_Rollbacked: False
+
+            # Modify DR Protection Group
+            Step_3_4_Execute: "{{ (protectLevel|int >= 2) and (drPgName != drPgNameNew or drLgDesc != drLgDescNew) }}"
+            Step_3_4_Completed: False
+            Step_3_4_Rollbacked: False
+
+            # Modify DR Test Cluster
+            Step_4_1_Execute: "{{ (protectLevel|int == 3) and ( (drTestClusterName != drTestClusterNameNew) or (drClusterDesc != drClusterDescNew) ) }}"
+            Step_4_1_Completed: False
+            Step_4_1_Rollbacked: False
+
+            # Modify DR Test LUNs
+            Step_4_2_Execute: "{{ (protectLevel|int == 3) and (drTestLunIds|length > 0) and ((drTestLunNames|sort != drTestLunNamesNew|sort) or (drTestLunDesc|sort != drTestLunDescNew|sort) ) }}"
+            Step_4_2_Completed: False
+            Step_4_2_Rollbacked: False
+
+            # Modify DR Test LUN Group
+            Step_4_3_Execute: "{{ (protectLevel|int == 3) and (drTestLgName != drTestLgNameNew or drLgDesc != drLgDescNew) }}"
+            Step_4_3_Completed: False
+            Step_4_3_Rollbacked: False
+
+            # Modify DR Test CG Name
+            Step_4_4_Execute: "{{ (protectLevel|int == 3) and (drTestLunIds|length > 0) and (drTestCgName != drTestCgNameNew) }}"
+            Step_4_4_Completed: False
+            Step_4_4_Rollbacked: False
+
+
+        - name: Workflow - Modify Cluster Info
+          debug:
+            msg:
+              Step_0_3: "[{{Step_0_3_Execute}}] Modify Primary LUN Class on DJ"
+              Step_0_4: "[{{Step_0_4_Execute}}] Modify Metro LUN Class on DJ"
+              Step_0_5: "[{{Step_0_5_Execute}}] Modify DR LUN Class on DJ"
+              Step_0_6: "[{{Step_0_6_Execute}}] Modify DR Test LUN Class on DJ"
+              Step_1_1: "[{{Step_1_1_Execute}}] Modify Primary Cluster"
+              Step_1_2: "[{{Step_1_2_Execute}}] Modify Primary LUNs"
+              Step_1_3: "[{{Step_1_3_Execute}}] Modify Primary LUN Group"
+              Step_1_4: "[{{Step_1_4_Execute}}] Modify Primary Protection Group"
+              Step_1_5: "[{{Step_1_5_Execute}}] Modify DR Consist Group Name"
+              Step_1_6: "[{{Step_1_6_Execute}}] Modify Metro Consist Group Name"
+              Step_1_7: "[{{Step_1_7_Execute}}] Modify DR Star Name"
+              Step_2_1: "[{{Step_2_1_Execute}}] Modify Metro Cluster"
+              Step_2_2: "[{{Step_2_2_Execute}}] Modify Metro LUNs"
+              Step_2_3: "[{{Step_2_3_Execute}}] Modify Metro LUN Group"
+              Step_2_4: "[{{Step_2_4_Execute}}] Modify Metro Protection Group"
+              Step_2_5: "[{{Step_2_5_Execute}}] Modify Standby DR Consist Group Name"
+              Step_3_1: "[{{Step_3_1_Execute}}] Modify DR Cluster"
+              Step_3_2: "[{{Step_3_2_Execute}}] Modify DR LUNs"
+              Step_3_3: "[{{Step_3_3_Execute}}] Modify DR LUN Group"
+              Step_3_4: "[{{Step_3_4_Execute}}] Modify DR Protection Group"
+              Step_4_1: "[{{Step_4_1_Execute}}] Modify DR Test Cluster"
+              Step_4_2: "[{{Step_4_2_Execute}}] Modify DR Test LUNs"
+              Step_4_3: "[{{Step_4_3_Execute}}] Modify DR Test LUN Group"
+              Step_4_4: "[{{Step_4_4_Execute}}] Modify DR Test CG Name"
+
+        - block:
+            - name: Step_0_3 - Modify Primary LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ primaryLunNames }}"
+                    tierName:
+                      new: "{{ class1New }}"
+                      old: "{{ class1 }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ primaryLunNames }}"
+                tierName: "{{ class1New }}"
+
+            - set_fact:
+                Step_0_3_Completed: True
+
+          when: Step_0_3_Execute
+
+        - block:
+            - name: Step_0_4 - Modify Metro LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ metroLunNames }}"
+                    tierName:
+                      new: "{{ class1New }}"
+                      old: "{{ class1 }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ metroLunNames }}"
+                tierName: "{{ class1New }}"
+
+            - set_fact:
+                Step_0_4_Completed: True
+
+          when: Step_0_4_Execute
+
+        - block:
+            - name: Step_0_5 - Modify DR LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ drLunNames }}"
+                    tierName:
+                      new: "{{ class2New }}"
+                      old: "{{ class2 }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ drLunNames }}"
+                tierName: "{{ class2New }}"
+
+            - set_fact:
+                Step_0_5_Completed: True
+
+          when: Step_0_5_Execute
+
+        - block:
+            - name: Step_0_6 - Modify DR Test LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ drTestLunNames }}"
+                    tierName:
+                      new: "{{ class3New }}"
+                      old: "{{ class3 }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ drTestLunNames }}"
+                tierName: "{{ class3New }}"
+
+            - set_fact:
+                Step_0_6_Completed: True
+
+          when: Step_0_6_Execute
+
+        - block:
+            - name: Step_1_1 - Modify Primary Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        old: "{{ primaryClusterName }}"
+                        new: "{{ primaryClusterNameNew }}"
+                      desc:
+                        old: "{{ primaryClusterDesc }}"
+                        new: "{{ primaryClusterDescNew }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ primaryClusterName }}"
+                newHostGroupName: "{{ primaryClusterNameNew }}"
+                desc: "{{ primaryClusterDescNew }}"
+
+            - set_fact:
+                Step_1_1_Completed: True
+
+          when: Step_1_1_Execute
+
+        - block:
+            - name: Step_1_2 - Modify Primary LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ primaryLunNames }}"
+                        new: "{{ primaryLunNamesNew }}"
+                      desc:
+                        old: "{{ primaryLunDesc }}"
+                        new: "{{ primaryLunDescNew }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ primaryLunNames }}"
+                newVolumeNames: "{{ primaryLunNamesNew }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ primaryLunIds[i] }}"
+                desc: "{{ primaryLunDescNew[i] }}"
+              loop: "{{ range(0, primaryLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_2_Completed: True
+
+          when: Step_1_2_Execute
+
+        - block:
+            - name: Step_1_3 - Modify Primary LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        old: "{{ primaryLgName }}"
+                        new: "{{ primaryLgNameNew }}"
+                      desc:
+                        old: "{{ primaryLgDesc }}"
+                        new: "{{ primaryLgDescNew }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ primaryLgId }}"
+                newLgName: "{{ primaryLgNameNew }}"
+                desc: "{{ primaryLgDescNew }}"
+
+            - set_fact:
+                Step_1_3_Completed: True
+
+          when: Step_1_3_Execute
+
+        - block:
+            - name: Step_1_4 - Modify Primary Protection Group
+              debug:
+                msg:
+                  params:
+                    protectGroup:
+                      name:
+                        old: "{{ primaryPgName }}"
+                        new: "{{ primaryPgNameNew }}"
+                      desc:
+                        old: "{{ primaryLgDesc }}"
+                        new: "{{ primaryLgDescNew }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_pg.yml"
+              vars:
+                modifyPgId: "{{ primaryPgId }}"
+                newPgName: "{{ primaryPgNameNew }}"
+                desc: "{{ primaryLgDescNew }}"
+
+            - set_fact:
+                Step_1_4_Completed: True
+
+          when: Step_1_4_Execute
+
+        - block:
+            - name: Step_1_5 - Modify DR Consist Group Name
+              debug:
+                msg:
+                  params:
+                    drCg:
+                      name:
+                        old: "{{ drCgName }}"
+                        new: "{{ drCgNameNew }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_replication_cg.yml"
+              vars:
+                modifyCgId: "{{ drCgId }}"
+                newCgName: "{{ drCgNameNew }}"
+
+            - set_fact:
+                Step_1_5_Completed: True
+
+          when: Step_1_5_Execute
+
+        - block:
+            - name: Step_1_6 - Modify Metro Consist Group Name
+              debug:
+                msg:
+                  params:
+                    metroCg:
+                      name:
+                        old: "{{ metroCgName }}"
+                        new: "{{ metroCgNameNew }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hypermetro_cg.yml"
+              vars:
+                modifyCgId: "{{ metroCgId }}"
+                newCgName: "{{ metroCgNameNew }}"
+
+            - set_fact:
+                Step_1_6_Completed: True
+
+          when: Step_1_6_Execute
+
+        - block:
+            - name: Step_1_7 - Modify DR Star Name
+              debug:
+                msg:
+                  params:
+                    drStar:
+                      name:
+                        old: "{{ drStarCgName }}"
+                        new: "{{ drStarCgNameNew }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_drstar.yml"
+              vars:
+                modifyDRStarId: "{{ drStarId }}"
+                newDRStarName: "{{ drStarCgNameNew }}"
+
+            - set_fact:
+                Step_1_7_Completed: True
+
+          when: Step_1_7_Execute
+
+        - block:
+            - name: Step_2_1 - Modify Metro Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        old: "{{ primaryClusterName }}"
+                        new: "{{ primaryClusterNameNew }}"
+                      desc:
+                        old: "{{ primaryClusterDesc }}"
+                        new: "{{ primaryClusterDescNew }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ primaryClusterName }}"
+                newHostGroupName: "{{ primaryClusterNameNew }}"
+                desc: "{{ primaryClusterDescNew }}"
+
+            - set_fact:
+                Step_2_1_Completed: True
+
+          when: Step_2_1_Execute
+
+        - block:
+            - name: Step_2_2 - Modify Metro LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ metroLunNames }}"
+                        new: "{{ metroLunNamesNew }}"
+                      desc:
+                        old: "{{ metroLunDesc }}"
+                        new: "{{ metroLunDescNew }}"
+                    device: "{{ metroDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ metroLunNames }}"
+                newVolumeNames: "{{ metroLunNamesNew }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ metroLunIds[i] }}"
+                desc: "{{ metroLunDescNew[i] }}"
+              loop: "{{ range(0, metroLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_2_2_Completed: True
+
+          when: Step_2_2_Execute
+
+        - block:
+            - name: Step_2_3 - Modify Metro LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        old: "{{ primaryLgName }}"
+                        new: "{{ primaryLgNameNew }}"
+                      desc:
+                        old: "{{ primaryLgDesc }}"
+                        new: "{{ primaryLgDescNew }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ metroLgId }}"
+                newLgName: "{{ primaryLgNameNew }}"
+                desc: "{{ primaryLgDescNew }}"
+
+            - set_fact:
+                Step_2_3_Completed: True
+
+          when: Step_2_3_Execute
+
+        - block:
+            - name: Step_2_4 - Modify Metro Protection Group
+              debug:
+                msg:
+                  params:
+                    protectGroup:
+                      name:
+                        old: "{{ primaryPgName }}"
+                        new: "{{ primaryPgNameNew }}"
+                      desc:
+                        old: "{{ primaryLgDesc }}"
+                        new: "{{ primaryLgDescNew }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_pg.yml"
+              vars:
+                modifyPgId: "{{ metroPgId }}"
+                newPgName: "{{ primaryPgNameNew }}"
+                desc: "{{ primaryLgDescNew }}"
+
+            - set_fact:
+                Step_2_4_Completed: True
+
+          when: Step_2_4_Execute
+
+        - block:
+            - name: Step_2_5 - Modify Standby DR Consist Group Name
+              debug:
+                msg:
+                  params:
+                    drCg:
+                      name:
+                        old: "{{ standbyCgName }}"
+                        new: "{{ standbyCgNameNew }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_replication_cg.yml"
+              vars:
+                modifyCgId: "{{ standbyCgId }}"
+                newCgName: "{{ standbyCgNameNew }}"
+
+            - set_fact:
+                Step_2_5_Completed: True
+
+          when: Step_2_5_Execute
+
+        - block:
+            - name: Step_3_1 - Modify DR Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        old: "{{ drClusterName }}"
+                        new: "{{ drClusterNameNew }}"
+                      desc:
+                        old: "{{ drClusterDesc }}"
+                        new: "{{ drClusterDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ drClusterName }}"
+                newHostGroupName: "{{ drClusterNameNew }}"
+                desc: "{{ drClusterDescNew }}"
+
+            - set_fact:
+                Step_3_1_Completed: True
+
+          when: Step_3_1_Execute
+
+        - block:
+            - name: Step_3_2 - Modify DR LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ drLunNames }}"
+                        new: "{{ drLunNamesNew }}"
+                      desc:
+                        old: "{{ drLunDesc }}"
+                        new: "{{ drLunDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ drLunNames }}"
+                newVolumeNames: "{{ drLunNamesNew }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ drLunIds[i] }}"
+                desc: "{{ drLunDescNew[i] }}"
+              loop: "{{ range(0, drLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_3_2_Completed: True
+
+          when: Step_3_2_Execute
+
+        - block:
+            - name: Step_3_3 - Modify DR LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        old: "{{ drLgName }}"
+                        new: "{{ drLgNameNew }}"
+                      desc:
+                        old: "{{ drLgDesc }}"
+                        new: "{{ drLgDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ drLgId }}"
+                newLgName: "{{ drLgNameNew }}"
+                desc: "{{ drLgDescNew }}"
+
+            - set_fact:
+                Step_3_3_Completed: True
+
+          when: Step_3_3_Execute
+
+        - block:
+            - name: Step_3_4 - Modify DR Protection Group
+              debug:
+                msg:
+                  params:
+                    protectGroup:
+                      name:
+                        old: "{{ drPgName }}"
+                        new: "{{ drPgNameNew }}"
+                      desc:
+                        old: "{{ drLgDesc }}"
+                        new: "{{ drLgDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_pg.yml"
+              vars:
+                modifyPgId: "{{ drPgId }}"
+                newPgName: "{{ drPgNameNew }}"
+                desc: "{{ drLgDescNew }}"
+
+            - set_fact:
+                Step_3_4_Completed: True
+
+          when: Step_3_4_Execute
+
+
+        - block:
+            - name: Step_4_1 - Modify DR Test Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        old: "{{ drTestClusterName }}"
+                        new: "{{ drTestClusterNameNew }}"
+                      desc:
+                        old: "{{ drClusterDesc }}"
+                        new: "{{ drClusterDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ drTestClusterName }}"
+                newHostGroupName: "{{ drTestClusterNameNew }}"
+                desc: "{{ drClusterDescNew }}"
+
+            - set_fact:
+                Step_4_1_Completed: True
+
+          when: Step_4_1_Execute
+
+        - block:
+            - name: Step_4_2 - Modify DR Test LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ drTestLunNames }}"
+                        new: "{{ drTestLunNamesNew }}"
+                      desc:
+                        old: "{{ drTestLunDesc }}"
+                        new: "{{ drTestLunDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ drTestLunNames }}"
+                newVolumeNames: "{{ drTestLunNamesNew }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ drTestLunIds[i] }}"
+                desc: "{{ drTestLunDescNew[i] }}"
+              loop: "{{ range(0, drTestLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_4_2_Completed: True
+
+          when: Step_4_2_Execute
+
+        - block:
+            - name: Step_4_3 - Modify DR Test LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        old: "{{ drTestLgName }}"
+                        new: "{{ drTestLgNameNew }}"
+                      desc:
+                        old: "{{ drLgDesc }}"
+                        new: "{{ drLgDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ drTestLgId }}"
+                newLgName: "{{ drTestLgNameNew }}"
+                desc: "{{ drLgDescNew }}"
+
+            - set_fact:
+                Step_4_3_Completed: True
+
+          when: Step_4_3_Execute
+
+        - block:
+            - name: Step_4_4 - Modify DR Test CG Name
+              debug:
+                msg:
+                  params:
+                    drCg:
+                      name:
+                        old: "{{ drTestCgName }}"
+                        new: "{{ drTestCgNameNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_snapshot_cg.yml"
+              vars:
+                modifyCgId: "{{ drTestCgId }}"
+                newCgName: "{{ drTestCgNameNew }}"
+
+            - set_fact:
+                Step_4_4_Completed: True
+
+          when: Step_4_4_Execute
+
+      # End Steps
+      rescue:
+      # Begin Rollback
+
+        - block:
+            - name: Rollback_4_4 - Modify DR Test CG Name
+              debug:
+                msg:
+                  params:
+                    drCg:
+                      name:
+                        old: "{{ drTestCgNameNew }}"
+                        new: "{{ drTestCgName }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_snapshot_cg.yml"
+              vars:
+                modifyCgId: "{{ drTestCgId }}"
+                newCgName: "{{ drTestCgName }}"
+
+            - set_fact:
+                Step_4_4_Rollbacked: True
+
+          when: Step_4_4_Completed
+
+        - block:
+            - name: Rollback_4_3 - Modify DR Test LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        new: "{{ drTestLgName }}"
+                        old: "{{ drTestLgNameNew }}"
+                      desc:
+                        old: "{{ drLgDescNew }}"
+                        new: "{{ drLgDesc }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ drTestLgId }}"
+                newLgName: "{{ drTestLgName }}"
+                desc: "{{ drLgDesc }}"
+
+            - set_fact:
+                Step_4_3_Rollbacked: True
+
+          when: Step_4_3_Completed
+
+        - block:
+            - name: Rollback_4_2 - Modify DR Test LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ drTestLunNamesNew }}"
+                        new: "{{ drTestLunNames }}"
+                      desc:
+                        old: "{{ drTestLunDescNew }}"
+                        new: "{{ drTestLunDesc }}"
+                    device: "{{ drDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ drTestLunNamesNew }}"
+                newVolumeNames: "{{ drTestLunNames }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ drTestLunIds[i] }}"
+                desc: "{{ drTestLunDesc[i] }}"
+              loop: "{{ range(0, drTestLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_4_2_Rollbacked: True
+
+          when: Step_4_2_Completed
+
+        - block:
+            - name: Rollback_4_1 - Modify DR Test Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        new: "{{ drTestClusterName }}"
+                        old: "{{ drTestClusterNameNew }}"
+                      desc:
+                        new: "{{ drClusterDesc }}"
+                        old: "{{ drClusterDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ drTestClusterNameNew }}"
+                newHostGroupName: "{{ drTestClusterName }}"
+                desc: "{{ drClusterDesc }}"
+
+            - set_fact:
+                Step_4_1_Rollbacked: True
+
+          when: Step_4_1_Completed
+
+        - block:
+            - name: Rollback_3_4 - Modify DR Protection Group
+              debug:
+                msg:
+                  params:
+                    protectGroup:
+                      name:
+                        old: "{{ drPgNameNew }}"
+                        new: "{{ drPgName }}"
+                      desc:
+                        old: "{{ drLgDescNew }}"
+                        new: "{{ drLgDesc }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_pg.yml"
+              vars:
+                modifyPgId: "{{ drPgId }}"
+                newPgName: "{{ drPgName }}"
+                desc: "{{ drLgDesc }}"
+
+            - set_fact:
+                Step_3_4_Rollbacked: True
+
+          when: Step_3_4_Completed
+
+        - block:
+            - name: Rollback_3_3 - Modify DR LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        old: "{{ drLgNameNew }}"
+                        new: "{{ drLgName }}"
+                      desc:
+                        old: "{{ drLgDescNew }}"
+                        new: "{{ drLgDesc }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ drLgId }}"
+                newLgName: "{{ drLgName }}"
+                desc: "{{ drLgDesc }}"
+
+            - set_fact:
+                Step_3_3_Rollbacked: True
+
+          when: Step_3_3_Completed
+
+        - block:
+            - name: Rollback_3_2 - Modify DR LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ drLunNamesNew }}"
+                        new: "{{ drLunNames }}"
+                      desc:
+                        old: "{{ drLunDescNew }}"
+                        new: "{{ drLunDesc }}"
+                    device: "{{ drDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ drLunNamesNew }}"
+                newVolumeNames: "{{ drLunNames }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ drLunIds[i] }}"
+                desc: "{{ drLunDesc[i] }}"
+              loop: "{{ range(0, drLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_3_2_Rollbacked: True
+
+          when: Step_3_2_Completed
+
+        - block:
+            - name: Rollback_3_1 - Revert Modify DR Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        new: "{{ drClusterName }}"
+                        old: "{{ drClusterNameNew }}"
+                      desc:
+                        new: "{{ drClusterDesc }}"
+                        old: "{{ drClusterDescNew }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ drClusterNameNew }}"
+                newHostGroupName: "{{ drClusterName }}"
+                desc: "{{ drClusterDesc }}"
+
+            - set_fact:
+                Step_3_1_Rollbacked: True
+
+          when: Step_3_1_Completed
+
+        - block:
+            - name: Rollback_2_5 - Modify Standby DR Consist Group Name
+              debug:
+                msg:
+                  params:
+                    drCg:
+                      name:
+                        old: "{{ standbyCgNameNew }}"
+                        new: "{{ standbyCgName }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_replication_cg.yml"
+              vars:
+                modifyCgId: "{{ standbyCgId }}"
+                newCgName: "{{ standbyCgName }}"
+
+            - set_fact:
+                Step_2_5_Rollbacked: True
+
+          when: Step_2_5_Completed
+
+        - block:
+            - name: Rollback_2_4 - Modify Metro Protection Group
+              debug:
+                msg:
+                  params:
+                    protectGroup:
+                      name:
+                        old: "{{ primaryPgNameNew }}"
+                        new: "{{ primaryPgName }}"
+                      desc:
+                        old: "{{ primaryLgDescNew }}"
+                        new: "{{ primaryLgDesc }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_pg.yml"
+              vars:
+                modifyPgId: "{{ metroPgId }}"
+                newPgName: "{{ primaryPgName }}"
+                desc: "{{ primaryLgDesc }}"
+
+            - set_fact:
+                Step_2_4_Rollbacked: True
+
+          when: Step_2_4_Completed
+
+        - block:
+            - name: Rollback_2_3 - Modify Metro LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        old: "{{ primaryLgNameNew }}"
+                        new: "{{ primaryLgName }}"
+                      desc:
+                        old: "{{ primaryLgDescNew }}"
+                        new: "{{ primaryLgDesc }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ metroLgId }}"
+                newLgName: "{{ primaryLgName }}"
+                desc: "{{ primaryLgDesc }}"
+
+            - set_fact:
+                Step_2_3_Rollbacked: True
+
+          when: Step_2_3_Completed
+
+        - block:
+            - name: Rollback_2_2 - Modify Metro LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ metroLunNamesNew }}"
+                        new: "{{ metroLunNames }}"
+                      desc:
+                        old: "{{ metroLunDescNew }}"
+                        new: "{{ metroLunDesc }}"
+                    device: "{{ metroDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ metroLunNamesNew }}"
+                newVolumeNames: "{{ metroLunNames }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ metroLunIds[i] }}"
+                desc: "{{ metroLunDesc[i] }}"
+              loop: "{{ range(0, metroLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_2_2_Rollbacked: True
+
+          when: Step_2_2_Completed
+
+        - block:
+            - name: Rollback_2_1 - Modify Metro Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        new: "{{ primaryClusterName }}"
+                        old: "{{ primaryClusterNameNew }}"
+                      desc:
+                        new: "{{ primaryClusterDesc }}"
+                        old: "{{ primaryClusterDescNew }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ primaryClusterNameNew }}"
+                newHostGroupName: "{{ primaryClusterName }}"
+                desc: "{{ primaryClusterDesc }}"
+
+            - set_fact:
+                Step_2_1_Rollbacked: True
+
+          when: Step_2_1_Completed
+
+        - block:
+            - name: Rollback_1_7 - Modify DR Star Name
+              debug:
+                msg:
+                  params:
+                    drStar:
+                      name:
+                        old: "{{ drStarCgNameNew }}"
+                        new: "{{ drStarCgName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_drstar.yml"
+              vars:
+                modifyDRStarId: "{{ drStarId }}"
+                newDRStarName: "{{ drStarCgName }}"
+
+            - set_fact:
+                Step_1_7_Rollbacked: True
+
+          when: Step_1_7_Completed
+
+        - block:
+            - name: Rollback_1_6 - Modify Metro Consist Group Name
+              debug:
+                msg:
+                  params:
+                    metroCg:
+                      name:
+                        old: "{{ metroCgNameNew }}"
+                        new: "{{ metroCgName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hypermetro_cg.yml"
+              vars:
+                modifyCgId: "{{ metroCgId }}"
+                newCgName: "{{ metroCgName }}"
+
+            - set_fact:
+                Step_1_6_Rollbacked: True
+
+          when: Step_1_6_Completed
+
+        - block:
+            - name: Rollback_1_5 - Modify DR Consist Group Name
+              debug:
+                msg:
+                  params:
+                    drCg:
+                      name:
+                        old: "{{ drCgNameNew }}"
+                        new: "{{ drCgName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_replication_cg.yml"
+              vars:
+                modifyCgId: "{{ drCgId }}"
+                newCgName: "{{ drCgName }}"
+
+            - set_fact:
+                Step_1_5_Rollbacked: True
+
+          when: Step_1_5_Completed
+
+        - block:
+            - name: Rollback_1_4 - Modify Primary Protection Group
+              debug:
+                msg:
+                  params:
+                    protectGroup:
+                      name:
+                        old: "{{ primaryPgNameNew }}"
+                        new: "{{ primaryPgName }}"
+                      desc:
+                        old: "{{ primaryLgDescNew }}"
+                        new: "{{ primaryLgDesc }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_pg.yml"
+              vars:
+                modifyPgId: "{{ primaryPgId }}"
+                newPgName: "{{ primaryPgName }}"
+                desc: "{{ primaryLgDesc }}"
+
+            - set_fact:
+                Step_1_4_Rollbacked: True
+
+          when: Step_1_4_Completed
+
+        - block:
+            - name: Rollback_1_3 - Modify Primary LUN Group
+              debug:
+                msg:
+                  params:
+                    lunGroup:
+                      name:
+                        old: "{{ primaryLgNameNew }}"
+                        new: "{{ primaryLgName }}"
+                      desc:
+                        old: "{{ primaryLgDescNew }}"
+                        new: "{{ primaryLgDesc }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lg.yml"
+              vars:
+                modifyLgId: "{{ primaryLgId }}"
+                newLgName: "{{ primaryLgName }}"
+                desc: "{{ primaryLgDesc }}"
+
+            - set_fact:
+                Step_1_3_Rollbacked: True
+
+          when: Step_1_3_Completed
+
+        - block:
+            - name: Rollback_1_2 - Modify Primary LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      name:
+                        old: "{{ primaryLunNamesNew }}"
+                        new: "{{ primaryLunNames }}"
+                      desc:
+                        old: "{{ primaryLunDescNew }}"
+                        new: "{{ primaryLunDesc }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+              vars:
+                volumeNames: "{{ primaryLunNamesNew }}"
+                newVolumeNames: "{{ primaryLunNames }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ primaryLunIds[i] }}"
+                desc: "{{ primaryLunDesc[i] }}"
+              loop: "{{ range(0, primaryLunIds|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_2_Rollbacked: True
+
+          when: Step_1_2_Completed
+
+        - block:
+            - name: Rollback_1_1 - Modify Primary Cluster
+              debug:
+                msg:
+                  params:
+                    hostGroup:
+                      name:
+                        old: "{{ primaryClusterNameNew }}"
+                        new: "{{ primaryClusterName }}"
+                      desc:
+                        old: "{{ primaryClusterDescNew }}"
+                        new: "{{ primaryClusterDesc }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ primaryClusterNameNew }}"
+                newHostGroupName: "{{ primaryClusterName }}"
+                desc: "{{ primaryClusterDescNew }}"
+
+            - set_fact:
+                Step_1_1_Rollbacked: True
+
+          when: Step_1_1_Completed
+
+        - block:
+            - name: Rollback_0_6 - Modify DR Test LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ drTestLunNames }}"
+                    tierName:
+                      new: "{{ class3 }}"
+                      old: "{{ class3New }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ drTestLunNames }}"
+                tierName: "{{ class3 }}"
+
+            - set_fact:
+                Step_0_6_Rollbacked: True
+
+          when: Step_0_6_Completed
+
+        - block:
+            - name: Rollback_0_5 - Modify DR LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ drTestLunNames }}"
+                    tierName:
+                      new: "{{ class2 }}"
+                      old: "{{ class2New }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ drLunNames }}"
+                tierName: "{{ class2 }}"
+
+            - set_fact:
+                Step_0_5_Rollbacked: True
+
+          when: Step_0_5_Completed
+
+        - block:
+            - name: Rollback_0_4 - Modify Metro LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ metroLunNames }}"
+                    tierName:
+                      new: "{{ class1 }}"
+                      old: "{{ class1New }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ metroLunNames }}"
+                tierName: "{{ class1 }}"
+
+            - set_fact:
+                Step_0_4_Rollbacked: True
+
+          when: Step_0_4_Completed
+
+        - block:
+            - name: Rollback_0_3 - Modify Primary LUN Class on DJ
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ primaryLunNames }}"
+                    tierName:
+                      new: "{{ class1 }}"
+                      old: "{{ class1New }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ primaryLunNames }}"
+                tierName: "{{ class1 }}"
+
+            - set_fact:
+                Step_0_3_Rollbacked: True
+
+          when: Step_0_3_Completed
+
+      # End Rollbacks
+      always:
+      # Begin Final steps
+
+        - name: Final_Step_1 - Sync Devices
+          set_fact:
+            deviceSynced: []
+            primaryDeviceNeedSync: "{{ (Step_1_1_Completed|bool == True and Step_1_1_Rollbacked|bool == False) }}"
+            metroDeviceNeedSync: "{{ (Step_2_1_Completed|bool == True and Step_2_1_Rollbacked|bool == False) }}"
+            drDeviceNeedSync: "{{ (Step_3_1_Completed|bool == True and Step_3_1_Rollbacked|bool == False) }}"
+
+        - name: Final_Step_1_1 - Sync Primary Device
+          debug:
+            msg:
+              device: "{{ primaryDeviceName }}"
+          when: primaryDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ primaryDeviceName }}"
+          when: primaryDeviceNeedSync
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when: primaryDeviceNeedSync
+
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [primaryDeviceName] }}"
+          when: primaryDeviceNeedSync
+
+        - name: Final_Step_1_2 - Sync Metro Device
+          debug:
+            msg:
+              device: "{{ metroDeviceName }}"
+          when:
+            - metroDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ metroDeviceName }}"
+          when:
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when:
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [metroDeviceName] }}"
+          when:
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+
+        - name: Final_Step_1_3 - Sync DR Device
+          debug:
+            msg:
+              device: "{{ drDeviceName }}"
+          when:
+            - drDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ drDeviceName }}"
+          when:
+            - drDeviceNeedSync
+            - drDeviceName not in deviceSynced
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when:
+            - drDeviceNeedSync
+            - drDeviceName not in deviceSynced
+
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [drDeviceName] }}"
+          when:
+            - drDeviceNeedSync
+            - drDeviceName not in deviceSynced
+
+      # End Final Steps
+
+    # End Workflow
+
+    # Begin Validate Results
+    - block:
+
+        - name: Result_0_3 - Modify Primary LUN Class on DJ
+          debug:
+            msg:
+              params:
+                volumeNames: "{{ primaryLunNames }}"
+                tierName:
+                  new: "{{ class1New }}"
+                  old: "{{ class1 }}"
+              result:
+                succeeded: "{{ Step_0_3_Completed }}"
+                rollbacked: "{{ Step_0_3_Rollbacked }}"
+          failed_when: Step_0_3_Completed|bool == False
+          when: Step_0_3_Execute
+
+        - name: Result_0_4 - Modify Metro LUN Class on DJ
+          debug:
+            msg:
+              params:
+                volumeNames: "{{ metroLunNames }}"
+                tierName:
+                  new: "{{ class1New }}"
+                  old: "{{ class1 }}"
+              result:
+                succeeded: "{{ Step_0_4_Completed }}"
+                rollbacked: "{{ Step_0_4_Rollbacked }}"
+          failed_when: Step_0_4_Completed|bool == False
+          when: Step_0_4_Execute
+
+        - name: Result_0_5 - Modify DR LUN Class on DJ
+          debug:
+            msg:
+              params:
+                volumeNames: "{{ drLunNames }}"
+                tierName:
+                  new: "{{ class2New }}"
+                  old: "{{ class2 }}"
+              result:
+                succeeded: "{{ Step_0_5_Completed }}"
+                rollbacked: "{{ Step_0_5_Rollbacked }}"
+          failed_when: Step_0_5_Completed|bool == False
+          when: Step_0_5_Execute
+
+        - name: Result_0_6 - Modify DR Test LUN Class on DJ
+          debug:
+            msg:
+              params:
+                volumeNames: "{{ drTestLunNames }}"
+                tierName:
+                  new: "{{ class2New }}"
+                  old: "{{ class2 }}"
+              result:
+                succeeded: "{{ Step_0_6_Completed }}"
+                rollbacked: "{{ Step_0_6_Rollbacked }}"
+          failed_when: Step_0_6_Completed|bool == False
+          when: Step_0_6_Execute
+
+        - name: Result_1_1 - Modify Primary Cluster
+          debug:
+            msg:
+              params:
+                hostGroup:
+                  name:
+                    old: "{{ primaryClusterName }}"
+                    new: "{{ primaryClusterNameNew }}"
+                  desc:
+                    old: "{{ primaryClusterDesc }}"
+                    new: "{{ primaryClusterDescNew }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_1_Completed }}"
+                rollbacked: "{{ Step_1_1_Rollbacked }}"
+          failed_when: Step_1_1_Completed|bool == False
+          when: Step_1_1_Execute
+
+        - name: Result_1_2 - Modify Primary LUNs
+          debug:
+            msg:
+              params:
+                luns:
+                  name:
+                    old: "{{ primaryLunNames }}"
+                    new: "{{ primaryLunNamesNew }}"
+                  desc:
+                    old: "{{ primaryLunDesc }}"
+                    new: "{{ primaryLunDescNew }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_2_Completed }}"
+                rollbacked: "{{ Step_1_2_Rollbacked }}"
+          failed_when: Step_1_2_Completed|bool == False
+          when: Step_1_2_Execute
+
+        - name: Result_1_3 - Modify Primary LUN Group
+          debug:
+            msg:
+              params:
+                lunGroup:
+                  name:
+                    old: "{{ primaryLgName }}"
+                    new: "{{ primaryLgNameNew }}"
+                  desc:
+                    old: "{{ primaryLgDesc }}"
+                    new: "{{ primaryLgDescNew }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_3_Completed }}"
+                rollbacked: "{{ Step_1_3_Rollbacked }}"
+          failed_when: Step_1_3_Completed|bool == False
+          when: Step_1_3_Execute
+
+        - name: Result_1_4 - Modify Primary Protection Group
+          debug:
+            msg:
+              params:
+                protectGroup:
+                  name:
+                    old: "{{ primaryPgName }}"
+                    new: "{{ primaryPgNameNew }}"
+                  desc:
+                    old: "{{ primaryLgDesc }}"
+                    new: "{{ primaryLgDescNew }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_4_Completed }}"
+                rollbacked: "{{ Step_1_4_Rollbacked }}"
+          failed_when: Step_1_4_Completed|bool == False
+          when: Step_1_4_Execute
+
+        - name: Result_1_5 - Modify DR Consist Group Name
+          debug:
+            msg:
+              params:
+                drCg:
+                  name:
+                    old: "{{ drCgName }}"
+                    new: "{{ drCgNameNew }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_5_Completed }}"
+                rollbacked: "{{ Step_1_5_Rollbacked }}"
+          failed_when: Step_1_5_Completed|bool == False
+          when: Step_1_5_Execute
+
+        - name: Result_1_6 - Modify Metro Consist Group Name
+          debug:
+            msg:
+              params:
+                metroCg:
+                  name:
+                    old: "{{ metroCgName }}"
+                    new: "{{ metroCgNameNew }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_6_Completed }}"
+                rollbacked: "{{ Step_1_6_Rollbacked }}"
+          failed_when: Step_1_6_Completed|bool == False
+          when: Step_1_6_Execute
+
+        - name: Result_1_7 - Modify DR Star Name
+          debug:
+            msg:
+              params:
+                drStar:
+                  name:
+                    old: "{{ drStarCgName }}"
+                    new: "{{ drStarCgNameNew }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_7_Completed }}"
+                rollbacked: "{{ Step_1_7_Rollbacked }}"
+          failed_when: Step_1_7_Completed|bool == False
+          when: Step_1_7_Execute
+
+        - name: Result_2_1 - Modify Metro Cluster
+          debug:
+            msg:
+              params:
+                hostGroup:
+                  name:
+                    old: "{{ primaryClusterName }}"
+                    new: "{{ primaryClusterNameNew }}"
+                  desc:
+                    old: "{{ primaryClusterDesc }}"
+                    new: "{{ primaryClusterDescNew }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_1_Completed }}"
+                rollbacked: "{{ Step_2_1_Rollbacked }}"
+          failed_when: Step_2_1_Completed|bool == False
+          when: Step_2_1_Execute
+
+        - name: Result_2_2 - Modify Metro LUNs
+          debug:
+            msg:
+              params:
+                luns:
+                  name:
+                    old: "{{ metroLunNames }}"
+                    new: "{{ metroLunNamesNew }}"
+                  desc:
+                    old: "{{ metroLunDesc }}"
+                    new: "{{ metroLunDescNew }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_2_Completed }}"
+                rollbacked: "{{ Step_2_2_Rollbacked }}"
+          failed_when: Step_2_2_Completed|bool == False
+          when: Step_2_2_Execute
+
+        - name: Result_2_3 - Modify Metro LUN Group
+          debug:
+            msg:
+              params:
+                lunGroup:
+                  name:
+                    old: "{{ primaryLgName }}"
+                    new: "{{ primaryLgNameNew }}"
+                  desc:
+                    old: "{{ primaryLgDesc }}"
+                    new: "{{ primaryLgDescNew }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_3_Completed }}"
+                rollbacked: "{{ Step_2_3_Rollbacked }}"
+          failed_when: Step_2_3_Completed|bool == False
+          when: Step_2_3_Execute
+
+        - name: Result_2_4 - Modify Metro Protection Group
+          debug:
+            msg:
+              params:
+                protectGroup:
+                  name:
+                    old: "{{ primaryPgName }}"
+                    new: "{{ primaryPgNameNew }}"
+                  desc:
+                    old: "{{ primaryLgDesc }}"
+                    new: "{{ primaryLgDescNew }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_4_Completed }}"
+                rollbacked: "{{ Step_2_4_Rollbacked }}"
+          failed_when: Step_2_4_Completed|bool == False
+          when: Step_2_4_Execute
+
+        - name: Result_2_5 - Modify Standby DR Consist Group Name
+          debug:
+            msg:
+              params:
+                drCg:
+                  name:
+                    old: "{{ standbyCgName }}"
+                    new: "{{ standbyCgNameNew }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_5_Completed }}"
+                rollbacked: "{{ Step_2_5_Rollbacked }}"
+          failed_when: Step_2_5_Completed|bool == False
+          when: Step_2_5_Execute
+
+        - name: Result_3_1 - Modify DR Cluster
+          debug:
+            msg:
+              params:
+                hostGroup:
+                  name:
+                    old: "{{ drClusterName }}"
+                    new: "{{ drClusterNameNew }}"
+                  desc:
+                    old: "{{ drClusterDesc }}"
+                    new: "{{ drClusterDescNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_1_Completed }}"
+                rollbacked: "{{ Step_3_1_Rollbacked }}"
+          failed_when: Step_3_1_Completed|bool == False
+          when: Step_3_1_Execute
+
+        - name: Result_3_2 - Modify DR LUNs
+          debug:
+            msg:
+              params:
+                luns:
+                  name:
+                    old: "{{ drLunNames }}"
+                    new: "{{ drLunNamesNew }}"
+                  desc:
+                    old: "{{ drLunDesc }}"
+                    new: "{{ drLunDescNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_2_Completed }}"
+                rollbacked: "{{ Step_3_2_Rollbacked }}"
+          failed_when: Step_3_2_Completed|bool == False
+          when: Step_3_2_Execute
+
+        - name: Result_3_3 - Modify DR LUN Group
+          debug:
+            msg:
+              params:
+                lunGroup:
+                  name:
+                    old: "{{ drLgName }}"
+                    new: "{{ drLgNameNew }}"
+                  desc:
+                    old: "{{ drLgDesc }}"
+                    new: "{{ drLgDescNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_3_Completed }}"
+                rollbacked: "{{ Step_3_3_Rollbacked }}"
+          failed_when: Step_3_3_Completed|bool == False
+          when: Step_3_3_Execute
+
+        - name: Result_3_4 - Modify DR Protection Group
+          debug:
+            msg:
+              params:
+                protectGroup:
+                  name:
+                    old: "{{ drPgName }}"
+                    new: "{{ drPgNameNew }}"
+                  desc:
+                    old: "{{ drLgDesc }}"
+                    new: "{{ drLgDescNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_4_Completed }}"
+                rollbacked: "{{ Step_3_4_Rollbacked }}"
+          failed_when: Step_3_4_Completed|bool == False
+          when: Step_3_4_Execute
+
+        - name: Result_4_1 - Modify DR Test Cluster
+          debug:
+            msg:
+              params:
+                host:
+                  name:
+                    old: "{{ drTestClusterName }}"
+                    new: "{{ drTestClusterNameNew }}"
+                  desc:
+                    old: "{{ drClusterDesc }}"
+                    new: "{{ drClusterDescNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_4_1_Completed }}"
+                rollbacked: "{{ Step_4_1_Rollbacked }}"
+          failed_when: Step_4_1_Completed|bool == False
+          when: Step_4_1_Execute
+
+        - name: Result_4_2 - Modify DR Test LUNs
+          debug:
+            msg:
+              params:
+                luns:
+                  name:
+                    old: "{{ drTestLunNames }}"
+                    new: "{{ drTestLunNamesNew }}"
+                  desc:
+                    old: "{{ drTestLunDesc }}"
+                    new: "{{ drTestLunDescNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_4_2_Completed }}"
+                rollbacked: "{{ Step_4_2_Rollbacked }}"
+          failed_when: Step_4_2_Completed|bool == False
+          when: Step_4_2_Execute
+
+        - name: Result_4_3 - Modify DR Test LUN Group
+          debug:
+            msg:
+              params:
+                lunGroup:
+                  name:
+                    old: "{{ drTestLgName }}"
+                    new: "{{ drTestLgNameNew }}"
+                  desc:
+                    old: "{{ drLgDesc }}"
+                    new: "{{ drLgDescNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_4_3_Completed }}"
+                rollbacked: "{{ Step_4_3_Rollbacked }}"
+          failed_when: Step_4_3_Completed|bool == False
+          when: Step_4_3_Execute
+
+        - name: Result_4_4 - Modify DR Test CG Name
+          debug:
+            msg:
+              params:
+                snapCG:
+                  name:
+                    old: "{{ drTestCgName }}"
+                    new: "{{ drTestCgNameNew }}"
+                device: "{{ drDeviceName }}"
+              result:
+                succeeded: "{{ Step_4_4_Completed }}"
+                rollbacked: "{{ Step_4_4_Rollbacked }}"
+          failed_when: Step_4_4_Completed|bool == False
+          when: Step_4_4_Execute
+
+        - name: Synced Device
+          debug:
+            msg:
+              synced: "{{ deviceSynced }}"
+
+      # End Validates
+
+  # End Tasks
+
+# End Playbook

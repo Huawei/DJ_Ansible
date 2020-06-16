@@ -1,47 +1,20 @@
----
 # Required Parameters:
 #   taskId:     Task ID
 #
 # Optional Parameters:
-#   seconds:    wait seconds, default 300
+#   waitSeconds:    wait seconds, default 300
+#   waitInterval:   wait interval, default 5
+#   checkSuccess:   check if the task success, defaut: no, options: yes/no
 #
 # Examples:
-#   --extra-vars "taskId=bd5f2b70-d416-4d61-8e1a-f763e68dbbe1 seconds=60"
+#   --extra-vars "taskId=bd5f2b70-d416-4d61-8e1a-f763e68dbbe1 waitSeconds=60"
 
 - name: Wait Task Complete
   hosts: localhost
-  vars:
-    seconds: 300
   vars_files:
-    - ../global.yml
+    - ../../config/global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
-    
-    - name: Wait Task Complete
-      uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tasks }}/{{taskId}}"
-        method: GET
-        validate_certs: no
-        headers:
-          Accept: "application/json"
-          Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
-      register: TASKS
-      vars:
-        query: "[?id=='{{ taskId }}'].status"
-      retries: "{{ (seconds|int / 5) | int }}"
-      delay: 5
-      until: (TASKS.json | json_query(query) | first | int) not in [1, 2]    # 1/not_start, 2/running, 3/succeeded, 4/partially_succeeded, 5/failed, 6/timeout
-
-    - name: Task Details
-      vars:
-        statusMap: { '1': 'Not Start', '2': 'Running', '3': 'Succeeded', '4': 'Partially Succeeded', '5': 'Failed', '6': 'Timeout'}
-        query: "[?id=='{{ taskId }}'].status"
-        status: "{{ TASKS.json | json_query(query) | first }}"
-      debug:
-        msg: 
-          Detail: "{{ TASKS.json }}"
-          Result: "{{statusMap[status]}}"
-
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/task/wait_task_complete.yml"

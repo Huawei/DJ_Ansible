@@ -1,0 +1,194 @@
+# Required Parameters:
+#   cgName:            consistency group name, can be replaced with cgId
+#   lunNames:          LUN names, can be replaced with addLunIds
+#   cloneNames:        Clone names
+#
+# Optional Parameters:
+#   cgId:              consistency group ID
+#   addLunIds:         LUN IDs
+#   cloneDesc:         Clone description
+
+- block:
+    - name: Query Clone CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup?cgType=1&filter=name%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data | length != 1)
+
+    - name: Get Replication CG
+      set_fact:
+        cgId: "{{ CG.json.data[0].ID }}"
+
+  when: cgName|default(none) is not none
+
+- block:
+    - set_fact:
+        addLunIds: []
+
+    - name: Query LUNs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LUNs
+      with_items: "{{ lunNames }}"
+
+    - name: Get LUN IDs
+      vars:
+        queryId: "[? NAME=='{{item.1}}'].ID"
+      set_fact:
+        addLunIds: "{{ addLunIds + LUNs.results[item.0].json.data | default([]) | json_query(queryId) }}"
+      with_indexed_items: "{{ lunNames }}"
+
+  when:
+    - lunNames|default(none) is not none
+    - lunNames|length > 0
+
+- name: Check LUN IDs
+  debug:
+    msg:
+      addLunIds: "{{ addLunIds }}"
+  failed_when: addLunIds|length != cloneNames|length
+
+- name: Create Clone Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/create"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      sourceID: "{{ addLunIds[item.0] }}"
+      name: "{{ item.1  }}"
+      description: "{{ cloneDesc|default('')  }}"
+  register: CLONE_PAIRS
+  with_indexed_items: "{{ cloneNames }}"
+
+- name: Check Create Pairs Result
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ CLONE_PAIRS.results | json_query(queryMsg) }}"
+  failed_when: CLONE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+- name: Get Clone Pair IDs
+  vars:
+    queryPairId: "[*].json.data.ID"
+    queryTargetId: "[*].json.data.targetID"
+  set_fact:
+    newCloneIds: "{{ CLONE_PAIRS.results | json_query(queryPairId) }}"
+    newTargetIds: "{{ CLONE_PAIRS.json.data | json_query(queryTargetId) }}"
+
+- name: Sync Clone Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/synchronize"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ item }}"
+      copyAction: 3         # 0:start, 1:pause, 2:stop, 3:resume
+  register: SYNC_PAIRS
+  with_items: "{{ newCloneIds }}"
+
+- name: Check Sync Pair Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ SYNC_PAIRS.results | json_query(queryMsg) }}"
+  failed_when: SYNC_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: WAIT_SYNC
+  vars:
+    syncStatus: "{{ WAIT_SYNC.json.data.syncStatus }}"
+  retries: "{{ GLOBAL.clone.syncRetries }}"
+  delay: "{{ GLOBAL.clone.syncDelay }}"
+  until: syncStatus != GLOBAL.clone.syncStatus.syncing
+  with_items: "{{ newCloneIds }}"
+
+- name: Add Clone Pair to CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup/create_associate"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ cgId }}"
+      ASSOCIATEOBJTYPE: 57702
+      ASSOCIATEOBJID: "{{ item }}"
+  register: ADD_PAIRS
+  with_items: "{{ newCloneIds }}"
+
+- name: Check Add Pair Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ ADD_PAIRS.results | json_query(queryMsg) }}"
+  failed_when: ADD_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+
+- block:
+    - name: Modify Target LUN Description
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun/{{item}}"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          DESCRIPTION: "{{ cloneDesc }}"
+      register: MODIFY_LUNS
+      with_items: "{{ newTargetIds }}"
+
+    - name: Check Modify Target LUN Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ MODIFY_LUNS.results | json_query(queryMsg) }}"
+      failed_when: MODIFY_LUNS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: cloneDesc|default(none) is not none

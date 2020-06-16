@@ -1,0 +1,173 @@
+- defaultTab: monitor
+  description: Create Snapshots from a Source Cluster, and add to LUN Group, Protect Group, Replication CGs, HyperMetro CG of a Target Cluster
+  executionEnabled: true
+  id: 086d5268-3fd8-4884-9172-567c417717ee
+  loglevel: INFO
+  name: 27_create_snapshots_for_cluster
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Create Snapshots from a Source Cluster, and add to LUN Group, Protect Group, Replication CGs, HyperMetro CG of a Target Cluster
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Ticket</h2>
+  - required: true
+    name: WBE_CODE
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+  - required: true
+    name: TICKET_NUMBER
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+    description: <BR><h2>Select Source Cluster</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search Source Host
+    name: Source_Host_Search
+  - enforced: true
+    name: Source_Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Source_Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"not%20end%20with","value":"_3"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - enforced: true
+    name: Source_Cluster
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=PARENTNAME&valueAttr=PARENTNAME&filter=NAME::${option.Source_Host.value}
+  - enforced: true
+    name: Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storagehost","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Source_Host.value}"}}]}},{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Storage_Room.value}"}}]}}]
+  - enforced: true
+    name: Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Source_Host.value}"}}]}}]
+  - enforced: true
+    name: Source_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupName&range=[0-100]&obj=hostgroup&filter=NAME::${option.Source_Cluster.value}
+    description: Select a LUN Group to create snapshot CG on it <BR><BR><h2>Select Target Cluster</h2>
+  - label: Search Host in the Target Cluster
+    name: Target_Host_Search
+  - enforced: true
+    name: Target_Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_1"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Target_Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"not%20equal","value":"${option.Source_Host.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Storage.value}"}}]}}]
+  - enforced: true
+    name: Target_Cluster
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=PARENTNAME&valueAttr=PARENTNAME&filter=NAME::${option.Target_Host.value}
+  - enforced: true
+    name: Target_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupName&range=[0-100]&obj=hostgroup&filter=NAME::${option.Target_Cluster.value}
+  - enforced: true
+    name: Target_HyperMetro
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:0:1&valueAttr=DESCRIPTION:0:0:1&filter=NAME::${option.Target_LUN_Group.value}
+  - enforced: true
+    name: Target_Protection_Level
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:1:2&valueAttr=DESCRIPTION:0:1:2&filter=NAME::${option.Target_LUN_Group.value}
+    description: <BR><h2>Set Snapshot Info</h2>
+  - enforced: true
+    name: Activate
+    value: 'Yes'
+    values:
+      - 'Yes'
+      - 'No'
+  - delimiter: '|'
+    multivalued: true
+    name: Snapshot_Description
+    description: Add Snapshot Description (optional, max 200 chars for all items, '|' and '_' not permitted)
+  - enforced: true
+    name: Class_1
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.LUN_Group.value}
+  - name: Designate_Class_1
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?lun=Create%20snapshots%20from%20"${option.Source_Protection_Group.value}"%20and%20map%20to%20cluster:%20"${option.Target_Cluster.value}"
+    description: Select to confirm the result <BR><BR><h2>Additional Info</h2>
+  - enforced: true
+    name: Source_LUN_Group_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?nameAttr=ID&valueAttr=ID&filter=NAME::${option.Source_LUN_Group.value}
+  - enforced: true
+    name: Source_Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/protectgroup?nameAttr=protectGroupName&valueAttr=protectGroupName&range=[0-100]&filter=lunGroupId::${option.Source_LUN_Group_ID.value}
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Source_Cluster: ${option.Source_Cluster}
+          Source_LUN_Group: ${option.Source_LUN_Group}
+          Source_Protection_Group: ${option.Source_Protection_Group}
+
+          WBE_CODE: ${option.WBE_CODE}
+          TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Country: ${option.Country}
+          Target_Cluster: ${option.Target_Cluster}
+          Target_LUN_Group: ${option.Target_LUN_Group}
+          Target_HyperMetro: ${option.Target_HyperMetro}
+          Target_Protection_Level: ${option.Target_Protection_Level}
+          Storage: ${option.Storage}
+          Storage_Room: ${option.Storage_Room}
+          Activate: ${option.Activate}
+          Snapshot_Description: ${option.Snapshot_Description}
+          Class_1: ${option.Class_1}
+          Designate_Class_1: ${option.Designate_Class_1}
+          Check_Result_1: ${option.Check_Result_1}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/27_create_snapshots_for_cluster.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    - configuration:
+        command: /bin/psql automation -c "\copy (select * from activity where WBE_CODE = '${option.WBE_CODE}' and TICKET_NUMBER = '${option.TICKET_NUMBER}') TO '/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv' CSV HEADER"
+      description: Export Changes
+      nodeStep: true
+      type: localexec
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv'>${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+          - config:
+              datatype: text/html
+            type: render-datatype
+      type: localexec
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 086d5268-3fd8-4884-9172-567c417717ee

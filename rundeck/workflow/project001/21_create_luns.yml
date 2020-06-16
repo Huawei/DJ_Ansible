@@ -1,0 +1,111 @@
+- name: Create LUNs
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - block:
+        - name: Read LUN name from upload file
+          read_csv:
+            path: "{{ Upload_LUN }}"
+            delimiter: ','
+          register: UPLOAD_LUNS
+
+        - set_fact:
+            lunNames: "{{ UPLOAD_LUNS.list | json_query('[*].name') }}"
+            lunDescs: "{{ UPLOAD_LUNS.list | json_query('[*].desc') }}"
+            lunSizes: "{{ UPLOAD_LUNS.list | json_query('[*].size') }}"
+
+        - debug:
+            msg:
+              lunNames: "{{ lunNames }}"
+              lunDescs: "{{ lunDescs }}"
+              lunSizes: "{{ lunSizes }}"
+          failed_when: lunNames|length != lunDescs|length or lunNames|length != lunSizes|length
+
+      when: Upload_LUN is not none
+
+    - block:
+
+        - set_fact:
+            checked_params:
+              LUN_Size: "{{ (LUN_Size is not none) and (LUN_Size|int >= 1) }}"
+              LUN_Num: "{{ (LUN_Num is not none) and (LUN_Num|int >= 1) }}"
+              LUN_Description: "{{ (LUN_Description is none) or (LUN_Description|string|length <= 200) }}"
+              LUN_Prefix: "{{ (LUN_Prefix is not none) and (LUN_Prefix|string|length <= 28) }}"
+              Start_Suffix: "{{ (Start_Suffix is none) or (Start_Suffix|int >= 0 and (Start_Suffix|int + LUN_Num|int) < 1000 ) }}"
+
+        - debug:
+            msg: "{{checked_params}}"
+          failed_when: checked_params.values()|unique != [True]
+
+        - set_fact:
+            lunNum: "{{ LUN_Num|int if (LUN_Num is not none) else 0 }}"
+            lunDesc: "{{ LUN_Description|string if (LUN_Description is not none) else '' }}"
+            startSuffix: "{{ Start_Suffix if (Start_Suffix is not none) else 0 }}"
+            lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+            lunNames: []
+            lunDescs: []
+            lunSizes: []
+
+        - set_fact:
+            lunNames: "{{ lunNames + [ lunNameTemplate | format(LUN_Prefix, startSuffix|int + item|int) ] }}"
+            lunDescs: "{{ lunDescs + [lunDesc] }}"
+            lunSizes: "{{ lunSizes + [LUN_Size] }}"
+          with_sequence: start=0 count="{{lunNum}}"
+
+      when: Upload_LUN is none
+
+    - set_fact:
+        deviceSn: "{{ Storage|string }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+      vars:
+        lunNames: "{{ lunNames }}"
+        checkExist: False
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_lun.yml"
+      vars:
+        lunName: "{{ lunNames[i] }}"
+        lunSize: "{{ lunSizes[i] }}"
+        poolId:  "{{ Pool }}"
+        workload: "{{ Workload }}"
+        desc: "{{ lunDescs[i] }}"
+      loop: "{{ range(0, lunNames|length) | list }}"
+      loop_control:
+        loop_var: i
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+      vars:
+        volumeNames: "{{ lunNames }}"
+        waitExist: True
+
+    - set_fact:
+        lunIds: "{{ checkedVolumes | json_query('[*].volume_raw_id') }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
+      vars:
+        volumeNames: "{{ lunNames }}"
+        tierName: "{{ Class }}"
+
+    - include_tasks: update_lun_kpi_table.yml
+      vars:
+        TYPE_OF_OPERATION: "create"
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        SYSTEM_NAME: ""
+        SITE: "{{ Site }}"
+        ENVIRONMENT: ""
+        STORAGE_CLASS: "{{ Class }}"
+        CAPACITY_GB: "{{ lunSizes[item.0] }}"
+        STORAGE: "{{ deviceName }}"
+        VDISK_UID: "{{ item.1 }}"
+      with_indexed_items: "{{ lunIds }}"

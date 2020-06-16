@@ -1,0 +1,78 @@
+# Remove Host
+#
+# Required Parameters:
+#   hostName:       host name, can be replaced with hostId
+#
+# Optional Parameters:
+#   syncStorage:    sync to storage, default: true, options: true, false
+#
+# Generated Parameters:
+#   hostId:         host ID
+
+- name: Set default variables
+  set_fact:
+    syncStorage: "{{ syncStorage | default(true) }}"
+
+- name: Get Host by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{hostName}}"
+  register: HOSTS
+  when: hostName|default(none) is not none
+
+- name: Get Host ID
+  vars:
+    queryHostId: "[?name=='{{ hostName }}'].id"
+  set_fact:
+    hostId: "{{ HOSTS.json.hosts | json_query(queryHostId) | first }}"
+  failed_when: HOSTS.json.hosts | json_query(queryHostId) | length != 1
+  when: hostName|default(none) is not none
+
+- name: Query Host Details
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/summary"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: HOST
+
+- set_fact:
+    hostGroupIds: "{{ HOST.json.hostGroups | default([]) | json_query('[*].id') }}"
+
+- name: Remove Host from Host Groups
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{item}}/hosts/remove"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      host_ids: ["{{ hostId }}"]
+      sync_to_storage: "{{ syncStorage | default(True) }}"
+  register: RMRESULT
+  with_items: "{{ hostGroupIds }}"
+  when: hostGroupIds|length > 0
+
+- name: Delete Host
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}?sync_to_storage={{syncStorage|default('true')|lower}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"

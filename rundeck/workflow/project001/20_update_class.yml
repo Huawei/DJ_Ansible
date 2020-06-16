@@ -1,0 +1,53 @@
+- name: Update Performance Class
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - set_fact:
+        selectedLunNames: "{{ Select_LUN.split(',') if (Select_LUN is not none) else [] }}"
+
+    - block:
+        - name: Read LUN name from upload file
+          read_csv:
+            path: "{{ Upload_LUN }}"
+            delimiter: '|'
+          register: UPLOAD_LUNS
+
+        - set_fact:
+            selectedLunNames: "{{ selectedLunNames + UPLOAD_LUNS.list | json_query('[*].name') }}"
+
+      when: Upload_LUN is not none
+
+    - name: Check LUNs on DJ
+      debug:
+        msg:
+          volumeNames: "{{ selectedLunNames }}"
+      failed_when: selectedLunNames|length == 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+
+    - set_fact:
+        volumesInTier: {}
+        tierNames: "{{ checkedVolumes | json_query(queryTierName) | unique }}"
+      vars:
+        queryTierName: "[? service_level_name != '' && service_level_name != null ].service_level_name"
+
+    - set_fact:
+        volumesInTier: "{{ volumesInTier | combine( { item: checkedVolumes | json_query(queryVolumesInTier)  } ) }}"
+      vars:
+        queryVolumesInTier: "[? service_level_name == '{{ item }}' ].id"
+      with_items: "{{ tierNames }}"
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/volume/comply_volumes_with_tier.yml"
+      vars:
+        volumeIds: "{{ volumesInTier[tierName] }}"
+      loop: "{{ tierNames }}"
+      loop_control:
+        loop_var: tierName

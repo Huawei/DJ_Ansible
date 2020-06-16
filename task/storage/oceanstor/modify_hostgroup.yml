@@ -1,0 +1,78 @@
+# Modify host
+#
+# Required parameters:
+#   hostGroupName:               Host group name
+#
+# Optional parameters:
+#   newHostGroupName             New host group name
+#   desc:                   Description
+
+- name: Query hostGroup by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup?filter=NAME%3A%3A{{hostGroupName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOSTGROUP
+
+- name: Check hostGroup Exists
+  debug:
+    msg:
+      hostGroupExist: "{{ (HOSTGROUP.json.error.code|int == 0) and ('data' in HOSTGROUP.json) and (HOSTGROUP.json.data|length == 1) }}"
+  failed_when: (HOSTGROUP.json.error.code|int != 0) or ('data' not in HOSTGROUP.json) or (HOSTGROUP.json.data|length != 1)
+
+- name: Get hostGroup attributes
+  set_fact:
+    hostGroupId: "{{ HOSTGROUP.json.data[0].ID }}"
+    oldDesc: "{{ HOSTGROUP.json.data[0].DESCRIPTION }}"
+    oldParams: {}
+    newParams: {}
+
+- name: Set Param - hostGroupName
+  set_fact:
+    oldParams: "{{ oldParams | combine({'NAME':hostGroupName}) }}"
+    newParams: "{{ newParams | combine({'NAME':newHostGroupName}) }}"
+  when:
+    - newHostGroupName is defined
+    - newHostGroupName is not none
+    - newHostGroupName != hostGroupName
+
+- name: Set Param - desc
+  set_fact:
+    oldParams: "{{ oldParams | combine({'DESCRIPTION':oldDesc}) }}"
+    newParams: "{{ newParams | combine({'DESCRIPTION':desc}) }}"
+  when:
+    - desc is defined
+    - desc is not none
+    - desc != oldDesc
+
+- name: Modify hostGroup
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup/{{hostGroupId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ newParams }}"
+  register: MODIFY_HOSTGROUP
+  when: 
+    - newParams.keys()|length > 0
+
+- name: Check Modify hostGroup Result
+  debug:
+    msg: 
+      old: "{{ oldParams }}"
+      new: "{{ newParams }}"
+      result:
+        error: "{{ MODIFY_HOSTGROUP.json.error }}"
+  failed_when: MODIFY_HOSTGROUP.json.error.code|int != 0
+  when: 
+    - newParams.keys()|length > 0

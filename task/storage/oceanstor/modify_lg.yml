@@ -1,0 +1,67 @@
+# Modify LUN Group
+#
+# Required parameters:
+#   lgName:                 LUN Group name, can be replaced with modifyLgId
+#
+# Optional parameters:
+#   newLgName:              New LUN Group name
+#   desc:                   Description
+#
+# Generated parameters:
+#   modifyLgId:            LUN Group ID
+
+- block:
+    - name: Query LUN Group by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup?filter=NAME%3A%3A{{lgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LG
+
+    - name: Check LUN Group Name Exist
+      debug:
+        msg:
+          exist: "{{ (LG.json.error.code|int == 0) and ('data' in LG.json) and (LG.json.data|length == 1) }}"
+      failed_when: (LG.json.error.code|int != 0) or ('data' not in LG.json) or (LG.json.data|length != 1)
+
+    - set_fact:
+        modifyLgId: "{{ LG.json.data[0].ID }}"
+
+  when: lgName|default(none) is not none
+
+- set_fact:
+    params: {}
+
+- set_fact:
+    params: "{{ params | combine({'NAME':newLgName}) }}"
+  when: newLgName|default(none) is not none
+
+- set_fact:
+    params: "{{ params | combine({'DESCRIPTION':desc}) }}"
+  when: desc|default(none) is not none
+
+- name: Modify LUN Group
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup/{{modifyLgId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ params }}"
+  register: MODIFY_LG
+
+- name: Check Modify LUN Group Result
+  debug:
+    msg:
+      params: "{{ params }}"
+      result: "{{ MODIFY_LG.json.error }}"
+  failed_when: MODIFY_LG.json.error.code|int != 0

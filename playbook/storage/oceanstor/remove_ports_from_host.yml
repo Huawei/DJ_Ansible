@@ -1,0 +1,9 @@
+- name: Remove Ports from Host
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"

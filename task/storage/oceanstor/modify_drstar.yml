@@ -1,0 +1,72 @@
+# Modify DR Star
+#
+# Required parameters:
+#   drStarName:             DR Star name, can be replaced with modifyDRStarId
+#
+# Optional parameters:
+#   newDRStarName:          New DR Star name
+#   switchPolicy:           switch policy, options: 1/automatic, 2/manual
+#   swapSilentTime:         initial speed, options: 0-30
+#
+# Generated parameters:
+#   modifyDRStarId:            DR Star ID
+
+- block:
+    - name: Query DR Star by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/dr_star?filter=NAME%3A%3A{{drStarName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DR_STAR
+
+    - name: Check DR Star Name Exist
+      debug:
+        msg:
+          exist: "{{ (DR_STAR.json.error.code|int == 0) and ('data' in DR_STAR.json) and (DR_STAR.json.data|length == 1) }}"
+      failed_when: (DR_STAR.json.error.code|int != 0) or ('data' not in DR_STAR.json) or (DR_STAR.json.data|length != 1)
+
+    - set_fact:
+        modifyDRStarId: "{{ DR_STAR.json.data[0].ID }}"
+
+  when: drStarName|default(none) is not none
+
+- set_fact:
+    params: {}
+
+- set_fact:
+    params: "{{ params | combine({'NAME':newDRStarName}) }}"
+  when: newDRStarName|default(none) is not none
+
+- set_fact:
+    params: "{{ params | combine({'swapStrategy':swapStrategy}) }}"
+  when: swapStrategy|default(none) is not none
+
+- set_fact:
+    params: "{{ params | combine({'swapSilentTime':swapSilentTime}) }}"
+  when: swapSilentTime|default(none) is not none
+
+- name: Modify DR Star
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/dr_star/{{modifyDRStarId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ params }}"
+  register: MODIFY_DR_STAR
+
+- name: Check Modify DR Star Result
+  debug:
+    msg:
+      params: "{{ params }}"
+      result: "{{ MODIFY_DR_STAR.json.error }}"
+  failed_when: MODIFY_DR_STAR.json.error.code|int != 0

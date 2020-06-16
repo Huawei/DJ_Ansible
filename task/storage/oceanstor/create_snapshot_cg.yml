@@ -1,0 +1,147 @@
+# Required Parameters:
+#   pgName:            protection group name
+#   cgName:            snapshot consistency group name
+#
+# Optional Parameters:
+#   pgId:                   protection group ID
+#   snapNames:              rename snapshot names, can be replaced with snapNamePrefix
+#   snapNamePrefix:         rename snapshot names, prefix
+#   snapNameSuffixStart:    rename snapshot names, suffix start number, default: 0
+#   snapNameSuffixDigits:   rename snapshot names, suffix digits, default 4
+#   snapDescs:              snapshot descriptions, can be replaced with snapDesc
+#   snapDesc:               snapshot description
+#   activate:               activate snapshots after create, default: True
+#
+# Generated Parameters:
+#   newCgId:           new snapshot CG ID
+
+- block:
+    - name: Query PG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup?filter=protectGroupName%3A%3A{{pgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: PG
+      failed_when: (PG.json.error.code|int != 0) or ('data' not in PG.json) or (PG.json.data|length != 1)
+
+    - set_fact:
+        pgId: "{{ PG.json.data[0].protectGroupId }}"
+
+  when: pgName|default(none) is not none
+
+
+- name: Create Snapshot CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT_CONSISTENCY_GROUP"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      NAME: "{{ cgName }}"
+      PARENTID: "{{ pgId }}"
+  register: NEW_CG
+
+- name: Check Create Snapshot CG
+  debug:
+    msg: "{{ NEW_CG.json.error }}"
+  failed_when: NEW_CG.json.error.code|int != 0
+
+- set_fact:
+    newCgId: "{{ NEW_CG.json.data.ID }}"
+
+- block:
+    - name: Query Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=[0-4096]"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: SNAPSHOTS
+
+    - set_fact:
+        snapIds: "{{ SNAPSHOTS.json.data | json_query('[*].ID') }}"
+        snapNameSuffix: "%0{{snapNameSuffixDigits|default(DEFAULT.suffixDigits)}}d"
+
+    - block:
+        - set_fact:
+            snapNames: []
+
+        - set_fact:
+            snapNames: "{{ snapNames + [snapName] }}"
+          vars:
+            snapName: "{{snapNamePrefix}}{{ snapNameSuffix | format( snapNameSuffixStart|default(0)|int + item.0|int ) }}"
+          with_indexed_items: "{{ snapIds }}"
+      when: snapNamePrefix|default(none) is not none
+
+    - block:
+        - set_fact:
+            snapDescs: []
+
+        - set_fact:
+            snapDescs: "{{ snapDescs + [snapDesc] }}"
+          with_items: "{{ snapIds }}"
+      when: snapDesc|default(none) is not none
+
+    - name: Modify Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/{{item.1}}"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          NAME: "{{ snapNames[item.0] }}"
+          DESCRIPTION: "{{ snapDescs[item.0] if (snapDescs|default(none) is not none) else '' }}"
+      register: MODIFY_SNAPSHOTS
+      with_indexed_items: "{{ snapIds }}"
+
+    - name: Check Modify Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ MODIFY_SNAPSHOTS.results | json_query(queryMsg) }}"
+      failed_when: MODIFY_SNAPSHOTS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: snapNames|default(none) is not none
+
+- block:
+    - name: Deactivate Snapshot CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot_consistency_group/deactive"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ newCgId }}"
+      register: DEACTIVATE_CG
+
+    - name: Check Deactivate Result
+      debug:
+        msg: "{{ DEACTIVATE_CG.json.error }}"
+      failed_when: DEACTIVATE_CG.json.error.code|int != 0
+
+  when: activate|default(True)|bool == False

@@ -1,0 +1,75 @@
+# Disable Volume QoS
+#
+# Required parameters:
+#   volumeNames:           a list of volume names, can be replaced with volumeIds
+#   qosType:               QoS type: perGB (default), absolute
+#
+# Optional parameters:
+#   maxiops
+#   maxbandwidth
+#   miniops
+#   minbandwidth
+#   latency
+
+- set_fact:
+    volumeIds: []
+    volumeGBs: []
+
+- name: Query Volumes by Name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: VOLUMES
+  with_items: "{{ volumeNames }}"
+
+- name: Get Volume IDs & Size
+  vars:
+    queryVolumeId: "[? name=='{{item.1}}'].id"
+    queryVolumeGB: "[? name=='{{item.1}}'].capacity"
+  set_fact:
+    volumeIds: "{{ volumeIds + VOLUMES.results[item.0].json.volumes | json_query(queryVolumeId) }}"
+    volumeGBs: "{{ volumeGBs + VOLUMES.results[item.0].json.volumes | json_query(queryVolumeGB) }}"
+  with_indexed_items: "{{ volumeNames }}"
+
+- name: Check Volumes Exist
+  debug:
+    msg:
+      volumeIds: "{{ volumeIds }}"
+  failed_when: volumeIds|length < volumeNames|length
+
+- name: Set Volume QoS
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}/{{item.1}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    status_code: 202
+    body_format: json
+    body:
+      volume:
+        tuning:
+          smartqos:
+            enabled: True
+            control_policy: "1"
+            maxiops: "{{ none if (maxiops|default(none) is none) else (maxiops|int * volumeGBs[item.0]|int) if (qosType == 'perGB') else maxiops }}"
+            maxbandwidth: "{{ none if (maxbandwidth|default(none) is none) else (maxbandwidth|int * volumeGBs[item.0]|int) if (qosType == 'perGB') else maxbandwidth }}"
+            miniops: "{{ none if (miniops|default(none) is none) else (miniops|int * volumeGBs[item.0]|int) if (qosType == 'perGB') else miniops }}"
+            minbandwidth: "{{ none if (minbandwidth|default(none) is none) else (minbandwidth|int * volumeGBs[item.0]|int) if (qosType == 'perGB') else minbandwidth }}"
+            latency: "{{ none if (latency|default(none) is none) else latency }}"
+  register: SET_QOS
+  with_indexed_items: "{{ volumeIds }}"
+
+- include_tasks: ../task/wait_task_complete.yml
+  vars:
+    taskId: "{{ SET_QOS.results[i].json.task_id }}"
+  loop: "{{ range(0, volumeIds|length) | list }}"
+  loop_control:
+    loop_var: i

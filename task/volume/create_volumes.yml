@@ -1,0 +1,209 @@
+# Required Parameters:
+#   volumes:            a list of volumes: [{
+#                         name:          volume name or prefix, 
+#                         capacity:      capacity in GiB, 
+#                         count:         number of volumes,
+#                         start_suffix:  suffix start number, default 0
+#                       }]
+#   tierName:           service level name, can be instead with tierId
+#
+# Optional Parameters:
+#   projectName:        project name
+#   azName:             availability zone name
+#   affinity:           create multiple volumes on 1 storage, default: true, options: true, false
+#   affinityVolume:     create target volume on the same storage of this affinityVolume
+#   hostName:           map to host
+#   hostGroupName:      map to host group
+#
+# Generated Parameters (can be overwritten):
+#   tierId:             service level ID
+#   projectId:          project ID
+#   azId:               az ID
+#   affinityVolumeId    affinity volume ID
+#   hostId:             host ID
+#   hostGroupId         host group ID
+    
+- name: Query Tier by Name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.tiers }}?name={{tierName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: TIER
+  when: tierName is defined
+
+- name: Get Tier ID
+  vars:
+    query: "[?name=='{{ tierName }}'].id"
+  set_fact:
+    tierId: "{{ TIER.json[\"service-levels\"] | json_query(query) | first }}"
+  failed_when: TIER.json['service-levels'] | json_query(query) | length != 1
+  when: tierName is defined    
+
+- name: Set Param - volumes, tierId, affinity
+  set_fact:
+    params:
+      volumes: "{{ volumes }}"
+      service_level_id: "{{ tierId }}"
+      scheduler_hints:
+        affinity: "{{ affinity | default('true') }}"
+
+- name: Query project by name
+  vars:
+    query: "[?name=='{{ projectName }}'].id"
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?name={{projectName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: PROJECT
+  when: projectName is defined
+
+- name: Get project ID
+  vars:
+    query: "[?name=='{{ projectName }}'].id"
+  set_fact:
+    projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+  failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+  when: projectName is defined
+
+- name: Set Param - projectId
+  set_fact:
+    params: "{{ params | combine( { 'project_id': projectId } ) }}"
+  when: projectId is defined
+
+- name: Query AZ by name
+  vars:
+    query: "[?name=='{{ azName }}'].id"
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{azName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: AZ
+  when: azName is defined
+
+- name: Get AZ ID
+  vars:
+    query: "[?name=='{{ azName }}'].id"
+  set_fact:
+    azId: "{{ AZ.json.az_list | json_query(query) | first }}"
+  failed_when: AZ.json.az_list | json_query(query) | length != 1
+  when: azName is defined
+
+- name: Set Param - azId
+  set_fact:
+    params: "{{ params | combine( { 'availability_zone': azId } ) }}"
+  when: azId is defined
+
+- name: Query Host by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{hostName}}"
+  register: HOST
+  when: hostName is defined
+
+- name: Get Host ID
+  vars:
+    query: "[?name=='{{ hostName }}'].id"
+  set_fact:
+    hostId: "{{ HOST.json.hosts | json_query(query) | first }}"
+  failed_when: HOST.json.hosts | json_query(query) | length != 1
+  when: hostName is defined
+
+- name: Set Param - hostId
+  set_fact:
+    params: "{{ params | combine( { 'mapping': { 'host_id': hostId } } ) }}"
+  when: hostId is defined
+
+- name: Query Host Group by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{hostGroupName}}"
+  register: HOSTGROUP
+  when: hostGroupName is defined
+
+- name: Get Host Group ID
+  vars:
+    query: "[?name=='{{ hostGroupName }}'].id"
+  set_fact:
+    hostGroupId: "{{ HOSTGROUP.json.hostgroups | json_query(query) | first }}"
+  failed_when: HOSTGROUP.json.hostgroups | json_query(query) | length != 1
+  when: hostGroupName is defined
+
+- name: Set Param - hostGroupId
+  set_fact:
+    params: "{{ params | combine( { 'mapping': { 'hostgroup_id': hostGroupId } } ) }}"
+  when: hostGroupId is defined
+
+- name: Query Affinity Volume by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{affinityVolume}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: AFFVOL
+  when: affinityVolume is defined
+
+- name: Get Affinity Volume ID
+  vars:
+    query: "[?name=='{{ affinityVolume }}'].id"
+  set_fact:
+    affinityVolumeId: "{{ AFFVOL.json.volumes | json_query(query) | first }}"
+  failed_when: AFFVOL.json.volumes | json_query(query) | length != 1
+  when: affinityVolume is defined
+
+- name: Set Param - affinityVolumeId
+  set_fact:
+    params: "{{ params | combine( { 'scheduler_hints': { 'affinity': true, 'affinity_volume': affinityVolumeId } } ) }}"
+  when: affinityVolumeId is defined
+
+- name: Show Param
+  debug:
+    msg: "{{params}}"
+
+- name: Create Volumes
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    status_code: 202
+    body_format: json
+    body: "{{params}}"
+  register: CREATE_VOLUME
+
+- import_tasks: ../task/wait_task_complete.yml
+  vars:
+    taskId: "{{ CREATE_VOLUME.json.task_id }}"

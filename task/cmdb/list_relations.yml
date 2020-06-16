@@ -1,0 +1,66 @@
+# Required Parameters:
+#   relationName:     relation name, see ../global.yml to get supported relations in INVENTORY
+#
+# Optional Parameters:
+#   pageNo:            page NO, default: 1
+#   pageSize:          page size, default: 10
+#   modifiedTimeFrom:  modified time from, format: "YYYY-MM-DD hh:mm:ss", default: 7 days before, can be replaced with modifiedEpochFrom
+#   modifiedTimeTo:    modified time to, format: "YYYY-MM-DD hh:mm:ss", default: current time, can be replaced with modifiedEpochTo
+#   filters:           a list of attribute filters, format: [{"k":"attribute","op":"operator","v":"value"},...]
+#                      see global.yml to get supported attributes and operators
+#   orderBy:           order by attribute, default: last_Modified, see global.yml to get supported attributes
+#   orderAsc:          ascending order, default: no, options: yes,no
+#   export:      export file path
+#   sep:         separator, default '|'
+#
+# Generated Parameters (can be overwritten):
+#   modifiedEpochFrom: modified time from, format: epoch in seconds
+#   modifiedEpochTo:   modified time to, format: epoch in seconds
+
+- set_fact:
+    pageNo: "{{ pageNo | default(1) }}"
+    pageSize: "{{ pageSize | default(10) }}"
+    modifiedEpochFrom: "{{ (ansible_date_time.epoch|int-7*24*3600) if (modifiedTimeFrom is not defined or modifiedTimeFrom is none) else (modifiedTimeFrom|to_datetime).strftime('%s') }}"
+    modifiedEpochTo: "{{ (ansible_date_time.epoch|int) if (modifiedTimeTo is not defined or modifiedTimeTo is none) else (modifiedTimeTo|to_datetime).strftime('%s') }}"
+    orderBy: "{{ orderBy | default('last_Modified') }}"
+    orderAsc: "{{ orderAsc | default(False) | bool }}"
+    sep: "{{ sep | default('|') }}"
+    filterCondition: ""
+
+- name: Set filters
+  set_fact:
+    filterCondition: "{{filterCondition}},{\"logOp\":\"and\",\"simple\":{\"name\":\"{{item.k}}\",\"operator\":\"{{item.op|urlencode}}\",\"value\":\"{{item.v|urlencode}}\"}}"
+  with_items: "{{ filters }}"
+  when: filters is defined
+
+- set_fact:
+    params: "pageNo={{pageNo}}&pageSize={{pageSize}}&orderBy=[{\"field\":\"{{orderBy}}\",\"asc\":\"{{orderAsc}}\"}]&condition=[{\"simple\":{\"name\":\"last_Modified\",\"operator\":\"not%20less%20than\",\"value\":\"{{modifiedEpochFrom}}000\"}},{\"logOp\":\"and\",\"simple\":{\"name\":\"last_Modified\",\"operator\":\"less%20than\",\"value\":\"{{modifiedEpochTo}}000\"}}{{filterCondition}}]"
+
+- name: List Relations
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.relations }}/{{relationName}}/instances?{{params}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: RELATIONS
+
+- debug:
+    msg: "{{ RELATIONS.json }}"
+  when: export is not defined
+
+- import_tasks: ../util/json2csv.yml
+  vars:
+    data: "{{RELATIONS.json.objList}}"
+    keys: 
+      - id
+      - last_Modified
+      - source_Instance_Id
+      - target_Instance_Id
+    file: "{{export}}"
+  when: 
+    - export is defined
+    - RELATIONS.json.objList is defined
+    - RELATIONS.json.objList|length > 0

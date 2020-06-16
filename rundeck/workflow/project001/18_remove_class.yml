@@ -1,0 +1,108 @@
+- name: Remove Performance Class
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - set_fact:
+        selectedLunNames: "{{ Select_LUN.split(',') if (Select_LUN is not none) else [] }}"
+
+    - block:
+        - name: Read LUN name from upload file
+          read_csv:
+            path: "{{ Upload_LUN }}"
+            delimiter: '|'
+          register: UPLOAD_LUNS
+
+        - set_fact:
+            selectedLunNames: "{{ selectedLunNames + UPLOAD_LUNS.list | json_query('[*].name') }}"
+
+      when: Upload_LUN is not none
+
+    - name: Check LUNs on DJ
+      debug:
+        msg:
+          volumeNames: "{{ selectedLunNames }}"
+      failed_when: selectedLunNames|length == 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+
+    - set_fact:
+        storageSns: "{{ checkedVolumes | json_query('[*].storage_sn') | unique }}"
+        storageLunNames: {}
+
+    - set_fact:
+        storageLunNames: "{{ storageLunNames | combine({item: checkedVolumes | json_query(queryLunName) }) }}"
+      vars:
+        queryLunName: "[? storage_sn=='{{item}}'].name"
+      with_items: "{{ storageSns }}"
+
+    - set_fact:
+        volumesInTier: "{{ checkedVolumes | json_query(queryVolumesInTier) }}"
+        volumesNotInTier: "{{ checkedVolumes | json_query(queryVolumesNotInTier) }}"
+      vars:
+        queryVolumesInTier: "[? service_level_name != '' && service_level_name != null ].name"
+        queryVolumesNotInTier: "[? service_level_name == '' || service_level_name == null ].name"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+      vars:
+        volumeNames: "{{ volumesInTier }}"
+        disableQos: "{{ Disable_QoS }}"
+      when: volumesInTier|length > 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/disable_volumes_qos.yml"
+      vars:
+        volumeNames: "{{ volumesNotInTier }}"
+      when:
+        - volumesNotInTier|length > 0
+        - Disable_QoS|bool == True
+
+    - include_tasks: "modify_luns_on_storage.yml"
+      vars:
+        lunNames: "{{ storageLunNames[deviceSn] }}"
+        newClass: "0"
+      loop: "{{ storageSns }}"
+      loop_control:
+        loop_var: deviceSn
+
+    - include_tasks: "update_lun_kpi_table.yml"
+      vars:
+        queryDeviceName: "[? sn=='{{checkedVolumes[item.0].storage_sn}}'].name"
+        queryDeviceSite: "[? sn=='{{checkedVolumes[item.0].storage_sn}}'].site"
+        osType: "{{ item.1.split('_')[1] }}"
+        systemName: "{{ item.1.split('_')[0] }}_{{osType}}_{{ item.1.split('_')[2] }}_{{ item.1.split('_')[3][0] }}"
+        TYPE_OF_OPERATION: "modify"
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        SYSTEM_NAME: "{{ systemName if checkedVolumes[item.0].attached else '' }}"
+        SITE: "{{ STORAGES | json_query(queryDeviceSite) | first }}"
+        ENVIRONMENT: "{{ osType }}"
+        STORAGE_CLASS: "{{ checkedVolumes[item.0].service_level_name }}"
+        CAPACITY_GB: "-{{ checkedVolumes[item.0].capacity }}"
+        STORAGE: "{{ STORAGES | json_query(queryDeviceName) | first }}"
+        VDISK_UID: "{{ checkedVolumes[item.0].volume_raw_id }}"
+      with_indexed_items: "{{ selectedLunNames }}"
+
+    - include_tasks: "update_lun_kpi_table.yml"
+      vars:
+        queryDeviceName: "[? sn=='{{checkedVolumes[item.0].storage_sn}}'].name"
+        queryDeviceSite: "[? sn=='{{checkedVolumes[item.0].storage_sn}}'].site"
+        osType: "{{ item.1.split('_')[1] }}"
+        systemName: "{{ item.1.split('_')[0] }}_{{osType}}_{{ item.1.split('_')[2] }}_{{ item.1.split('_')[3][0] }}"
+        TYPE_OF_OPERATION: "modify"
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        SYSTEM_NAME: "{{ systemName if checkedVolumes[item.0].attached else '' }}"
+        SITE: "{{ STORAGES | json_query(queryDeviceSite) | first }}"
+        ENVIRONMENT: "{{ osType }}"
+        STORAGE_CLASS: ""
+        CAPACITY_GB: "{{ checkedVolumes[item.0].capacity }}"
+        STORAGE: "{{ STORAGES | json_query(queryDeviceName) | first }}"
+        VDISK_UID: "{{ checkedVolumes[item.0].volume_raw_id }}"
+      with_indexed_items: "{{ selectedLunNames }}"

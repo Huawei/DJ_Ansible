@@ -1,0 +1,43 @@
+# Check Snapshot CGs Exists or Not
+#
+# Required parameters:
+#   cgNames:                # a list of Snapshot CG Name
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedSnapCgs:             # a list of Checked Snapshot CGs
+
+- name: Set default variables
+  set_fact:
+    cgIds: []
+    checkedSnapCgs: []
+
+- name: Query Snapshot CGs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT_CONSISTENCY_GROUP?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SCGs
+  with_items: "{{ cgNames }}"
+
+- name: Get Snapshot CG IDs
+  vars:
+    queryScgIds: "[? NAME=='{{item.1}}'].ID"
+    queryScgs: "[? NAME=='{{item.1}}']"
+  set_fact:
+    cgIds: "{{ cgIds + SCGs.results[item.0].json.data | default([]) | json_query(queryScgIds) }}"
+    checkedSnapCgs: "{{ checkedSnapCgs + SCGs.results[item.0].json.data | default([]) | json_query(queryScgs) }}"
+  with_indexed_items: "{{ cgNames }}"
+
+- name: Check Snapshot CG Name Exist
+  debug:
+    msg:
+      cgIds: "{{ cgIds }}"
+  failed_when: (checkExist|default(True)|bool == True and cgIds|length != cgNames|length) or (checkExist|default(True)|bool == False and cgIds|length > 0)

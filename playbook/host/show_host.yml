@@ -22,25 +22,25 @@
 
 - name: Get Host by ID
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     showPort: true
     portParams: ""
-  vars_files:
-    - ../global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
     - name: Get Host by name
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/summary"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body:
           name: "{{hostName}}"
@@ -57,13 +57,13 @@
 
     - name: Get Host Info
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/{{hostId}}/summary"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/summary"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: HOST
 
     - name: Show Host
@@ -93,13 +93,13 @@
 
     - name: Get Ports
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hosts }}/{{hostId}}/initiators?{{portParams}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/initiators?{{portParams}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: PORT
       when: 
         - showPort == true

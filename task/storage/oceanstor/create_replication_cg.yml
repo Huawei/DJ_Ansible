@@ -1,0 +1,288 @@
+# Required Parameters:
+#   cgName:            consistency group name
+#   mode:              replication mode, options: 1/sync, 2/async
+#   remoteSn:          Remote Device SN, can be replaced with remoteDevId
+#
+# Optional Parameters:
+#   remoteDevId:       remote device ID
+#   localPgId:         local PG ID
+#   remotePgId:        remote PG ID
+#   localLunIds:       a list of local LUN IDs
+#   remoteLunIds:      a list of remote LUN IDs
+#   addPairIds:        a list of pair IDs to add
+#   recoveryPolicy:    recover policy, default: 1, options: 1/automatic, 2/manual
+#   syncSpeed:         initial speed, default: 2, options: 1/low, 2/medium, 3/high, 4/highest
+#   desc:              description
+#
+# Optional Parameters (async mode):
+#   syncType:          synchronize type for async replication, default: 3, options: 1/manual, 2/wait after last sync begin, 3/wait after last sync ends
+#   interval           synchronize interval in seconds (when syncType is not manual), default: 600, options: 10 ~ 86400
+#   compress:          enable compress for async replication, default false, options: true, false
+#   standby:           is standby or not, default: false, options: true/false
+#
+#
+# Optional Parameters (sync mode): 
+#   timeout:           remote I/O timeout threshold in seconds, default: 10, options: 10~30, or set to 255 to disable timeout
+#
+# Generated Parameters:
+#   newCgId:           New CG ID
+
+- set_fact:
+    newCgId: "{{ none }}"
+
+- block:
+    - name: Query Remote Devices
+      vars:
+        queryId: "[? SN=='{{remoteSn}}'].ID"
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/remote_device?range=[0-100]&filter=ARRAYTYPE::1"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: REMOTE_DEVICES
+      failed_when: ( 'data' not in REMOTE_DEVICES.json ) or (REMOTE_DEVICES.json.data | json_query(queryId) | length != 1)
+
+    - set_fact:
+        remoteDevId: "{{ REMOTE_DEVICES.json.data | json_query(queryId) | first}}"
+      vars:
+        queryId: "[? SN=='{{remoteSn}}'].ID"
+  when: remoteSn|default(none) is not none
+
+- set_fact:
+    existPairIds: "{{ addPairIds if (addPairIds|default(none) is not none) else [] }}"
+    newPairIds: []
+    pairedLocalLunIds: []
+    cgParams:
+      NAME: "{{ cgName }}"
+      remoteArrayID: "{{ remoteDevId }}"
+      REPLICATIONMODEL: "{{ mode }}"
+      SPEED: "{{ syncSpeed|default(GLOBAL.replication.syncSpeed) }}"
+      RECOVERYPOLICY: "{{ recoveryPolicy|default(GLOBAL.replication.recoveryPolicy) }}"
+      DESCRIPTION: "{{ desc|default('') }}"
+    pairParams:
+      REMOTEDEVICEID: "{{ remoteDevId }}"
+      REPLICATIONMODEL: "{{ mode }}"
+      SPEED: "{{ syncSpeed|default(GLOBAL.replication.syncSpeed) }}"
+      RECOVERYPOLICY: "{{ recoveryPolicy|default(GLOBAL.replication.recoveryPolicy) }}"
+
+- set_fact:
+    cgParams: "{{ cgParams | combine( {'localpgId':localPgId, 'rmtpgId':remotePgId} ) }}"
+  when:
+    - localPgId|default(none) is not none
+    - remotePgId|default(none) is not none
+      
+- set_fact:
+    cgParams: "{{ cgParams | combine( asyncParams ) }}"
+  vars:
+    asyncParams:
+      SYNCHRONIZETYPE: "{{ syncType|default(GLOBAL.replication.syncType) }}"
+      ENABLECOMPRESS: "{{ compress|default(GLOBAL.replication.compress) }}"
+      TIMINGVALINSEC: "{{ interval|default(GLOBAL.replication.interval) }}"
+  when:
+    - mode|int == 2
+
+- set_fact:
+    pairParams: "{{ pairParams | combine( asyncParams ) }}"
+  vars:
+    asyncParams:
+      SYNCHRONIZETYPE: "{{ syncType|default(GLOBAL.replication.syncType) }}"
+      ENABLECOMPRESS: "{{ compress|default(GLOBAL.replication.compress) }}"
+      TIMINGVAL: "{{ interval|default(GLOBAL.replication.interval) }}"
+      ISSTANDBY: "{{ standby|default(False) }}"
+  when:
+    - mode|int == 2
+
+- set_fact:
+    pairParams: "{{ pairParams | combine( { 'REMTIMEOUTPERIOD': timeout|default(GLOBAL.replication.timeout) } ) }}"
+  when:
+    - mode|int == 1
+
+- block:
+    - name: Check Exist Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR?filter=LOCALRESID%3A%3A{{item.1}}%20and%20REMOTERESID%3A%3A{{remoteLunIds[item.0]}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: ExistReplicationPairs
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Get Exist Pair IDs
+      vars:
+        queryPairId: "[? REMOTEDEVICEID=='{{remoteDeviceId}}'].ID"
+        queryObjId: "[? REMOTEDEVICEID=='{{remoteDeviceId}}'].LOCALRESID"
+      set_fact:
+        existPairIds: "{{ existPairIds + ExistReplicationPairs.results[item.0].json.data | default([]) | json_query(queryPairId) }}"
+        pairedLocalLunIds: "{{ pairedLocalLunIds + ExistReplicationPairs.results[item.0].json.data | default([]) | json_query(queryObjId) }}"
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Create New Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body: "{{ pairParams | combine( { 'LOCALRESID':item.1, 'REMOTERESID':remoteLunIds[item.0] } ) }}"
+      register: NEW_PAIRS
+      when: item.1 not in pairedLocalLunIds
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Check Create Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ NEW_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: NEW_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+    - name: Get Replication Pair IDs
+      vars:
+        queryPairId: "[*].json.data.ID"
+      set_fact:
+        newPairIds: "{{ NEW_PAIRS.results | json_query(queryPairId) }}"
+  
+  when:
+    - localLunIds|default(none) is not none
+    - remoteLunIds|default(none) is not none
+    - localLunIds|length > 0
+    - localLunIds|length = remoteLunIds|length
+
+- name: Create Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ cgParams }}"
+  register: NEW_CG
+
+- name: Check Create CG Result
+  debug:
+    msg: "{{ NEW_CG.json.error }}"
+  failed_when: (NEW_CG.json.error.code|int !=0) or ('data' not in NEW_CG.json)
+
+- set_fact:
+    newCgId: "{{ NEW_CG.json.data.ID }}"
+
+- debug: var=newCgId
+
+
+- block:
+    - name: Split Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/split"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: SPLIT_PAIRS
+      with_items: "{{ existPairIds }}"
+
+    - name: Check Split Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ SPLIT_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: SPLIT_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: existPairIds|length > 0
+
+- block:
+    - name: Add Replication Pairs to CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/ADD_MIRROR"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ newCgId }}"
+          RMLIST: 
+            - "{{ item }}"
+      register: ADD_PAIRS
+      with_items: "{{ existPairIds + newPairIds }}"
+
+    - name: Check Add Pair Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ ADD_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: ADD_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: 
+    - existPairIds|length > 0 or newPairIds|length > 0
+
+
+- name: Sync Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SYNCHRONIZE_CONSISTENCY_GROUP"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ newCgId }}"
+  register: SYNC_CG
+  when:
+    - standby|default(False)|bool == False
+
+- name: Check Sync Result
+  debug:
+    msg: "{{ SYNC_CG.json.error }}"
+  failed_when: SYNC_CG.json.error.code|int != 0
+  when:
+    - standby|default(False)|bool == False
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP/{{newCgId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SYNC_CG_WAIT
+  vars:
+    syncStatus: "{{ SYNC_CG_WAIT.json.data.RUNNINGSTATUS }}"
+  retries: "{{ GLOBAL.replication.syncRetries }}"
+  delay: "{{ GLOBAL.replication.syncDelay }}"
+  until: syncStatus != GLOBAL.replication.syncStatus.syncing
+  when:
+    - standby|default(False)|bool == False
+    - waitSync|default(False)|bool == True

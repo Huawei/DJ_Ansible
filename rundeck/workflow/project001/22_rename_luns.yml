@@ -1,0 +1,51 @@
+- name: Rename LUNs
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - set_fact:
+        selectedLunNames: "{{ Select_LUN.split(',') }}"
+      when: Select_LUN is not none
+
+    - block:
+        - name: Read LUN name from upload file
+          read_csv:
+            path: "{{ Upload_LUN }}"
+            delimiter: '|'
+          register: UPLOAD_LUNS
+
+        - set_fact:
+            selectedLunNames: "{{ UPLOAD_LUNS.list | json_query('[*].name') }}"
+            newLunNames: "{{ UPLOAD_LUNS.list | json_query('[*].newName') }}"
+
+      when: Upload_LUN is not none
+
+    - name: Check LUNs on DJ
+      debug:
+        msg:
+          volumeNames: "{{ selectedLunNames }}"
+      failed_when: selectedLunNames|length == 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+        volumePrefix: "{{ LUN_Prefix }}"
+        startSuffix: "{{ Start_Suffix if (Start_Suffix is not none) else 0 }}"
+      when: newLunNames is not defined or newLunNames|length == 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+        newVolumeNames: "{{ newLunNames }}"
+      when:
+        - newLunNames is defined
+        - newLunNames|length == selectedLunNames|length

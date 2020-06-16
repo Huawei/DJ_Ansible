@@ -10,16 +10,16 @@
 #
 - name: List Projects
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     pageNo: 1
     pageSize: 10
     params: "{{'limit=' + pageSize|string + '&start=' + (pageSize|int * (pageNo|int - 1) + 1) | string }}"
-  vars_files:
-    - ../global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Set params - projectName
       set_fact:
@@ -29,13 +29,13 @@
 
     - name: List Projects
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?{{params}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?{{params}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: PROJECTS
 
     - name: Show Projects

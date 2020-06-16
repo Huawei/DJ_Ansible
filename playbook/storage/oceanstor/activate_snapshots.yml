@@ -1,82 +1,9 @@
----
-
-# Required Parameters:
-#   volumes:           a list of primary volumes, can be replaced with: snapshots
-#   suffix:            snapshot name suffix
-#
-# Examples:
-#   --extra-vars '{"suffix": "20200204T232229", "volumes": ["DJ_AT_0000", "DJ_AT_0001"]}'
-# 
-# Generated Parameters (can be overwritten):
-#   deviceSn:          storage device SN
-#   snapshots:         a list of snapshot names
-#
-# Examples:
-#   --extra-vars '{"deviceSn": "12323019876312325911", "snapshots": ["DJ_AT_0000_20200204T232229", "DJ_AT_0001_20200204T232229"]}'
-#
 - name: Activate Snapshots
   hosts: localhost
   vars_files:
-    - ../../global.yml
+    - ../../../config/global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: check_volume_affinity.yml
-      when: 
-        - volumes is defined
-
-    - import_tasks: login_storage.yml
-
-    - name: Generate Snapshot Names
-      vars:
-        snapName: "{{item}}_{{suffix}}"
-      set_fact:
-        snapshots: "{{ snapshots|default([]) + [snapName] }}"
-      with_items: "{{ volumes }}"
-      when: 
-        - volumes is defined
-        - suffix is defined
-
-    - name: Query Snapshots
-      uri:
-        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT?filter=NAME%3A%3A{{item|urlencode}}"
-        method: GET
-        validate_certs: no
-        headers:
-          Accept: "application/json"
-          Content-Type: "application/json;charset=utf8"
-          iBaseToken: "{{ deviceToken }}"
-          Cookie: "session={{ deviceSession }}"
-      register: SNAPSHOTS
-      with_items: "{{ snapshots }}"
-
-    - name: Get Snapshot IDs
-      vars:
-        queryId: "[*].ID"
-      set_fact:
-        snapIds: "{{ snapIds|default([]) + SNAPSHOTS.results[item.0].json.data | json_query(queryId) }}"
-      with_indexed_items: "{{ snapshots }}"
-
-    - name: Show Snapshot IDs
-      debug:
-        msg: 
-          snapIds: "{{ snapIds }}"
-
-    - name: Activate Snapshots
-      uri:
-        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/activate"
-        method: POST
-        validate_certs: no
-        headers:
-          Accept: "application/json"
-          Content-Type: "application/json;charset=utf8"
-          iBaseToken: "{{ deviceToken }}"
-          Cookie: "session={{ deviceSession }}"
-        body_format: json
-        body:
-          SNAPSHOTLIST: "{{ snapIds }}"
-      register: ACTIVATE_SNAPSHOTS
-
-    - name: Show Activate Results
-      debug:
-        msg: "{{ ACTIVATE_SNAPSHOTS.json.error }}"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/activate_snapshots.yml"

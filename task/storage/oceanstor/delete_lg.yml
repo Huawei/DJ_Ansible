@@ -1,0 +1,222 @@
+# Required Parameters:
+#   lgName:            LUN group name, can be replaced with lgId
+#
+# Optional Parameters:
+#   unmap:             Unmap if LUN group is mapped, default: False, option: True/False
+#   lgId               LUN group ID
+
+- set_fact:
+    removedLunIds: []
+    deletedLg: "{{ none }}"
+    deletedPg: "{{ none }}"
+
+- block:
+    - name: Query LG by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup?filter=NAME%3A%3A{{lgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LG
+      failed_when: ('data' not in LG.json) or (LG.json.data|length != 1)
+    
+    - name: Get LG Attributes
+      vars:
+        lg: "{{ LG.json.data[0] }} "
+      set_fact:
+        deletedLg: "{{ lg }}"
+        lgMapped: "{{ lg.ISADD2MAPPINGVIEW == 'true' }}"
+        lgReplicaNum: "{{ lg.cdpGroupNum|int + lg.cloneGroupNum|int + lg.replicationGroupNum|int + lg.snapshotGroupNum|int + lg.drStarNum|int + lg.hyperMetroGroupNum|int}}"
+  
+  when: lgName|default(none) is not none
+
+- block:
+    - name: Query LG by ID
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup/{{lgId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LG
+      failed_when: ('data' not in LG.json)
+
+    - name: Get LG Attributes
+      vars:
+        lg: "{{ LG.json.data }} "
+      set_fact:
+        deletedLg: "{{ lg }}"
+        lgMapped: "{{ lg.ISADD2MAPPINGVIEW == 'true' }}"
+        lgReplicaNum: "{{ lg.cdpGroupNum|int + lg.cloneGroupNum|int + lg.replicationGroupNum|int + lg.snapshotGroupNum|int + lg.drStarNum|int + lg.hyperMetroGroupNum|int}}"  
+
+  when: lgId|default(none) is not none
+
+
+- name: Check Replicas
+  fail: 
+    msg: "Cannot be deleted, replicas exists: {{ lgReplicaNum }}"
+  when: lgReplicaNum|int > 0
+
+- name: Check Mapping
+  fail: 
+    msg: "Cannot be deleted, LG is mapped"
+  when: 
+    - lgMapped
+    - unmap|default(False)|bool == False
+
+- block:
+    - name: Query LG Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/associate?ASSOCIATEOBJTYPE=256&ASSOCIATEOBJID={{deletedLg.ID}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: MAPPINGS
+
+    - name: Get LG Mapped Hosts and Host Groups
+      vars:
+        queryHostId: "[? hostId != ''].hostId"
+        queryHostGroupId: "[? hostGroupId != ''].hostGroupId"
+      set_fact:
+        lgMappedHostIds: "{{ MAPPINGS.json.data | json_query(queryHostId) }}"
+        lgMappedHostGroupIds: "{{ MAPPINGS.json.data | json_query(queryHostGroupId) }}"
+    
+    - name: Unmap LG from Hosts
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping?lunGroupId={{deletedLg.ID}}&hostId={{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_HOST_MAPPINGS
+      with_items: "{{ lgMappedHostIds }}"
+      when: lgMappedHostIds|length > 0
+
+    - name: Unmap LG from Host Groups
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping?lunGroupId={{deletedLg.ID}}&hostGroupId={{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_HOSTGROUP_MAPPINGS
+      with_items: "{{ lgMappedHostGroupIds }}"
+      when: lgMappedHostGroupIds|length > 0
+
+  when: 
+    - lgMapped
+    - unmap|default(False)|bool == True
+
+
+- name: Query PG associated with LG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup?filter=lunGroupId%3A%3A{{deletedLg.ID}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: PGs
+
+- name: Get PG ID
+  set_fact:
+    deletedPg: "{{ PGs.json.data[0] }}"
+  when: ('data' in PGs.json) and (PGs.json.data | length == 1)
+
+- name: Delete PG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup/{{deletedPg.protectGroupId}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DELETE_PG
+  when: ('data' in PGs.json) and (PGs.json.data | length == 1)
+
+- name: Check Delete PG Result
+  debug:
+    msg: "{{ DELETE_PG.json.error }}"
+  failed_when: DELETE_PG.json.error.code|int != 0
+  when: ('data' in PGs.json) and (PGs.json.data | length == 1)
+
+- name: Query LUNs in LG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun/associate?TYPE=11&ASSOCIATEOBJTYPE=256&ASSOCIATEOBJID={{deletedLg.ID}}&range=[0-{{deletedLg.lunNumber}}]"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LUNS
+  when: deletedLg.lunNumber|int > 0
+
+- name: Get LUN IDs
+  vars:
+    query: "[*].ID"
+  set_fact:
+    removedLunIds: "{{ LUNS.json.data | json_query(query) }}"
+  when: deletedLg.lunNumber|int > 0
+
+- name: Remove LUNs from LG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup/associate?ID={{deletedLg.ID}}&ASSOCIATEOBJTYPE=11&ASSOCIATEOBJID={{item}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: REMOVE_LUNS
+  with_items: "{{ removedLunIds }}"
+  when: deletedLg.lunNumber|int > 0
+
+- name: Check Remove LUNs Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ REMOVE_LUNS.results | json_query(queryMsg) }}"
+  failed_when: REMOVE_LUNS.results | json_query(queryError) | difference([0]) | length > 0
+  when: deletedLg.lunNumber|int > 0
+
+- name: Delete LG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup/{{deletedLg.ID}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DELETE_LG
+
+- name: Check Delete LG Result
+  debug:
+    msg: "{{ DELETE_LG.json.error }}"
+  failed_when: DELETE_LG.json.error.code|int != 0

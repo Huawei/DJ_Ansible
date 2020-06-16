@@ -1,0 +1,283 @@
+# Modify Host
+#
+# Required Parameters:
+#   hostName:           Host Name, can be replaced with hostId
+#
+# Optional Parameters:
+#   newHostName:        new host name
+#   ipAddress:          new IP Address
+#   osType:             OS Type, options: UNKNOWN, LINUX, WINDOWS, SUSE, EULER, REDHAT, CENTOS, WINDOWSSERVER2012, SOLARIS, HPUX, AIX, XENSERVER, MACOS, VMWAREESX, ORACLE, OPENVMS
+#   addWwns:            add a list of WWNs
+#   removeWwns:         remove a list of WWNs
+#   addIqns:            add a list of IQNs
+#   removeIqns:         remove a list of IQNs
+#   projectName:        new project name, can be replaced with projectId
+#   azNames:            a new list of AZ name, can be replaced with azIds
+#   boundAzNames:       bound a list of AZ names, can be replaced with boundAzIds
+#   unboundAzNames:     un-bound a list of AZ names, can be replaced with unboundAzIds
+#   syncStorage:        sync to storage, default: true, options: true, false
+#
+# Generated Parameters:
+#   hostId:             the Host ID
+#   projectId:          new project ID
+#   azIds:              a new list of AZ IDs
+#   boundAzIds:         bound a list of AZ IDs
+#   unboundAzIds:       un-bound a list of AZ IDs
+
+- name: Set default variables
+  set_fact:
+    accessMode: "NONE"                                  # enum: ACCOUNT, NONE
+
+- name: Get Host by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{hostName}}"
+  register: HOSTS
+  when: hostName is defined
+
+- name: Get Host ID
+  vars:
+    query: "[?name=='{{ hostName }}'].id"
+  set_fact:
+    hostId: "{{ HOSTS.json.hosts | json_query(query) | first }}"
+  failed_when: HOSTS.json.hosts | json_query(query) | length != 1
+  when: hostName is defined
+
+- name: Get Old Host Info
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/summary"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: HOST
+
+- name: Generate Params
+  set_fact:
+    params:
+      azs: "{{ HOST.json.azs }}"
+      sync_to_storage: "{{ syncStorage | default(true) }}"
+
+- name: Set Param - newHostName
+  set_fact:
+    params: "{{ params | combine( { 'host_name': newHostName } ) }}"
+  when: newHostName is defined
+
+- name: Set Param - ipAddress
+  set_fact:
+    params: "{{ params | combine( { 'ip': ipAddress } ) }}"
+  when: ipAddress is defined
+
+- name: Set Param - osType
+  set_fact:
+    params: "{{ params | combine( { 'os_type': osType } ) }}"
+  when: osType is defined
+
+- name: Query project by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?name={{projectName}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: PROJECT
+  when: 
+    - projectName is defined
+    - projectName is not none
+
+- name: Get project ID
+  vars:
+    query: "[?name=='{{ projectName }}'].id"
+  set_fact:
+    projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+  failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+  when: 
+    - projectName is defined
+    - projectName is not none
+
+- name: Set Param - projectId
+  set_fact:
+    params: "{{ params | combine( { 'project_id': projectId } ) }}"
+  when: 
+    - projectId is defined
+    - projectId is not none
+
+- name: Query AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: AZs
+  with_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Get AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ AZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    azIds: "{{ azIds|default([]) + azId }}"
+  with_indexed_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Query Bound AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: boundAZs
+  with_items: "{{ boundAzNames }}"
+  when: boundAzNames is defined
+
+- name: Get Bound AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ boundAZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    boundAzIds: "{{ boundAzIds|default([]) + azId }}"
+  with_indexed_items: "{{ boundAzNames }}"
+  when: boundAzNames is defined
+
+- name: Query Un-Bound AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: unboundAZs
+  with_items: "{{ unboundAzNames }}"
+  when: unboundAzNames is defined
+
+- name: Get Un-Bound AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ unboundAZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    unboundAzIds: "{{ unboundAzIds|default([]) + azId }}"
+  with_indexed_items: "{{ unboundAzNames }}"
+  when: unboundAzNames is defined
+
+- name: Generate New Host AZs
+  set_fact:
+    azIds: "{{ HOST.json.azs | difference( unboundAzIds|default([]) ) | union( boundAzIds|default([]) ) }}"
+  when: boundAzIds is defined or unboundAzIds is defined
+
+- name: Set Param - azIds
+  set_fact:
+    params: "{{ params | combine( { 'azs': azIds } ) }}"
+  when: azIds is defined
+
+- name: Show Params
+  debug:
+    msg: "{{ params }}"
+
+- name: Modify Host
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/general"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body: "{{ params }}"
+  when:
+    - params.keys()|length > 1
+
+
+- set_fact:
+    removeInitiators: []
+
+- name: Get Host Initiators
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/initiators"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: INITIATORS
+  when: (removeWwns is defined and removeWwns|length > 0) or (removeIqns is defined and removeIqns|length > 0)
+
+- name: Get removeWwns initiator ID
+  vars:
+    query: "[? port_name=='{{item}}' && protocol=='FC'].id"
+  set_fact:
+    removeInitiators: "{{ removeInitiators + INITIATORS.json.initiators | default([]) | json_query(query) }}"
+  with_items: "{{ removeWwns }}"
+  when: (removeWwns is defined and removeWwns|length > 0)
+
+- name: Get removeIqns initiator ID
+  vars:
+    query: "[? port_name=='{{item}}' && protocol=='ISCSI'].id"
+  set_fact:
+    removeInitiators: "{{ removeInitiators + INITIATORS.json.initiators | default([]) | json_query(query) }}"
+  with_items: "{{ removeIqns }}"
+  when: (removeIqns is defined and removeIqns|length > 0)
+
+- name: Remove Initiators
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/initiators/remove"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      initiators: "{{ removeInitiators }}"
+  when: removeInitiators|length > 0
+
+
+- set_fact:
+    addInitiators: []
+
+- set_fact:
+    addInitiators: "{{ addInitiators + [{'protocol': 'FC', 'port_name': item }] }}"
+  with_items: "{{ addWwns }}"
+  when: (addWwns is defined and addWwns|length > 0)
+
+- set_fact:
+    addInitiators: "{{ addInitiators + [{'protocol': 'ISCSI', 'port_name': item }] }}"
+  with_items: "{{ addIqns }}"
+  when: (addIqns is defined and addIqns|length > 0)
+
+- name: Add Initiators
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/initiators/add"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      initiators: "{{ addInitiators }}"
+  when: addInitiators|length > 0

@@ -1,0 +1,77 @@
+# Modify HyperMetro CG
+#
+# Required parameters:
+#   cgName:                 HyperMetro CG name, can be replaced with modifyCgId
+#
+# Optional parameters:
+#   newCgName:              New HyperMetro CG name
+#   desc:                   Description
+#   recoveryPolicy:         recover policy, default: 1, options: 1/automatic, 2/manual
+#   syncSpeed:              initial speed, default: 2, options: 1/low, 2/medium, 3/high, 4/highest
+#
+# Generated parameters:
+#   modifyCgId:            HyperMetro CG ID
+
+- block:
+    - name: Query HyperMetro CG by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hypermetro_consistentgroup?filter=NAME%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+
+    - name: Check HyperMetro CG Name Exist
+      debug:
+        msg:
+          exist: "{{ (CG.json.error.code|int == 0) and ('data' in CG.json) and (CG.json.data|length == 1) }}"
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data|length != 1)
+
+    - set_fact:
+        modifyCgId: "{{ CG.json.data[0].ID }}"
+
+  when: cgName|default(none) is not none
+
+- set_fact:
+    params: {}
+
+- set_fact:
+    params: "{{ params | combine({'NAME':newCgName}) }}"
+  when: newCgName|default(none) is not none
+
+- set_fact:
+    params: "{{ params | combine({'DESCRIPTION':desc}) }}"
+  when: desc|default(none) is not none
+
+- set_fact:
+    params: "{{ params | combine({'RECOVERYPOLICY':recoveryPolicy}) }}"
+  when: recoveryPolicy|default(none) is not none
+
+- set_fact:
+    params: "{{ params | combine({'SPEED':syncSpeed}) }}"
+  when: syncSpeed|default(none) is not none
+
+- name: Modify HyperMetro CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hypermetro_consistentgroup/{{modifyCgId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ params }}"
+  register: MODIFY_CG
+
+- name: Check Modify HyperMetro CG Result
+  debug:
+    msg:
+      params: "{{ params }}"
+      result: "{{ MODIFY_CG.json.error }}"
+  failed_when: MODIFY_CG.json.error.code|int != 0

@@ -1,0 +1,81 @@
+# Required Parameters:
+#   lgName:            LUN group name, can be replaced with removeLgId
+#   lunNames:          a list of LUN Names, can be replaced with removeLunIds
+#
+# Optional Parameters:
+#   removeLgId
+#   removeLunIds
+
+- block:
+    - name: Query LG by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup?filter=NAME%3A%3A{{lgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LG
+      failed_when: (LG.json.error.code|int != 0) or ('data' not in LG.json) or (LG.json.data|length != 1)
+
+    - name: Get LG ID
+      set_fact:
+        removeLgId: "{{ LG.json.data[0].ID }}"
+  when: lgName|default(none) is not none
+
+- block:
+    - set_fact:
+        removeLunIds: []
+
+    - name: Query LUNs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LUNs
+      with_items: "{{ lunNames }}"
+
+    - name: Get LUN IDs
+      vars:
+        queryId: "[? NAME=='{{item.1}}'].ID"
+      set_fact:
+        removeLunIds: "{{ removeLunIds + LUNs.results[item.0].json.data | default([]) | json_query(queryId) }}"
+      with_indexed_items: "{{ lunNames }}"
+
+    - name: Check LUN Name Exist
+      debug:
+        msg:
+          removeLunIds: "{{ removeLunIds }}"
+      failed_when: removeLunIds|length != lunNames|length
+  when:
+    - lunNames|default(none) is not none
+    - lunNames|length > 0
+
+
+- name: Remove LUNs from LG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup/associate?ID={{ removeLgId }}&ASSOCIATEOBJTYPE=11&ASSOCIATEOBJID={{ item }}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LG_REMOVE_LUNS
+  with_items: "{{ removeLunIds }}"
+
+- name: Check Remove LUNs Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ LG_REMOVE_LUNS.results | json_query(queryMsg) }}"
+  failed_when: LG_REMOVE_LUNS.results | json_query(queryError) | difference([0]) | length > 0

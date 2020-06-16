@@ -1,0 +1,287 @@
+# Required Parameters:
+#   cgName:            consistency group name, can be replaced with modifiedCgId
+#   localLunIds:       a list of local LUN IDs
+#   remoteLunIds:      a list of remote LUN IDs
+
+
+- block:
+    - name: Query HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup?filter=NAME%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data | length != 1)
+
+    - name: Get HyperMetro CG ID
+      set_fact:
+        modifiedCgId: "{{ CG.json.data[0].ID }}"
+        cgLocalRole: "{{ CG.json.data[0].PRIORITYSTATIONTYPE }}"          # 0: Preferred, 1: Non-Preferred
+        cgStatus: "{{ CG.json.data[0].RUNNINGSTATUS }}"                   # 1: Normal, 23: Synchronizing, 41: Paused, 100: to be synchronized
+        cgDirection: "{{ CG.json.data[0].SYNCDIRECTION }}"                # 0: Bi-direction, 1: Local to Remote, 2: Remote to Local
+        modifiedDomainId: "{{ CG.json.data[0].DOMAINID }}"
+
+    - name: Swap HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hypermetro_consistentgroup/switch"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ modifiedCgId }}"
+      register: SWAP_CG
+      when: cgLocalRole|int != 0                        # 0: Preferred, 1: Non-Preferred
+
+    - name: Check Swap Result
+      debug:
+        msg: "{{ SWAP_CG.json.error }}"
+      failed_when: SWAP_CG.json.error.code|int != 0
+      when: cgLocalRole|int != 0                        # 0: Preferred, 1: Non-Preferred
+
+    - name: Sync HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/sync"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ modifiedCgId }}"
+      register: SYNC_CG
+      when: cgStatus|int == 41                           # 1: Normal, 23: Synchronizing, 41: Paused, 100: to be synchronized
+
+    - name: Check Sync Result
+      debug:
+        msg: "{{ SYNC_CG.json.error }}"
+      failed_when: SYNC_CG.json.error.code|int != 0
+      when: cgStatus|int == 41                           # 1: Normal, 23: Synchronizing, 41: Paused, 100: to be synchronized
+
+    - name: Wait Sync Complete
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/{{modifiedCgId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: SYNC_CG_WAIT
+      vars:
+        syncStatus: "{{ SYNC_CG_WAIT.json.data.RUNNINGSTATUS }}"
+      retries: "{{ GLOBAL.metro.syncRetries }}"
+      delay: "{{ GLOBAL.metro.syncDelay }}"
+      until: syncStatus != GLOBAL.metro.syncStatus.syncing
+      when: cgStatus|int == 41                           # 1: Normal, 23: Synchronizing, 41: Paused, 100: to be synchronized
+
+  when: cgName|default(none) is not none
+
+- block:
+    - set_fact:
+        existPairs: []
+        existPairIds: []
+        pausePairIds: []
+        existObjIds: []
+        newPairIds: []
+
+    - name: Check Exist HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair?filter=DOMAINID%3A%3A{{modifiedDomainId}}%20and%20LOCALOBJID%3A%3A{{item.1}}%20and%20REMOTEOBJID%3A%3A{{remoteLunIds[item.0]}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: EXIST_PAIRS
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Get Exist HyperMetro Pair IDs
+      vars:
+        queryPairId: "[*].ID"
+        queryPausePairId: "[? RUNNINGSTATUS != '41'].ID"          # Not Paused
+        queryObjId: "[*].LOCALOBJID"
+      set_fact:
+        existPairs: "{{ existPairs + EXIST_PAIRS.results[item.0].json.data | default([]) }}"
+        existPairIds: "{{ existPairIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(queryPairId) }}"
+        pausePairIds: "{{ pausePairIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(queryPausePairId) }}"
+        existObjIds: "{{ existObjIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(queryObjId) }}"
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Swap HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/SWAP_HCPAIR"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item.1 }}"
+      register: SWAP_PAIRS
+      when: existPairs[item.0].ISPRIMARY|bool == False
+      with_indexed_items: "{{ existPairIds }}"
+
+    - name: Pause HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/disable_hcpair"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+          ISPRIMARY: "false"                        # Disable Non-Preferred
+      register: PAUSE_PAIRS
+      with_items: "{{ pausePairIds }}"
+      when: pausePairIds|length > 0
+
+    - name: Check Pause Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ PAUSE_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: PAUSE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+      when: pausePairIds|length > 0
+
+    - name: Create New HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          DOMAINID: "{{ modifiedDomainId }}"
+          HCRESOURCETYPE: 1
+          LOCALOBJID: "{{ item.1 }}"
+          REMOTEOBJID: "{{ remoteLunIds[item.0] }}"
+      register: NEW_PAIRS
+      when: item.1|string not in existObjIds
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Check Create Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ NEW_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: NEW_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+    - name: Get HyperMetro Pair IDs
+      vars:
+        queryPairId: "[*].json.data.ID"
+      set_fact:
+        newPairIds: "{{ NEW_PAIRS.results | json_query(queryPairId) }}"
+
+    - name: Pause HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/stop"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ modifiedCgId }}"
+          PRIORITYSTATIONTYPE: "1"                   # Disable Non-Preferred
+      register: STOP_CG
+
+    - name: Check Pause Result
+      debug:
+        msg: "{{ STOP_CG.json.error }}"
+      failed_when: STOP_CG.json.error.code|int != 0
+
+    - name: Add HyperMetro Pairs to CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hyperMetro/associate/pair"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ modifiedCgId }}"
+          ASSOCIATEOBJID: "{{ item }}"
+      register: ADD_PAIRS
+      with_items: "{{ existPairIds + newPairIds }}"
+
+    - name: Check Add Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ ADD_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: ADD_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+    - name: Sync HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/sync"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ modifiedCgId }}"
+      register: SYNC_MODIFIED_CG
+
+    - name: Check Sync Result
+      debug:
+        msg: "{{ SYNC_MODIFIED_CG.json.error }}"
+      failed_when: SYNC_MODIFIED_CG.json.error.code|int != 0
+
+
+    - name: Wait Sync Complete
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/{{modifiedCgId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: SYNC_MODIFIED_CG_WAIT
+      vars:
+        syncStatus: "{{ SYNC_MODIFIED_CG_WAIT.json.data.RUNNINGSTATUS }}"
+      retries: "{{ GLOBAL.metro.syncRetries }}"
+      delay: "{{ GLOBAL.metro.syncDelay }}"
+      until: syncStatus != GLOBAL.metro.syncStatus.syncing
+      when: waitSync|default(False)|bool == True

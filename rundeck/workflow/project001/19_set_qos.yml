@@ -1,0 +1,51 @@
+- name: Set QoS for LUNs
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - set_fact:
+        selectedLunNames: "{{ Select_LUN.split(',') if (Select_LUN is not none) else [] }}"
+
+    - block:
+        - name: Read LUN name from upload file
+          read_csv:
+            path: "{{ Upload_LUN }}"
+            delimiter: '|'
+          register: UPLOAD_LUNS
+
+        - set_fact:
+            selectedLunNames: "{{ selectedLunNames + UPLOAD_LUNS.list | json_query('[*].name') }}"
+
+      when: Upload_LUN is not none
+
+    - name: Check LUNs on DJ
+      debug:
+        msg:
+          volumeNames: "{{ selectedLunNames }}"
+      failed_when: selectedLunNames|length == 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+        checkBelongTier: False
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/disable_volumes_qos.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+      when: Enable_QoS|bool == False
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/set_volumes_qos.yml"
+      vars:
+        volumeNames: "{{ selectedLunNames }}"
+        qosType: "{{ QoS_Type }}"
+        maxiops: "{{ Max_IOPS }}"
+        maxbandwidth: "{{ Max_Bandwidth }}"
+        miniops: "{{ Min_IOPS }}"
+        minbandwidth: "{{ Min_Bandwidth }}"
+        latency: "{{ Latency }}"
+      when: Enable_QoS|bool == True

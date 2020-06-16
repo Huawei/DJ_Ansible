@@ -1,0 +1,310 @@
+# Delete LUNs
+#
+# Required parameters:
+#   lunNames:               # LUN name
+#
+# Optional parameters:
+#   delCloneLun:            # whether delete clone target lun, default: yes, options: yes, no
+#   checkStatus:            # check if LUN status is normal, default: yes, options: yes, no
+
+- name: Set default variables
+  set_fact:
+    deletedLunIds: []
+    deletedLuns: []
+
+- name: Query LUNs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LUNs
+  with_items: "{{lunNames}}"
+
+- name: Check LUN Exists
+  set_fact:
+    deletedLunIds: "{{ deletedLunIds + [LUNs.results[item.0].json.data[0].ID] }}"
+    deletedLuns: "{{ deletedLuns + [LUNs.results[item.0].json.data[0]] }}"
+  failed_when: (LUNs.results[item.0].json.error.code|int != 0) or (LUNs.results[item.0].json.data | length != 1)
+  with_indexed_items: "{{lunNames}}"
+
+- name: Check LUN mapping
+  debug:
+    msg:
+      name: "{{ item.1 }}"
+      mapped: "{{deletedLuns[item.0].mapped}}"
+  failed_when: deletedLuns[item.0].mapped|bool == True
+  with_indexed_items: "{{lunNames}}"
+
+- name: Check LUN status
+  vars:
+    lunHealthStatusMap: {"1":"Normal","2":"Faulty","15":"Write Protected"}
+  debug:
+    msg:
+      name: "{{ item.1 }}"
+      healthStatus: "{{ lunHealthStatusMap[ deletedLuns[item.0].HEALTHSTATUS ] }}"
+  failed_when: deletedLuns[item.0].HEALTHSTATUS|int != 1
+  with_indexed_items: "{{lunNames}}"
+  when: checkStatus|default(True)|bool == True
+
+- name: Query Snapshots
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT?filter=PARENTNAME::{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SNAPSHOTS
+  with_items: "{{ lunNames }}"
+
+- set_fact:
+    deletedSnapIds: []
+
+- set_fact:
+    deletedSnapIds: "{{ deletedSnapIds + SNAPSHOTS.results[item.0].json.data | default([]) | json_query('[*].ID') }}"
+  with_indexed_items: "{{ lunNames }}"
+
+- block:
+    - name: Delete Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_SNAPSHOTS
+      with_items: "{{ deletedSnapIds }}"
+
+    - name: Check Delete Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DELETE_SNAPSHOTS.results | json_query(queryMsg) }}"
+      failed_when: DELETE_SNAPSHOTS.results | json_query(queryError) | difference([0]) | length > 0
+  when: deletedSnapIds|length > 0
+
+- name: Query Clone Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair?filter=sourceName%3A%3A{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: CLONE_PAIRS
+  with_items: "{{ lunNames }}"
+
+- set_fact:
+    deletedClonePairIds: []
+
+- set_fact:
+    deletedClonePairIds: "{{ deletedClonePairIds + CLONE_PAIRS.results[item.0].json.data | default([]) | json_query('[*].ID') }}"
+  with_indexed_items: "{{ lunNames }}"
+
+- block:
+    - name: Delete Clone Pair
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{item}}"
+          isDeleteDstLun: "{{ delCloneLun | default(True) | bool }}"
+      register: DELETE_CLONE_PAIRS
+      with_items: "{{ deletedClonePairIds }}"
+
+    - name: Check Delete Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DELETE_CLONE_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: DELETE_CLONE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: deletedClonePairIds|length > 0
+
+- name: Query Replication Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR?filter=LOCALRESNAME%3A%3A{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: REP_PAIRS
+  with_items: "{{ lunNames }}"
+
+- set_fact:
+    deletedRepPairIds: []
+    splitRepPairIds: []
+
+- set_fact:
+    deletedRepPairIds: "{{ deletedRepPairIds + REP_PAIRS.results[item.0].json.data | default([]) | json_query('[*].ID') }}"
+    splitRepPairIds: "{{ splitRepPairIds + REP_PAIRS.results[item.0].json.data | default([]) | json_query(querySplitPairId) }}"
+  vars:
+    querySplitPairId: "[? RUNNINGSTATUS != '26' && RUNNINGSTATUS != '110'].ID"          # 26: Split, 110: Standby
+  with_indexed_items: "{{ lunNames }}"
+
+- block:
+    - name: Split Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/split"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: SPLIT_REP_PAIRS
+      with_items: "{{ splitRepPairIds }}"
+
+    - name: Check Split Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ SPLIT_REP_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: SPLIT_REP_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: splitRepPairIds|length > 0
+
+- block:
+    - name: Delete Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_REP_PAIRS
+      with_items: "{{ deletedRepPairIds }}"
+
+    - name: Check Delete Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DELETE_REP_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: DELETE_REP_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: deletedRepPairIds|length > 0
+
+
+- name: Get HyperMetro Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair?filter=LOCALOBJNAME%3A%3A{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: METRO_PAIRS
+  with_items: "{{ lunNames }}"
+
+- set_fact:
+    deletedMetroPairIds: []
+    pauseMetroPairIds: []
+
+- set_fact:
+    deletedMetroPairIds: "{{ deletedMetroPairIds + METRO_PAIRS.results[item.0].json.data | default([]) | json_query('[*].ID') }}"
+    pauseMetroPairIds: "{{ pauseMetroPairIds + METRO_PAIRS.results[item.0].json.data | default([]) | json_query(queryPausePairId) }}"
+  vars:
+    queryPausePairId: "[? RUNNINGSTATUS != '41'].ID"          # 41: Paused
+  with_indexed_items: "{{ lunNames }}"
+
+- block:
+    - name: Pause HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/disable_hcpair"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+          ISPRIMARY: "false"                        # Disable Non-Preferred
+      register: PAUSE_METRO_PAIRS
+      with_items: "{{ pauseMetroPairIds }}"
+
+    - name: Check Pause Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ PAUSE_METRO_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: PAUSE_METRO_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: pauseMetroPairIds|length > 0
+
+- block:
+    - name: Delete HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_METRO_PAIRS
+      with_items: "{{ deletedMetroPairIds }}"
+
+    - name: Check Delete Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DELETE_METRO_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: DELETE_METRO_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: deletedMetroPairIds|length > 0
+
+- name: Delete LUNs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun/{{item}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DELETE_LUN
+  with_items: "{{ deletedLunIds }}"
+
+- name: Show Delete LUNs Results
+  vars:
+    queryMsg: "[*].json.error"
+    queryError: "[*].json.error.code"
+  debug:
+    msg: "{{ DELETE_LUN.results | json_query(queryMsg) }}"

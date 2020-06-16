@@ -1,0 +1,190 @@
+# Map LUN to host or host group
+#
+# Required parameters:
+#   hostName:               # host name
+#   hostGroupName:          # host group name
+#   lunNames:               # a list of LUN names
+#   deviceName:             # storage device name
+#
+# Optional parameters:
+#   checkMapped:            # check if LUN is mapped, default: yes, options: yes, no
+#   checkStatus:            # check if LUN status is normal, default: yes, options: yes, no
+#
+
+- name: Set default variables
+  set_fact:
+    checkMapped: "{{ checkMapped|default(True) }}"
+    checkStatus: "{{ checkStatus|default(True) }}"
+
+- name: Query LUNs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LUNs
+  with_items: "{{lunNames}}"
+
+- name: Check LUN Exists
+  set_fact:
+    lunIds: "{{ lunIds|default([]) + [LUNs.results[item.0].json.data[0].ID] }}"
+    luns: "{{ luns|default([]) + [LUNs.results[item.0].json.data[0]] }}"
+  failed_when: (LUNs.results[item.0].json.error.code|int != 0) or (LUNs.results[item.0].json.data | length != 1)
+  with_indexed_items: "{{lunNames}}"
+
+- name: Check LUN mapping
+  debug:
+    msg:
+      name: "{{ item.1 }}"
+      mapped: "{{luns[item.0].mapped}}"
+  failed_when: luns[item.0].mapped|bool == True
+  with_indexed_items: "{{lunNames}}"
+  when: checkMapped|bool == True
+
+- name: Check LUN status
+  vars:
+    statusMap: {"1":"Normal","2":"Faulty","15":"Write Protected"}
+  debug:
+    msg:
+      name: "{{ item.1 }}"
+      healthStatus: "{{ statusMap[ luns[item.0].HEALTHSTATUS ] }}"
+  failed_when: luns[item.0].HEALTHSTATUS|int != 1
+  with_indexed_items: "{{lunNames}}"
+  when: checkMapped|bool == True
+
+- name: Query Host by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?filter=NAME%3A%3A{{hostName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOST
+  when: hostName is defined
+
+- name: Check Host Exists
+  set_fact:
+    hostId: "{{ HOST.json.data[0].ID }}"
+  failed_when: (HOST.json.error.code|int != 0) or (HOST.json.data | length != 1)
+  when: hostName is defined
+
+- name: Query Host Group by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup?filter=NAME%3A%3A{{hostGroupName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOSTGROUP
+  when: hostGroupName is defined
+
+- name: Check Host Group Exists 
+  set_fact:
+    hostGroupId: "{{ HOSTGROUP.json.data[0].ID }}"
+  failed_when: (HOSTGROUP.json.error.code|int != 0) or (HOSTGROUP.json.data | length != 1)
+  when: hostGroupName is defined
+
+- name: Map LUNs to Host Group
+  block:
+    - name: Create Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          hostId: "{{hostId}}"
+          lunId: "{{item}}"
+      register: HOST_MAPPING
+      with_items: "{{ lunIds }}"
+    - name: Get Mapping IDs
+      vars:
+        queryId: "[*].json.data.ID"
+      set_fact:
+        hostMappingIds: "{{ HOST_MAPPING.results | json_query(queryId) }}"
+    - name: Check Mapping Result
+      vars:
+        queryMsg: "[*].json.error"
+        queryError: "[*].json.error.code"
+      debug:
+        msg: "{{ HOST_MAPPING.results | json_query(queryMsg) }}"
+      failed_when: HOST_MAPPING.results | json_query(queryError) | difference([0]) | length > 0
+  rescue:
+    - name: Delete Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_HOST_MAPPING
+      with_items: "{{ hostMappingIds }}"
+  when:
+    - hostId is defined
+    - lunIds is defined
+
+- name: Map LUNs to Host Group
+  block:
+    - name: Create Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          hostGroupId: "{{hostGroupId}}"
+          lunId: "{{item}}"
+      register: GROUP_MAPPING
+      with_items: "{{ lunIds }}"
+    - name: Get Mapping IDs
+      vars:
+        queryId: "[*].json.data.ID"
+      set_fact:
+        groupMappingIds: "{{ GROUP_MAPPING.results | json_query(queryId) }}"
+    - name: Check Mapping Result
+      vars:
+        queryMsg: "[*].json.error"
+        queryError: "[*].json.error.code"
+      debug:
+        msg: "{{ GROUP_MAPPING.results | json_query(queryMsg) }}"
+      failed_when: GROUP_MAPPING.results | json_query(queryError) | difference([0]) | length > 0
+  rescue:
+    - name: Delete Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_GROUP_MAPPING
+      with_items: "{{ groupMappingIds }}"
+  when:
+    - hostGroupId is defined
+    - lunIds is defined
+

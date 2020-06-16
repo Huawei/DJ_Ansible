@@ -3,7 +3,7 @@
 - name: List Indicators
   hosts: localhost
   vars_files:
-    - ../global.yml
+    - ../../config/global.yml
   vars:
     # Required Parameters:
     #   objType:     object type name, see ../global.yml to get supported object types in INVENTORY
@@ -21,17 +21,17 @@
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: List Indicators
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.perfmgr}}/obj-types/{{objTypeId}}/indicators"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.perfmgr }}/obj-types/{{objTypeId}}/indicators"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: INDICATORS
 
     - name: Show Indicators
@@ -40,13 +40,13 @@
 
     - name: Get Indicator Details
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.perfmgr}}/indicators"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.perfmgr }}/indicators"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body: "{{ INDICATORS.json.data.indicator_ids }}"
       register: DETAILS

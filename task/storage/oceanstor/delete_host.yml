@@ -1,0 +1,245 @@
+# Delete host
+#
+# Required parameters:
+#   hostName:               # host name
+#   deviceName:             # storage device name
+
+- name: Query Host by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?filter=NAME%3A%3A{{hostName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOST
+
+- name: Check Host Exists 
+  debug:
+    msg:
+      hostExist: "{{ (HOST.json.error.code|int == 0) and ('data' in HOST.json) and (HOST.json.data|length == 1) }}"
+  failed_when: (HOST.json.error.code|int != 0) or ('data' not in HOST.json) or (HOST.json.data|length != 1)
+
+- name: Get Host attributes
+  set_fact:
+    hostId: "{{ HOST.json.data[0].ID }}"
+    inGroup: "{{ HOST.json.data[0].ISADD2HOSTGROUP }}"
+    portNum: "{{ HOST.json.data[0].INITIATORNUM }}"
+    lunNum: "{{ HOST.json.data[0].mappingLunNumber }}"
+
+- name: Check Host not in Group and No LUN mapped
+  debug:
+    msg:
+      inGroup: "{{ inGroup }}"
+      lunNum: "{{ lunNum }}"
+  failed_when: inGroup|bool == True or lunNum|int > 0
+
+- name: Query WWNs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/fc_initiator?filter=PARENTID%3A%3A{{hostId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: WWNs
+  when: portNum|int > 0
+
+- name: Query IQNs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/iscsi_initiator?filter=PARENTID%3A%3A{{hostId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: IQNs
+  when: portNum|int > 0
+
+- name: Set Status
+  set_fact:
+    removedWwns: []
+    removedIqns: []
+    remove_port_failed: no
+    delete_host_failed: no
+
+- name: Get WWNs/IQNs
+  vars:
+    query: "[*].ID" 
+  set_fact:
+    removedWwns: "{{ removedWwns + WWNs.json.data | default([]) | json_query(query) }}"
+    removedIqns: "{{ removedIqns + IQNs.json.data | default([]) | json_query(query) }}"
+  when: portNum|int > 0
+
+- name: Remove WWNs from Host
+  block:
+    - name: Remove WWNs from Host
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/fc_initiator/remove_fc_from_host"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{item}}"
+      register: REMOVE_WWNs
+      with_items: "{{ removedWwns }}"
+    - name: Check Remove WWN Result
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ REMOVE_WWNs.results | json_query(queryMsg) }}"
+      failed_when: REMOVE_WWNs.results | json_query(queryError) | difference([0]) | length > 0
+  rescue:
+    - name: Add WWN to Host
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/fc_initiator"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{item}}"
+          PARENTTYPE: 21
+          PARENTID: "{{hostId}}"
+      register: ADD_WWNs
+      with_items: "{{ removedWwns }}"
+    - name: Set Remove Port Failed
+      set_fact:
+        remove_port_failed: yes
+  when: 
+    - removedWwns | length > 0
+
+- name: Remove IQNs from Host
+  block:
+    - name: Remove IQNs from Host
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/iscsi_initiator/remove_iscsi_from_host"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{item}}"
+      register: REMOVE_IQNs
+      with_items: "{{ removedIqns }}"
+    - name: Check Remove IQN Result
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ REMOVE_IQNs.results | json_query(queryMsg) }}"
+      failed_when: REMOVE_IQNs.results | json_query(queryError) | difference([0]) | length > 0
+  rescue:
+    - name: Add IQN to Host
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/iscsi_initiator"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{item}}"
+          PARENTTYPE: 21
+          PARENTID: "{{hostId}}"
+      register: ADD_IQNs
+      with_items: "{{ removedIqns }}"
+    - name: Set Remove Port Failed
+      set_fact:
+        remove_port_failed: yes
+  when: 
+    - removedIqns | length > 0
+    - remove_port_failed|bool == False
+
+- name: Delete Host
+  block:
+    - name: Delete Host
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host/{{hostId}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_HOST
+      when: remove_port_failed|bool == False
+    - name: Check Delete Result
+      debug:
+        msg: "{{ DELETE_HOST.json.error }}"
+      failed_when: DELETE_HOST.json.error.code|int != 0
+  rescue:
+    - name: Add WWN to Host
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/fc_initiator"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{item}}"
+          PARENTTYPE: 21
+          PARENTID: "{{hostId}}"
+      register: ADD_WWNs
+      with_items: "{{ removedWwns }}"
+      when:
+        - removedWwns | length > 0
+    - name: Add IQN to Host
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/iscsi_initiator"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{item}}"
+          PARENTTYPE: 21
+          PARENTID: "{{hostId}}"
+      register: ADD_IQNs
+      with_items: "{{ removedIqns }}"
+      when:
+        - removedIqns | length > 0
+    - name: Set Delete Host Failed
+      set_fact:
+        delete_host_failed: yes
+  when: 
+    - remove_port_failed|bool == False
+
+- name: Check Errors
+  debug:
+    msg:
+      rmPortFail: "{{remove_port_failed}}"
+      delHostFail: "{{delete_host_failed}}"
+  failed_when: remove_port_failed|bool == True or delete_host_failed|bool == True

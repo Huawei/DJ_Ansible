@@ -1,0 +1,19 @@
+# Required Parameters:
+#   deviceName:            device Name, can be replaced with deviceSn
+#   lunNames:              a list of LUN names
+#
+# Optional Parameters:
+#   deviceSn:              device SN
+#   newLunNames:           a list of new LUN names
+#   newClass:              new class name
+
+- include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+- include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+- include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+  vars:
+    modifyLunId: "{{ lunIds[i] }}"
+    newLunName: "{{ newLunNames[i] if (newLunNames|default(none) is not none) else lunNames[i] }}"
+    desc: "{{ newClass + checkedLuns[i].DESCRIPTION[1:] }}"
+  loop: "{{ range(0, lunIds|length) | list }}"
+  loop_control:
+    loop_var: i

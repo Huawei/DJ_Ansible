@@ -29,7 +29,7 @@ gpgcheck=0
 
 [python-passlib-1.6.5-2.el7.noarch.rpm](http://mirror.centos.org/centos/7/extras/x86_64/Packages/python-passlib-1.6.5-2.el7.noarch.rpm)
 
-[ansible-2.4.2.0-2.el7.noarch.rpm](http://mirror.centos.org/centos/7/extras/x86_64/Packages/ansible-2.4.2.0-2.el7.noarch.rpm)
+[ansible-2.9.1-1.el7.ans.noarch.rpm](https://releases.ansible.com/ansible/rpm/release/epel-7-x86_64/ansible-2.9.1-1.el7.ans.noarch.rpm)
 
 ### Install Ansible
 
@@ -39,7 +39,7 @@ yum install python-paramiko-2.1.1-4.el7.noarch.rpm \
             python2-jmespath-0.9.0-3.el7.noarch.rpm \
             python-httplib2-0.9.2-1.el7.noarch.rpm \
             python-passlib-1.6.5-2.el7.noarch.rpm \
-            ansible-2.4.2.0-2.el7.noarch.rpm
+            ansible-2.9.1-1.el7.ans.noarch.rpm
 ```
 
 ### Download and install the following dependencies if it's required when install

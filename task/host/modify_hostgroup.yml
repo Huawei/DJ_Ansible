@@ -1,0 +1,266 @@
+# Modify Host Group
+#
+# Required Parameters:
+#   hostGroupName:           Host Group Name, can be replaced with hostGroupId
+#
+# Optional Parameters:
+#   newHostGroupName:        new Host Group Name
+#   projectName:             new project name, can be replaced with projectId
+#   azNames:                 a new list of AZ name, can be replaced with azIds
+#   boundAzNames:            bound a list of AZ names, can be replaced with boundAzIds
+#   unboundAzNames:          un-bound a list of AZ names, can be replaced with unboundAzIds
+#   syncStorage:             sync to storage, default: true, options: true, false
+#   addHostNames:            add a list of Hosts, can be replaced with addHostIds
+#   removeHostNames:         remove a list of Hosts, can be replaced with removeHostIds
+#
+# Generated Parameters:
+#   hostGroupId:             the Host Group ID
+#   projectId:               new project ID
+#   azIds:                   a new list of AZ IDs
+#   boundAzIds:              bound a list of AZ IDs
+#   unboundAzIds:            un-bound a list of AZ IDs
+#   addHostIds:              add a list of Hosts
+#   removeHostIds:           remove a list of Hosts
+
+- name: Set the default variables
+  set_fact:
+    params: {}
+
+- name: Get Host Group by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{hostGroupName}}"
+  register: HOSTGROUPS
+  when: hostGroupName is defined
+
+- name: Get Host Group ID
+  vars:
+    queryId: "[?name=='{{ hostGroupName }}'].id"
+    queryAz: "[?name=='{{ hostGroupName }}'].az_ids"
+  set_fact:
+    hostGroupId: "{{ HOSTGROUPS.json.hostgroups | json_query(queryId) | first }}"
+    oldAzIds: "{{ HOSTGROUPS.json.hostgroups | json_query(queryAz) | first }}"
+  failed_when: HOSTGROUPS.json.hostgroups | json_query(queryId) | length != 1
+  when: hostGroupName is defined
+
+- name: Set Param - newHostGroupName
+  set_fact:
+    params: "{{ params | combine( { 'name': newHostGroupName, 'sync_to_storage': syncStorage | default(true) } ) }}"
+  when: newHostGroupName is defined
+
+- name: Query project by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?name={{projectName}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: PROJECT
+  when: 
+    - projectName is defined
+    - projectName is not none
+
+- name: Get project ID
+  vars:
+    query: "[?name=='{{ projectName }}'].id"
+  set_fact:
+    projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+  failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+  when: 
+    - projectName is defined
+    - projectName is not none
+
+- name: Set Param - projectId
+  set_fact:
+    params: "{{ params | combine( { 'project_id': projectId } ) }}"
+  when: 
+    - projectId is defined
+    - projectId is not none
+
+- name: Query AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: AZs
+  with_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Get AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ AZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    azIds: "{{ azIds|default([]) + azId }}"
+  with_indexed_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Query Bound AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: boundAZs
+  with_items: "{{ boundAzNames }}"
+  when: boundAzNames is defined
+
+- name: Get Bound AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ boundAZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    boundAzIds: "{{ boundAzIds|default([]) + azId }}"
+  with_indexed_items: "{{ boundAzNames }}"
+  when: boundAzNames is defined
+
+- name: Query Un-Bound AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: unboundAZs
+  with_items: "{{ unboundAzNames }}"
+  when: unboundAzNames is defined
+
+- name: Get Un-Bound AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ unboundAZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    unboundAzIds: "{{ unboundAzIds|default([]) + azId }}"
+  with_indexed_items: "{{ unboundAzNames }}"
+  when: unboundAzNames is defined
+
+- name: Generate New AZs
+  set_fact:
+    azIds: "{{ oldAzIds | difference( unboundAzIds|default([]) ) | union( boundAzIds|default([]) ) }}"
+  when: boundAzIds is defined or unboundAzIds is defined
+
+- name: Set Param - azIds
+  set_fact:
+    params: "{{ params | combine( { 'azs': azIds } ) }}"
+  when: azIds is defined
+
+- name: Modify Host Group
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupId}}/general"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body: "{{ params }}"
+  register: MODIFY_HOSTGROUP
+  when: params.keys()|length > 0
+
+- set_fact:
+    removeHostIds: []
+
+- name: Get Hosts by removeHostNames
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{ item }}"
+  register: RMHOSTS
+  with_items: "{{ removeHostNames }}"
+  when: removeHostNames is defined
+
+- name: Get Host IDs by removeHostNames
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    hostId: "{{ RMHOSTS.results[item.0].json.hosts | json_query(query) }}"
+  set_fact:
+    removeHostIds: "{{ removeHostIds + hostId }}"
+  with_indexed_items: "{{ removeHostNames }}"
+  when: removeHostNames is defined
+
+- name: Remove Hosts from Host Group
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupId}}/hosts/remove"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      host_ids: "{{ removeHostIds }}"
+      sync_to_storage: "{{ syncStorage | default(true) }}"
+  register: RMRESULT
+  when: removeHostIds|length > 0
+
+- set_fact:
+    addHostIds: []
+
+- name: Get Hosts by addHostNames
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{ item }}"
+  register: ADDHOSTS
+  with_items: "{{ addHostNames }}"
+  when: addHostNames is defined
+
+- name: Get Host IDs by addHostNames
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    hostId: "{{ ADDHOSTS.results[item.0].json.hosts | json_query(query) }}"
+  set_fact:
+    addHostIds: "{{ addHostIds + hostId }}"
+  with_indexed_items: "{{ addHostNames }}"
+  when: addHostNames is defined
+
+- name: Add Hosts to Host Group
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupId}}/hosts/add"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      host_ids: "{{ addHostIds }}"
+      sync_to_storage: "{{ syncStorage | default(true) }}"
+  register: ADDRESULT
+  when: addHostIds|length > 0

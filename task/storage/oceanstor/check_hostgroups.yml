@@ -1,0 +1,66 @@
+# Check host group names exists on storage
+#
+# Required parameters:
+#   hostGroupNames:         # a list of host group names
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+#   checkMapped             # check host group is mapped with LUN or not, options: yes/no
+#
+# Generated variables:
+#   checkedHostGroups:           # a list of host groups on storage device
+
+- name: Set default variables
+  set_fact:
+    hostGroupIds: []
+    checkedHostGroups: []
+    mappingIds: []
+
+- name: Query Host Groups by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOSTGROUPS
+  with_items: "{{ hostGroupNames }}"
+
+- name: Get Host Group IDs
+  vars:
+    queryHostGroupIds: "[? NAME=='{{item.1}}'].ID"
+    queryHostGroups: "[? NAME=='{{item.1}}']"
+  set_fact:
+    hostGroupIds: "{{ hostGroupIds + HOSTGROUPS.results[item.0].json.data | default([]) | json_query(queryHostGroupIds) }}"
+    checkedHostGroups: "{{ checkedHostGroups + HOSTGROUPS.results[item.0].json.data | default([]) | json_query(queryHostGroups) }}"
+  with_indexed_items: "{{ hostGroupNames }}"
+
+- name: Check Host Group Belong to a specific Mapping
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mappingview/associate?ASSOCIATEOBJTYPE=14&ASSOCIATEOBJID={{item.0|urlencode}}&range=[0-100]"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: MAPPINGS
+  with_items: "{{ hostGroupIds }}"
+
+- name: Get Mapping IDs
+  set_fact:
+    mappingIds: "{{ mappingIds + MAPPINGS.results[item.0].json.data | default([]) }}"
+  with_indexed_items: "{{ hostGroupIds }}"
+  when:
+    - checkMapped|default(True)|bool == True and MAPPINGS|length > 0
+
+- name: Check Host Group Name Exist
+  debug:
+    msg:
+      hostGroupIds: "{{ hostGroupIds }}"
+  failed_when: (checkExist|default(True)|bool == True and hostGroupIds|length != hostGroupNames|length) or (checkExist|default(True)|bool == False and hostGroupIds|length > 0)
+

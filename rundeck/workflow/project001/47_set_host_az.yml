@@ -1,0 +1,35 @@
+- name: Set AZ for Host
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - set_fact:
+        hostNames: "{{ Select_Host.split(',') }}"
+      when: Select_Host is not none
+
+    - block:
+        - name: Read Host name from upload file
+          read_csv:
+            path: "{{ Upload_Host }}"
+            delimiter: '|'
+          register: UPLOAD_HOSTS
+
+        - set_fact:
+            hostNames: "{{ UPLOAD_HOSTS.list | json_query('[*].name') }}"
+
+      when: Upload_Host is not none
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/host/check_hosts.yml"
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/host/modify_host.yml"
+      vars:
+        boundAzNames: ["{{ Room }}"]
+        syncStorage: False
+      loop: "{{ hostNames }}"
+      loop_control:
+        loop_var: hostName

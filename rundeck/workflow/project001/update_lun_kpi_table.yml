@@ -1,0 +1,18 @@
+# Required Parameters:
+#   TYPE_OF_OPERATION:    the type of operation executed for the Volume (create/modify/delete)
+#   WBE_CODE:             the WBS/WBE code inserted by the User
+#   TICKET_NUMBER:        the Ticket number of the request received to create/modify/delete a Volume
+#   SYSTEM_NAME:          the name of the Systems (Host or Cluster name) for which create/modify/delete a Volume
+#   SITE:                 the location where the Volume is created/modified/deleted
+#   ENVIRONMENT:          the OS of the System
+#   STORAGE_CLASS:        the class of the Volume created/modified/deleted
+#   CAPACITY_GB:          the size of the volume created/modified (positive value) or deleted (negative value);
+#                         this value is the size change from the current size
+#                         (e.g. in case of expansion the value is the delta between the current size and the expanded size)
+#   STORAGE:              the name of the storage in which the Volume is created/modified/deleted
+#   VDISK_UID:            the Universal Unique ID (UUID) of the Volume created/modified/deleted
+
+- local_action: command psql automation -c "insert into activity(TYPE_OF_OPERATION,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID) values('{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}')"
+
+- local_action: command /opt/mssql-tools/bin/sqlcmd -S "{{KPIDB.host}}" -U "{{KPIDB.user}}" -P "{{KPIDB.pswd}}" -d "{{KPIDB.database}}" -Q "insert into {{KPIDB.table}}(TYPE_OF_OPERATION,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID) values('{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}')"
+  when: KPIDB.enable|bool == True

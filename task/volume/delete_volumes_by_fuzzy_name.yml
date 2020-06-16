@@ -1,0 +1,36 @@
+# Required Parameters:
+#   volumeName:     volume fuzzy name
+    
+- name: List Volumes
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?limit=1000&start=0&name={{volumeName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: VOLUMES
+
+- name: Show Volumes 
+  debug:
+     msg: "{{ VOLUMES.json.volumes | json_query('[*].name') }}"
+
+- name: Delete Volumes
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}/delete"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    status_code: 202
+    body_format: json
+    body: 
+      volume_ids: "{{ VOLUMES.json.volumes | json_query('[*].id') }}"
+  register: DELETE_VOLUME
+
+- import_tasks: ../task/wait_task_complete.yml
+  vars:
+    taskId: "{{ DELETE_VOLUME.json.task_id }}"

@@ -1,0 +1,1145 @@
+- name: Modify Host Ports
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    # Check Host Params
+    - block:
+        - set_fact:
+            checked_host_remove_wwns: []
+            checked_host_add_wwns: []
+
+        - set_fact:
+            checked_host_remove_wwns: "{{ checked_host_remove_wwns + [ item|string|length == 16 ] }}"
+          with_items: "{{ (Remove_WWN|string).split(',') }}"
+          when: Remove_WWN is not none
+
+        - set_fact:
+            checked_host_add_wwns: "{{ checked_host_add_wwns + [ item|string|length == 16 ] }}"
+          with_items: "{{ (Add_WWN|string).split(',') }}"
+          when: Add_WWN is not none
+
+        - set_fact:
+            checked_host_params:
+              Host: "{{ Host is not none and Host != DEFAULT.noneValue }}"
+              Storage: "{{ (Storage is not none and Storage != DEFAULT.noneValue) and (Storage|string|length == 20) }}"
+              Remove_WWN: "{{ (Remove_WWN is none) or (checked_host_remove_wwns|unique == [True]) }}"
+              Add_WWN: "{{ (Add_WWN is none) or (checked_host_add_wwns|unique == [True]) }}"
+              Check_Result_1: "{{ (Add_WWN is not none and 'add' in Check_Result_1) or (Remove_WWN is not none and 'remove' in Check_Result_1) }}"
+
+        - name: Precheck_0_1 - Check Host Params
+          debug:
+            msg: "{{checked_host_params}}"
+          failed_when: checked_host_params.values()|unique != [True]
+
+    # Check Remote Host Params
+    - block:
+        - set_fact:
+            checked_remote_remove_wwns: []
+            checked_remote_add_wwns: []
+
+        - set_fact:
+            checked_remote_remove_wwns: "{{ checked_remote_remove_wwns + [ item|string|length == 16 ] }}"
+          with_items: "{{ (Remote_Host_Remove_WWN|string).split(',') }}"
+          when: Remote_Host_Remove_WWN is not none
+
+        - set_fact:
+            checked_remote_add_wwns: "{{ checked_remote_add_wwns + [ item|string|length == 16 ] }}"
+          with_items: "{{ (Remote_Host_Add_WWN|string).split(',') }}"
+          when: Remote_Host_Add_WWN is not none
+
+        - set_fact:
+            checked_remote_params:
+              Remote_Host: "{{ Remote_Host is not none and Remote_Host != DEFAULT.noneValue }}"
+              Remote_Storage: "{{ (Remote_Storage is not none and Remote_Storage != DEFAULT.noneValue) and (Remote_Storage|string|length == 20) }}"
+              Remote_Host_Remove_WWN: "{{ (Remote_Host_Remove_WWN is none) or (checked_remote_remove_wwns|unique == [True]) }}"
+              Remote_Host_Add_WWN: "{{ (Remote_Host_Add_WWN is none) or (checked_remote_add_wwns|unique == [True]) }}"
+              Check_Result_2: "{{ (Remote_Host_Add_WWN is not none and 'add' in Check_Result_2) or (Remote_Host_Remove_WWN is not none and 'remove' in Check_Result_2) }}"
+
+        - name: Precheck_0_2 - Check Remote Host Params
+          debug:
+            msg: "{{checked_remote_params}}"
+          failed_when: checked_remote_params.values()|unique != [True]
+
+      when: Update_Remote_Host|bool == True
+
+    - set_fact:
+        primaryDeviceSn: "{{ Storage|string }}"
+        primaryHostName: "{{ Host }}"
+        primaryHostRemoveWwns: "{{ (Remove_WWN|string).split(',') if (Remove_WWN|default(none) is not none) else [] }}"
+        primaryHostAddWwns: "{{ (Add_WWN|string).split(',') if (Add_WWN|default(none) is not none) else [] }}"
+        remoteDeviceSn: "{{ Remote_Storage|string if (Remote_Storage|default(none) is not none) else none }}"
+        remoteHostName: "{{ Remote_Host }}"
+        remoteHostRemoveWwns: "{{ (Remote_Host_Remove_WWN|string).split(',') if (Remote_Host_Remove_WWN|default(none) is not none) else [] }}"
+        remoteHostAddWwns: "{{ (Remote_Host_Add_WWN|string).split(',') if (Remote_Host_Add_WWN|default(none) is not none) else [] }}"
+
+    - set_fact:
+        Precheck_1_Execute: True
+        Precheck_2_Execute: "{{ Host_Metro_Enabled == 'Y' }}"
+        Precheck_3_Execute: "{{ Update_Remote_Host|bool == True }}"
+        Precheck_4_Execute: "{{ Update_Remote_Host|bool == True and Remote_Host_Metro_Enabled == 'Y' }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - block:
+        - name: Precheck_1 - Check Host
+          debug:
+            msg:
+              host: "{{ primaryHostName }}"
+              device: "{{ primaryDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/host/check_hosts.yml"
+          vars:
+            hostNames: ["{{ primaryHostName }}"]
+
+        - name: Login Device
+          set_fact:
+            deviceSn: "{{ primaryDeviceSn }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            primaryDeviceName: "{{ deviceName }}"
+            primaryDeviceHost: "{{ deviceHost }}"
+            primaryDevicePort: "{{ devicePort }}"
+            primaryDeviceToken: "{{ deviceToken }}"
+            primaryDeviceSession: "{{ deviceSession }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hosts.yml"
+          vars:
+            hostNames: ["{{ primaryHostName }}"]
+
+        - name: Get HyperMetro CG
+          uri:
+            url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hypermetro_consistentgroup?filter=localPgName::{{Protection_Group}}"
+            method: GET
+            validate_certs: no
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json;charset=utf8"
+              iBaseToken: "{{ deviceToken }}"
+              Cookie: "session={{ deviceSession }}"
+          register: METRO_CG
+          failed_when: (METRO_CG.json.error.code|int != 0)
+          when: Protection_Group is not none
+
+        - set_fact:
+            metroDomainId: "{{ METRO_CG.json.data[0].DOMAINID }}"
+          when: 
+            - Protection_Group is not none
+            - ('data' in METRO_CG.json) and (METRO_CG.json.data|length == 1)
+
+        - name: Get HyperMetro Domain
+          uri:
+            url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroDomain/{{metroDomainId}}"
+            method: GET
+            validate_certs: no
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json;charset=utf8"
+              iBaseToken: "{{ deviceToken }}"
+              Cookie: "session={{ deviceSession }}"
+          register: METRO_DOMAIN
+          failed_when: (METRO_DOMAIN.json.error.code|int != 0)
+          when: metroDomainId|default(none) is not none
+
+        - set_fact:
+            metroDeviceSn: "{{ remoteDevices[0].devESN }}"
+          vars:
+            remoteDevices: "{{ METRO_DOMAIN.json.data.REMOTEDEVICES }}"
+          when: metroDomainId|default(none) is not none
+        
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Host on Metro Device
+          debug:
+            msg:
+              host: "{{ primaryHostName }}"
+              device: "{{ metroDeviceSn }}"
+
+        - name: Login Metro Device
+          set_fact:
+            deviceSn: "{{ metroDeviceSn }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            metroDeviceName: "{{ deviceName }}"
+            metroDeviceHost: "{{ deviceHost }}"
+            metroDevicePort: "{{ devicePort }}"
+            metroDeviceToken: "{{ deviceToken }}"
+            metroDeviceSession: "{{ deviceSession }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hosts.yml"
+          vars:
+            hostNames: ["{{ primaryHostName }}"]
+        
+        # End Precheck_2
+      when: Precheck_2_Execute
+
+    - block:
+        - name: Precheck_3 - Check Remote Host
+          debug:
+            msg:
+              host: "{{ remoteHostName }}"
+              device: "{{ remoteDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/host/check_hosts.yml"
+          vars:
+            hostNames: ["{{ remoteHostName }}"]
+
+        - name: Login Remote Device
+          set_fact:
+            deviceSn: "{{ remoteDeviceSn }}"
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            remoteDeviceName: "{{ deviceName }}"
+            remoteDeviceHost: "{{ deviceHost }}"
+            remoteDevicePort: "{{ devicePort }}"
+            remoteDeviceToken: "{{ deviceToken }}"
+            remoteDeviceSession: "{{ deviceSession }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hosts.yml"
+          vars:
+            hostNames: ["{{ remoteHostName }}"]
+
+        - name: Get Remote HyperMetro CG
+          uri:
+            url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hypermetro_consistentgroup?filter=localPgName::{{Remote_Protection_Group}}"
+            method: GET
+            validate_certs: no
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json;charset=utf8"
+              iBaseToken: "{{ deviceToken }}"
+              Cookie: "session={{ deviceSession }}"
+          register: REMOTE_METRO_CG
+          failed_when: (REMOTE_METRO_CG.json.error.code|int != 0)
+          when: Remote_Protection_Group is not none
+
+        - set_fact:
+            remoteMetroDomainId: "{{ REMOTE_METRO_CG.json.data[0].DOMAINID }}"
+          when: 
+            - Remote_Protection_Group is not none
+            - ('data' in REMOTE_METRO_CG.json) and (REMOTE_METRO_CG.json.data|length == 1)
+
+        - name: Get Remote HyperMetro Domain
+          uri:
+            url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroDomain/{{remoteMetroDomainId}}"
+            method: GET
+            validate_certs: no
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json;charset=utf8"
+              iBaseToken: "{{ deviceToken }}"
+              Cookie: "session={{ deviceSession }}"
+          register: REMOTE_METRO_DOMAIN
+          failed_when: (REMOTE_METRO_DOMAIN.json.error.code|int != 0)
+          when: remoteMetroDomainId|default(none) is not none
+
+        - set_fact:
+            remoteMetroDeviceSn: "{{ remoteDevices[0].devESN }}"
+          vars:
+            remoteDevices: "{{ REMOTE_METRO_DOMAIN.json.data.REMOTEDEVICES }}"
+          when: remoteMetroDomainId|default(none) is not none
+        
+        # End Precheck_3
+      when: Precheck_3_Execute
+
+    - block:
+        - name: Precheck_4 - Check Remote Host on Remote Metro Device
+          debug:
+            msg:
+              host: "{{ remoteHostName }}"
+              device: "{{ remoteDeviceSn }}"
+
+        - name: Login Remote Metro Device
+          set_fact:
+            deviceSn: "{{ remoteMetroDeviceSn }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            remoteMetroDeviceName: "{{ deviceName }}"
+            remoteMetroDeviceHost: "{{ deviceHost }}"
+            remoteMetroDevicePort: "{{ devicePort }}"
+            remoteMetroDeviceToken: "{{ deviceToken }}"
+            remoteMetroDeviceSession: "{{ deviceSession }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hosts.yml"
+          vars:
+            hostNames: ["{{ remoteHostName }}"]
+      
+        # End Precheck_4
+      when: Precheck_4_Execute
+    
+    - block:
+        - set_fact:
+
+            # Modify Primary Host Ports on DJ
+            Step_0_1_Execute: True
+            Step_0_1_Completed: False
+            Step_0_1_Rollbacked: False
+
+            # Modify Remote Host Ports on DJ
+            Step_0_2_Execute: "{{ (Update_Remote_Host|bool == True) }}"
+            Step_0_2_Completed: False
+            Step_0_2_Rollbacked: False
+
+            # Add Ports to Primary Host
+            Step_1_1_Execute: "{{ (primaryHostAddWwns|length > 0) }}"
+            Step_1_1_Completed: False
+            Step_1_1_Rollbacked: False
+            
+            # Remove Ports from Primary Host
+            Step_1_2_Execute: "{{ (primaryHostAddWwns|length > 0) }}"
+            Step_1_2_Completed: False
+            Step_1_2_Rollbacked: False
+            
+            # Add Ports to Metro Host
+            Step_2_1_Execute: "{{ (Host_Metro_Enabled == 'Y') and (metroDeviceSn is not none) and (primaryHostAddWwns|length > 0) }}"
+            Step_2_1_Completed: False
+            Step_2_1_Rollbacked: False
+            
+            # Remove Ports from Metro Host
+            Step_2_2_Execute: "{{ (Host_Metro_Enabled == 'Y') and (metroDeviceSn is not none) and (primaryHostRemoveWwns|length > 0) }}"
+            Step_2_2_Completed: False
+            Step_2_2_Rollbacked: False
+            
+            # Add Ports to Remote Host
+            Step_3_1_Execute: "{{ (Update_Remote_Host|bool == True) and (remoteDeviceSn is not none) and (remoteHostAddWwns|length > 0) }}"
+            Step_3_1_Completed: False
+            Step_3_1_Rollbacked: False
+            
+            # Remove Ports from Remote Host
+            Step_3_2_Execute: "{{ (Update_Remote_Host|bool == True) and (remoteDeviceSn is not none) and (remoteHostRemoveWwns|length > 0) }}"
+            Step_3_2_Completed: False
+            Step_3_2_Rollbacked: False
+            
+            # Add Ports to Remote Metro Host
+            Step_4_1_Execute: "{{ (Update_Remote_Host|bool == True) and (remoteDeviceSn is not none) and (remoteHostAddWwns|length > 0) and (Remote_Host_Metro_Enabled == 'Y') and (remoteMetroDeviceSn is not none) }}"
+            Step_4_1_Completed: False
+            Step_4_1_Rollbacked: False
+            
+            # Remove Ports from Remote Metro Host
+            Step_4_2_Execute: "{{ (Update_Remote_Host|bool == True) and (remoteDeviceSn is not none) and (remoteHostAddWwns|length > 0) and (Remote_Host_Metro_Enabled == 'Y') and (remoteMetroDeviceSn is not none) }}"
+            Step_4_2_Completed: False
+            Step_4_2_Rollbacked: False
+
+        - name: Workflow - Modify Host Ports
+          debug:
+            msg:
+              Step_0_1: "[{{Step_0_1_Execute}}] Modify Host Ports on DJ"
+              Step_0_2: "[{{Step_0_2_Execute}}] Modify Remote Host Ports on DJ"
+              Step_1_1: "[{{Step_1_1_Execute}}] Add Ports to Primary Host"
+              Step_1_2: "[{{Step_1_2_Execute}}] Remove Ports from Primary Host"
+              Step_2_1: "[{{Step_2_1_Execute}}] Add Ports to Metro Host"
+              Step_2_2: "[{{Step_2_2_Execute}}] Remove Ports from Metro Host"
+              Step_3_1: "[{{Step_3_1_Execute}}] Add Ports to Remote Host"
+              Step_3_2: "[{{Step_3_2_Execute}}] Remove Ports from Remote Host"
+              Step_4_1: "[{{Step_4_1_Execute}}] Add Ports to Remote Metro Host"
+              Step_4_2: "[{{Step_4_2_Execute}}] Remove Ports from Remote Metro Host"
+
+        - name: Step_0_1 - Modify Host Ports on DJ
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostAddWwns }}"
+                  removeWwns: "{{ primaryHostRemoveWwns }}"
+          when: Step_0_1_Execute
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/host/modify_host.yml"
+          vars:
+            addWwns: "{{ primaryHostAddWwns }}"
+            removeWwns: "{{ primaryHostRemoveWwns }}"
+            hostName: "{{ primaryHostName }}"
+            syncStorage: False
+          when: Step_0_1_Execute
+
+        - set_fact:
+            Step_0_1_Completed: True
+          when: Step_0_1_Execute
+
+        - name: Step_0_2 - Modify Remote Host Ports on DJ
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostAddWwns }}"
+                  removeWwns: "{{ remoteHostRemoveWwns }}"
+          when: Step_0_2_Execute
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/host/modify_host.yml"
+          vars:
+            addWwns: "{{ remoteHostAddWwns }}"
+            removeWwns: "{{ remoteHostRemoveWwns }}"
+            hostName: "{{ remoteHostName }}"
+            syncStorage: False
+          when: Step_0_2_Execute
+
+        - set_fact:
+            Step_0_2_Completed: True
+          when: Step_0_2_Execute
+
+        - name: Step_1_1 - Add Ports to Primary Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostAddWwns }}"
+                device: "{{ primaryDeviceName }}"
+          when: Step_1_1_Execute
+
+        - set_fact:
+            deviceHost: "{{ primaryDeviceHost }}"
+            devicePort: "{{ primaryDevicePort }}"
+            deviceSn: "{{ primaryDeviceSn }}"
+            deviceToken: "{{ primaryDeviceToken }}"
+            deviceSession: "{{ primaryDeviceSession }}"
+          when: Step_1_1_Execute
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ primaryHostAddWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_1_1_Execute
+        
+        - set_fact:
+            Step_1_1_Completed: True
+          when: Step_1_1_Execute
+
+        - name: Step_1_2 - Remove Ports from Primary Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  removeWwns: "{{ primaryHostRemoveWwns }}"
+                device: "{{ primaryDeviceName }}"
+          when: Step_1_2_Execute
+
+        - set_fact:
+            deviceHost: "{{ primaryDeviceHost }}"
+            devicePort: "{{ primaryDevicePort }}"
+            deviceSn: "{{ primaryDeviceSn }}"
+            deviceToken: "{{ primaryDeviceToken }}"
+            deviceSession: "{{ primaryDeviceSession }}"
+          when: Step_1_2_Execute
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ primaryHostRemoveWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_1_2_Execute
+        
+        - set_fact:
+            Step_1_2_Completed: True
+          when: Step_1_2_Execute
+
+        - name: Step_2_1 - Add Ports to Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostAddWwns }}"
+                device: "{{ metroDeviceName }}"
+          when: Step_2_1_Execute
+        
+        - set_fact:
+            deviceHost: "{{ metroDeviceHost }}"
+            devicePort: "{{ metroDevicePort }}"
+            deviceSn: "{{ metroDeviceSn }}"
+            deviceToken: "{{ metroDeviceToken }}"
+            deviceSession: "{{ metroDeviceSession }}"
+          when: Step_2_1_Execute
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ primaryHostAddWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_2_1_Execute
+        
+        - set_fact:
+            Step_2_1_Completed: True
+          when: Step_2_1_Execute
+
+        - name: Step_2_2 - Remove Ports from Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  RemoveWwns: "{{ primaryHostRemoveWwns }}"
+                device: "{{ metroDeviceName }}"
+          when: Step_2_2_Execute
+
+        - set_fact:
+            deviceHost: "{{ metroDeviceHost }}"
+            devicePort: "{{ metroDevicePort }}"
+            deviceSn: "{{ metroDeviceSn }}"
+            deviceToken: "{{ metroDeviceToken }}"
+            deviceSession: "{{ metroDeviceSession }}"
+          when: Step_2_2_Execute
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ primaryHostRemoveWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_2_2_Execute
+        
+        - set_fact:
+            Step_2_2_Completed: True
+          when: Step_2_2_Execute
+
+        - name: Step_3_1 - Add Ports to Remote Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostAddWwns }}"
+                device: "{{ remoteDeviceName }}"
+          when: Step_3_1_Execute
+
+        - set_fact:
+            deviceHost: "{{ remoteDeviceHost }}"
+            devicePort: "{{ remoteDevicePort }}"
+            deviceSn: "{{ remoteDeviceSn }}"
+            deviceToken: "{{ remoteDeviceToken }}"
+            deviceSession: "{{ remoteDeviceSession }}"
+          when: Step_3_1_Execute
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ remoteHostAddWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_3_1_Execute
+        
+        - set_fact:
+            Step_3_1_Completed: True
+          when: Step_3_1_Execute
+
+        - name: Step_3_2 - Remove Ports from Remote Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  removeWwns: "{{ remoteHostRemoveWwns }}"
+                device: "{{ remoteDeviceName }}"
+          when: Step_3_2_Execute
+
+        - set_fact:
+            deviceHost: "{{ remoteDeviceHost }}"
+            devicePort: "{{ remoteDevicePort }}"
+            deviceSn: "{{ remoteDeviceSn }}"
+            deviceToken: "{{ remoteDeviceToken }}"
+            deviceSession: "{{ remoteDeviceSession }}"
+          when: Step_3_2_Execute
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ remoteHostRemoveWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_3_2_Execute
+        
+        - set_fact:
+            Step_3_2_Completed: True
+          when: Step_3_2_Execute
+
+        - name: Step_4_1 - Add Ports to Remote Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostAddWwns }}"
+                device: "{{ remoteMetroDeviceName }}"
+          when: Step_4_1_Execute
+
+        - set_fact:
+            deviceHost: "{{ remoteMetroDeviceHost }}"
+            devicePort: "{{ remoteMetroDevicePort }}"
+            deviceSn: "{{ remoteMetroDeviceSn }}"
+            deviceToken: "{{ remoteMetroDeviceToken }}"
+            deviceSession: "{{ remoteMetroDeviceSession }}"
+          when: Step_4_1_Execute
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ remoteHostAddWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_4_1_Execute
+        
+        - set_fact:
+            Step_4_1_Completed: True
+          when: Step_4_1_Execute
+
+        - name: Step_4_2 - Remove Ports from Remote Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  RemoveWwns: "{{ remoteHostRemoveWwns }}"
+                device: "{{ remoteMetroDeviceName }}"
+          when: Step_4_2_Execute
+
+        - set_fact:
+            deviceHost: "{{ remoteMetroDeviceHost }}"
+            devicePort: "{{ remoteMetroDevicePort }}"
+            deviceSn: "{{ remoteMetroDeviceSn }}"
+            deviceToken: "{{ remoteMetroDeviceToken }}"
+            deviceSession: "{{ remoteMetroDeviceSession }}"
+          when: Step_4_2_Execute
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ remoteHostRemoveWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_4_2_Execute
+        
+        - set_fact:
+            Step_4_2_Completed: True
+          when: Step_4_2_Execute
+
+      # End Steps
+      rescue:
+        - name: Rollback_4_2 - Add Removed Ports to Remote Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostRemoveWwns }}"
+                device: "{{ remoteMetroDeviceName }}"
+          when: Step_4_2_Completed
+        
+        - set_fact:
+            deviceHost: "{{ remoteMetroDeviceHost }}"
+            devicePort: "{{ remoteMetroDevicePort }}"
+            deviceSn: "{{ remoteMetroDeviceSn }}"
+            deviceToken: "{{ remoteMetroDeviceToken }}"
+            deviceSession: "{{ remoteMetroDeviceSession }}"
+          when: Step_4_2_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ remoteHostRemoveWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_4_2_Completed
+        
+        - set_fact:
+            Step_4_2_Rollbacked: True
+          when: Step_4_2_Completed
+
+        - name: Rollback_4_1 - Remove Added Ports from Remote Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  removeWwns: "{{ remoteHostAddWwns }}"
+                device: "{{ remoteMetroDeviceName }}"
+          when: Step_4_1_Completed
+
+        - set_fact:
+            deviceHost: "{{ remoteMetroDeviceHost }}"
+            devicePort: "{{ remoteMetroDevicePort }}"
+            deviceSn: "{{ remoteMetroDeviceSn }}"
+            deviceToken: "{{ remoteMetroDeviceToken }}"
+            deviceSession: "{{ remoteMetroDeviceSession }}"
+          when: Step_4_1_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ remoteHostAddWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_4_1_Completed
+        
+        - set_fact:
+            Step_4_1_Rollbacked: True
+          when: Step_4_1_Completed
+
+        - name: Rollback_3_2 - Add Removed Ports to Remote Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostRemoveWwns }}"
+                device: "{{ remoteDeviceName }}"
+          when: Step_3_2_Completed
+
+        - set_fact:
+            deviceHost: "{{ remoteDeviceHost }}"
+            devicePort: "{{ remoteDevicePort }}"
+            deviceSn: "{{ remoteDeviceSn }}"
+            deviceToken: "{{ remoteDeviceToken }}"
+            deviceSession: "{{ remoteDeviceSession }}"
+          when: Step_3_2_Completed
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ remoteHostRemoveWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_3_2_Completed
+        
+        - set_fact:
+            Step_3_2_Rollbacked: True
+          when: Step_3_2_Completed
+
+        - name: Rollback_3_1 - Remove Added Ports from Remote Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  removeWwns: "{{ remoteHostAddWwns }}"
+                device: "{{ remoteDeviceName }}"
+          when: Step_3_1_Completed
+
+        - set_fact:
+            deviceHost: "{{ remoteDeviceHost }}"
+            devicePort: "{{ remoteDevicePort }}"
+            deviceSn: "{{ remoteDeviceSn }}"
+            deviceToken: "{{ remoteDeviceToken }}"
+            deviceSession: "{{ remoteDeviceSession }}"
+          when: Step_3_1_Completed
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ remoteHostAddWwns }}"
+            hostName: "{{ remoteHostName }}"
+          when: Step_3_1_Completed
+        
+        - set_fact:
+            Step_3_1_Rollbacked: True
+          when: Step_3_1_Completed
+
+        - name: Rollback_2_2 - Add Removed Ports to Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostRemoveWwns }}"
+                device: "{{ metroDeviceName }}"        
+          when: Step_2_2_Completed
+
+        - set_fact:
+            deviceHost: "{{ metroDeviceHost }}"
+            devicePort: "{{ metroDevicePort }}"
+            deviceSn: "{{ metroDeviceSn }}"
+            deviceToken: "{{ metroDeviceToken }}"
+            deviceSession: "{{ metroDeviceSession }}"
+          when: Step_2_2_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ primaryHostRemoveWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_2_2_Completed
+        
+        - set_fact:
+            Step_2_2_Rollbacked: True
+          when: Step_2_2_Completed
+
+        - name: Rollback_2_1 - Remove Added Ports from Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  removeWwns: "{{ primaryHostAddWwns }}"
+                device: "{{ metroDeviceName }}"        
+          when: Step_2_1_Completed
+
+        - set_fact:
+            deviceHost: "{{ metroDeviceHost }}"
+            devicePort: "{{ metroDevicePort }}"
+            deviceSn: "{{ metroDeviceSn }}"
+            deviceToken: "{{ metroDeviceToken }}"
+            deviceSession: "{{ metroDeviceSession }}"
+          when: Step_2_1_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ primaryHostAddWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_2_1_Completed
+        
+        - set_fact:
+            Step_2_1_Rollbacked: True
+          when: Step_2_1_Completed
+
+        - name: Rollback_1_2 - Add Removed Ports to Primary Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostRemoveWwns }}"
+                device: "{{ primaryDeviceName }}"        
+          when: Step_1_2_Completed
+
+        - set_fact:
+            deviceHost: "{{ primaryDeviceHost }}"
+            devicePort: "{{ primaryDevicePort }}"
+            deviceSn: "{{ primaryDeviceSn }}"
+            deviceToken: "{{ primaryDeviceToken }}"
+            deviceSession: "{{ primaryDeviceSession }}"
+          when: Step_1_2_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+          vars:
+            wwns: "{{ primaryHostRemoveWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_1_2_Completed
+        
+        - set_fact:
+            Step_1_2_Rollbacked: True
+          when: Step_1_2_Completed
+
+        - name: Rollback_1_1 - Remove Added Ports from Primary Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  removeWwns: "{{ primaryHostAddWwns }}"
+                device: "{{ primaryDeviceName }}"        
+          when: Step_1_1_Completed
+
+        - set_fact:
+            deviceHost: "{{ primaryDeviceHost }}"
+            devicePort: "{{ primaryDevicePort }}"
+            deviceSn: "{{ primaryDeviceSn }}"
+            deviceToken: "{{ primaryDeviceToken }}"
+            deviceSession: "{{ primaryDeviceSession }}"
+          when: Step_1_1_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+          vars:
+            wwns: "{{ primaryHostAddWwns }}"
+            hostName: "{{ primaryHostName }}"
+          when: Step_1_1_Completed
+        
+        - set_fact:
+            Step_1_1_Rollbacked: True
+          when: Step_1_1_Completed
+
+        - name: Rollback_0_2 - Modify Remote Host Ports on DJ
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  removeWwns: "{{ remoteHostAddWwns }}"
+                  addWwns: "{{ remoteHostRemoveWwns }}"
+          when: Step_0_2_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/host/modify_host.yml"
+          vars:
+            addWwns: "{{ remoteHostRemoveWwns }}"
+            removeWwns: "{{ remoteHostAddWwns }}"
+            hostName: "{{ remoteHostName }}"
+            syncStorage: False
+          when: Step_0_2_Completed
+
+        - set_fact:
+            Step_0_2_Rollbacked: True
+          when: Step_0_2_Completed
+
+        - name: Rollback_0_1 - Modify Host Ports on DJ
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  removeWwns: "{{ primaryHostAddWwns }}"
+                  addWwns: "{{ primaryHostRemoveWwns }}"
+          when: Step_0_1_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/host/modify_host.yml"
+          vars:
+            addWwns: "{{ primaryHostRemoveWwns }}"
+            removeWwns: "{{ primaryHostAddWwns }}"
+            hostName: "{{ primaryHostName }}"
+            syncStorage: False
+          when: Step_0_1_Completed
+
+        - set_fact:
+            Step_0_1_Rollbacked: True
+          when: Step_0_1_Completed
+
+        # End Rollbacks
+      always:
+       
+        - name: Final_Step_1 - Sync Devices
+          set_fact:
+            deviceSynced: []
+            primaryDeviceNeedSync: "{{ (Step_1_1_Completed|bool == True and Step_1_1_Rollbacked|bool == False) or (Step_1_2_Completed|bool == True and Step_1_2_Rollbacked|bool == False) }}"
+            metroDeviceNeedSync: "{{ (Step_2_1_Completed|bool == True and Step_2_1_Rollbacked|bool == False) or (Step_2_2_Completed|bool == True and Step_2_2_Rollbacked|bool == False) }}"
+            remoteDeviceNeedSync: "{{ (Step_3_1_Completed|bool == True and Step_3_1_Rollbacked|bool == False) or (Step_3_2_Completed|bool == True and Step_3_2_Rollbacked|bool == False) }}"
+            remoteMetroDeviceNeedSync: "{{ (Step_4_1_Completed|bool == True and Step_4_1_Rollbacked|bool == False) or (Step_4_2_Completed|bool == True and Step_4_2_Rollbacked|bool == False) }}"
+
+        - name: Final_Step_1_1 - Sync Primary Device
+          debug:
+            msg:
+              device: "{{ primaryDeviceName }}"
+          when: primaryDeviceNeedSync
+        
+        - set_fact:
+            deviceName: "{{ primaryDeviceName }}"
+          when: primaryDeviceNeedSync
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when: primaryDeviceNeedSync
+       
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [primaryDeviceName] }}"
+          when: primaryDeviceNeedSync
+
+        - name: Final_Step_1_2 - Sync Metro Device
+          debug:
+            msg:
+              device: "{{ metroDeviceName }}"
+          when:
+            - metroDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ metroDeviceName }}"
+          when:
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when: 
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+        
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [metroDeviceName] }}"
+          when: 
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+
+        - name: Final_Step_1_3 - Sync Remote Device
+          debug:
+            msg:
+              device: "{{ remoteDeviceName }}"
+          when:
+            - remoteDeviceNeedSync
+          
+        - set_fact:
+            deviceName: "{{ remoteDeviceName }}"
+          when: 
+            - remoteDeviceNeedSync
+            - remoteDeviceName not in deviceSynced
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when: 
+            - remoteDeviceNeedSync
+            - remoteDeviceName not in deviceSynced
+        
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [remoteDeviceName] }}"
+          when:
+            - remoteDeviceNeedSync
+            - remoteDeviceName not in deviceSynced
+
+        - name: Final_Step_1_4 - Sync Remote Metro Device
+          debug:
+            msg:
+              device: "{{ remoteMetroDeviceName }}"
+          when:
+            - remoteMetroDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ remoteMetroDeviceName }}"
+          when: 
+            - remoteMetroDeviceNeedSync
+            - remoteMetroDeviceName not in deviceSynced
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when: 
+            - remoteMetroDeviceNeedSync
+            - remoteMetroDeviceName not in deviceSynced       
+        
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [remoteMetroDeviceName] }}"
+          when: 
+            - remoteMetroDeviceNeedSync
+            - remoteMetroDeviceName not in deviceSynced
+      
+      # End Final Steps
+
+    # End Workflow
+
+
+    - name: Validate Results
+      block:
+
+        - name: Result_0_1 - DJ - Modify Host Ports
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostAddWwns }}"
+                  removeWwns: "{{ primaryHostRemoveWwns }}"
+              result:
+                succeeded: "{{ Step_0_1_Completed }}"
+                rollbacked: "{{ Step_0_1_Rollbacked }}"
+          failed_when: Step_0_1_Completed|bool == False
+          when: Step_0_1_Execute
+
+        - name: Result_0_2 - DJ - Modify Remote Host Ports
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostAddWwns }}"
+                  removeWwns: "{{ remoteHostRemoveWwns }}"
+              result:
+                succeeded: "{{ Step_0_2_Completed }}"
+                rollbacked: "{{ Step_0_2_Rollbacked }}"
+          failed_when: Step_0_2_Completed|bool == False
+          when: Step_0_2_Execute
+
+        - name: Result_1_1 - Add Ports to Primary Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostAddWwns }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_1_Completed }}"
+                rollbacked: "{{ Step_1_1_Rollbacked }}"
+          failed_when: Step_1_1_Completed|bool == False
+          when: Step_1_1_Execute
+
+        - name: Result_1_2 - Remove Ports from Primary Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  removeWwns: "{{ primaryHostRemoveWwns }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_2_Completed }}"
+                rollbacked: "{{ Step_1_2_Rollbacked }}"
+          failed_when: Step_1_2_Completed|bool == False
+          when: Step_1_2_Execute
+
+        - name: Result_2_1 - Add Ports to Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  addWwns: "{{ primaryHostAddWwns }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_1_Completed }}"
+                rollbacked: "{{ Step_2_1_Rollbacked }}"
+          failed_when: Step_2_1_Completed|bool == False
+          when: Step_2_1_Execute
+
+        - name: Result_2_2 - Remove Ports from Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ primaryHostName }}"
+                  RemoveWwns: "{{ primaryHostRemoveWwns }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_2_Completed }}"
+                rollbacked: "{{ Step_2_2_Rollbacked }}"
+          failed_when: Step_2_2_Completed|bool == False
+          when: Step_2_2_Execute
+
+        - name: Result_3_1 - Add Ports to Remote Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostAddWwns }}"
+                device: "{{ remoteDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_1_Completed }}"
+                rollbacked: "{{ Step_3_1_Rollbacked }}"
+          failed_when: Step_3_1_Completed|bool == False
+          when: Step_3_1_Execute
+
+        - name: Result_3_2 - Remove Ports from Remote Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  removeWwns: "{{ remoteHostRemoveWwns }}"
+                device: "{{ remoteDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_2_Completed }}"
+                rollbacked: "{{ Step_3_2_Rollbacked }}"
+          failed_when: Step_3_2_Completed|bool == False
+          when: Step_3_2_Execute
+
+        - name: Result_4_1 - Add Ports to Remote Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  addWwns: "{{ remoteHostAddWwns }}"
+                device: "{{ remoteMetroDeviceName }}"
+              result:
+                succeeded: "{{ Step_4_1_Completed }}"
+                rollbacked: "{{ Step_4_1_Rollbacked }}"
+          failed_when: Step_4_1_Completed|bool == False
+          when: Step_4_1_Execute
+            
+
+        - name: Result_4_2 - Remove Ports from Remote Metro Host
+          debug:
+            msg:
+              params:
+                host:
+                  name: "{{ remoteHostName }}"
+                  RemoveWwns: "{{ remoteHostRemoveWwns }}"
+                device: "{{ remoteMetroDeviceName }}"
+              result:
+                succeeded: "{{ Step_4_2_Completed }}"
+                rollbacked: "{{ Step_4_2_Rollbacked }}"
+          failed_when: Step_4_2_Completed|bool == False
+          when: Step_4_2_Execute
+
+        - name: Synced Device
+          debug:
+            msg:
+              synced: "{{ deviceSynced }}"
+      
+      # End Validates
+
+  # End Tasks
+
+# End Playbook

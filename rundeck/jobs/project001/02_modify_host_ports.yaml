@@ -1,0 +1,169 @@
+- defaultTab: monitor
+  description: 'Add WWNs to Host or Remove WWNs from Host'
+  executionEnabled: true
+  id: 3ebef5e5-2675-49af-9576-f03315a42774
+  loglevel: INFO
+  name: 02_modify_host_ports
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Add WWNs to Host or Remove WWNs from Host
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Select Host & WWNs</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search Host Name
+    name: Host_Search
+  - enforced: true
+    name: Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"not%20end%20with","value":"_3"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - enforced: true
+    name: Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storagehost","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}},{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Room.value}"}}]}}]
+  - enforced: true
+    name: Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Remove_WWN
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/join/fc_initiator?range=[0-100]&nameAttr=ID&valueAttr=ID&nameDefault=&valueDefault=&joins=[{"joinAttr":"PARENTID","obj":"host","attr":"ID","filter":"NAME::${option.Host.value}"}]
+  - label: Search WWN to Add
+    name: Add_Search
+  - delimiter: ','
+    multivalued: true
+    name: Add_WWN
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/fc_initiator?range=[0-100]&nameAttr=ID&valueAttr=ID&nameDefault=&valueDefault=&ISFREE=true&filter=ID:${option.Add_Search.value}
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    required: true
+    name: Check_Result_1
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?add=1.%20Add%20WWNs:%20"${option.Add_WWN.value}"%20to%20host:%20"${option.Host.value}"&remove=2.%20Remove%20WWNs:%20"${option.Remove_WWN.value}"%20from%20host:%20"${option.Host.value}"
+    description: Select to confirm result <BR><BR><h2>Update Remote Host</h2>
+  - enforced: true
+    name: Update_Remote_Host
+    value: 'no'
+    values:
+    - 'no'
+    - 'yes'
+  - enforced: true
+    name: LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupId&matchAttr=mappingType&match=1&range=[0-100]&obj=host&filter=NAME::${option.Host.value}
+    description: Select a Protected LUN Group
+  - enforced: true
+    name: Remote_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Remote_Storage.value}/data/v1/associate/mapping?nameAttr=hostName&valueAttr=hostName&range=[0-100]&obj=lungroup&filter=NAME::${option.Remote_LUN_Group.value}
+  - enforced: true
+    name: Remote_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/remote_device?nameAttr=NAME&valueAttr=SN&range=[0-100]&filter=ID::${option.Remote_Storage_ID.value}
+  - enforced: true
+    name: Remote_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Remote_Storage.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Remote_Host_Remove_WWN
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Remote_Storage.value}/data/v1/join/fc_initiator?range=[0-100]&nameAttr=ID&valueAttr=ID&nameDefault=&valueDefault=&joins=[{"joinAttr":"PARENTID","obj":"host","attr":"ID","filter":"NAME::${option.Remote_Host.value}"}]
+  - label: Search WWN to Add
+    name: Remote_Host_Add_Search
+  - delimiter: ','
+    multivalued: true
+    name: Remote_Host_Add_WWN
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Remote_Storage.value}/data/v1/search/fc_initiator?range=[0-100]&nameAttr=ID&valueAttr=ID&nameDefault=&valueDefault=&ISFREE=true&filter=ID:${option.Remote_Host_Add_Search.value}
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_2
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?add=1.%20Add%20WWNs:%20"${option.Remote_Host_Add_WWN.value}"%20to%20host:%20"${option.Remote_Host.value}"&remove=2.%20Remove%20ports:%20"${option.Remote_Host_Remove_WWN.value}"%20from%20host:%20"${option.Remote_Host.value}"
+    description: Select to confirm result <BR><BR><h2>Additional Info</h2>
+  - enforced: true
+    name: Host_Metro_Enabled
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:0:1&valueAttr=DESCRIPTION:0:0:1&filter=ID::${option.LUN_Group.value}
+  - enforced: true
+    name: Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/protectgroup?nameAttr=protectGroupName&valueAttr=protectGroupName&range=[0-100]&filter=lunGroupId::${option.LUN_Group.value}
+  - enforced: true
+    name: Replication_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  - enforced: true
+    name: Remote_Storage_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=remoteArrayID&valueAttr=remoteArrayID&range=[0-100]&filter=NAME::${option.Replication_CG.value}
+  - enforced: true
+    name: Remote_Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=rmtPgName&valueAttr=rmtPgName&range=[0-100]&filter=NAME::${option.Replication_CG.value}
+  - enforced: true
+    name: Remote_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Remote_Storage.value}/data/v1/search/protectgroup?nameAttr=lunGroupName&valueAttr=lunGroupName&range=[0-100]&filter=protectGroupName::${option.Remote_Protection_Group.value}
+  - enforced: true
+    name: Remote_Host_Metro_Enabled
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Remote_Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:0:1&valueAttr=DESCRIPTION:0:0:1&filter=NAME::${option.Remote_LUN_Group.value}
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Host: ${option.Host}
+          Storage: ${option.Storage}
+          Remove_WWN: ${option.Remove_WWN}
+          Add_WWN: ${option.Add_WWN}
+          Update_Remote_Host: ${option.Update_Remote_Host}
+          Remote_Storage: ${option.Remote_Storage}
+          Remote_Host: ${option.Remote_Host}
+          Remote_Host_Remove_WWN: ${option.Remote_Host_Remove_WWN}
+          Remote_Host_Add_WWN: ${option.Remote_Host_Add_WWN}
+          Protection_Group: ${option.Protection_Group}
+          Remote_Protection_Group: ${option.Remote_Protection_Group}
+          Host_Metro_Enabled: ${option.Host_Metro_Enabled}
+          Remote_Host_Metro_Enabled: ${option.Remote_Host_Metro_Enabled}
+          Check_Result_1: ${option.Check_Result_1}
+          Check_Result_2: ${option.Check_Result_2}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/02_modify_host_ports.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 3ebef5e5-2675-49af-9576-f03315a42774

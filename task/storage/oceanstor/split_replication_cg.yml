@@ -1,0 +1,65 @@
+# Required Parameters:
+#   cgName:            consistency group name
+
+- name: Query Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP?filter=NAME%3A%3A{{cgName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: CG
+  failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data|length != 1)
+
+- name: Get Replication CG ID
+  set_fact:
+    splitCgId: "{{ CG.json.data[0].ID }}"
+    cgStatus: "{{ CG.json.data[0].RUNNINGSTATUS }}"
+
+# If it's synchronizing, wait sync complete
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP/{{splitCgId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SPLIT_CG_WAIT
+  vars:
+    syncStatus: "{{ SPLIT_CG_WAIT.json.data.RUNNINGSTATUS }}"
+  retries: "{{ GLOBAL.replication.syncRetries }}"
+  delay: "{{ GLOBAL.replication.syncDelay }}"
+  until: syncStatus != GLOBAL.replication.syncStatus.syncing
+  when: cgStatus == GLOBAL.replication.syncStatus.syncing
+
+- name: Split Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SPLIT_CONSISTENCY_GROUP"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ splitCgId }}"
+  register: SPLIT_CG
+  when:
+    - cgStatus != GLOBAL.replication.syncStatus.splited
+    - cgStatus != GLOBAL.replication.syncStatus.standby
+
+- name: Check Split CG Result
+  debug:
+    msg: "{{ SPLIT_CG.json.error }}"
+  failed_when: SPLIT_CG.json.error.code|int != 0
+  when:
+    - cgStatus != GLOBAL.replication.syncStatus.splited
+    - cgStatus != GLOBAL.replication.syncStatus.standby

@@ -1,0 +1,213 @@
+- defaultTab: monitor
+  description: Create Cluster with LUN Group, Protection Group, Replication CG, and HyperMetro CG
+  executionEnabled: true
+  id: 1106b34b-0a7c-4364-be03-c88c1e44b498
+  loglevel: INFO
+  name: 05_create_cluster
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Create Cluster with LUN Group, Protection Group, Replication CG, and HyperMetro CG
+    description: Requires at least add 1 host to the cluster
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Country, OS Type and Location</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - enforced: true
+    name: OS_Type
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - enforced: true
+    name: Site
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/DC?nameAttr=desc&valueAttr=key
+  - enforced: true
+    name: Room
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/AZ?nameAttr=desc&valueAttr=key&filter={"dc":"${option.Site.value}"}
+  - enforced: true
+    name: Storage
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Room.value}"}}]}}]
+    description: <BR><h2>Primary Cluster</h2>
+  - name: Cluster_Name
+    description: Input Cluster Name (required, max 16 chars, '_' not permitted)
+    required: true
+  - name: Cluster_Description
+    description: Add additional information (optional, max 64 chars)
+  - label: Search Hosts on Storage
+    name: Search_Host
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Hosts
+    required: true
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.Search_Host.value}%20and%20ISADD2HOSTGROUP::false
+  - enforced: true
+    name: Class_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?cluster=1.%20Create%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Name.value}_1"%20on%20storage:%20"${option.Storage.value}"&hosts=2.%20Add%20hosts%20"${option.Hosts.value}"%20to%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Name.value}_1"
+    description: Select to confirm primary cluster result <BR><BR><h2>Protection Info</h2>
+  - name: Session_Name
+    description: Input Session Name used for grouping (optional, max 16 chars, '_' not permitted, default is Primary Cluster Name)
+  - enforced: true
+    name: Enable_HyperMetro
+    value: 'N'
+    required: true
+    values:
+    - 'N'
+    - 'Y'
+  - enforced: true
+    name: Protection_Level
+    required: true
+    value: '1'
+    values:
+    - '1'
+    - '2'
+    - '3'
+  - enforced: true
+    name: DR_Sync_Mode
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/REPMODE?nameAttr=desc&valueAttr=enum
+    description: <BR><h2>Metro Cluster</h2>
+  - enforced: true
+    name: Metro_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/HyperMetroDomain?range=[0-100]&nameAttr=REMOTEDEVICES:11&nameSplit=%22&valueAttr=REMOTEDEVICES:7&valueSplit=%22
+  - enforced: true
+    name: Metro_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Metro_Storage.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Metro_Hosts
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Metro_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.Search_Host.value}%20and%20ISADD2HOSTGROUP::false
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_2
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?cluster=1.%20Create%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Name.value}_1"%20on%20storage:%20"${option.Metro_Storage.value}"&hosts=2.%20Add%20hosts%20"${option.Metro_Hosts.value}"%20to%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Name.value}_1"
+    description: Select to confirm metro cluster result <BR><BR><h2>DR Cluster</h2>
+  - enforced: true
+    name: DR_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/remote_device?nameAttr=NAME&valueAttr=SN&filter=ARRAYTYPE!!2
+  - enforced: true
+    name: DR_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.DR_Storage.value}"}}]}}]
+  - name: DR_Cluster_Name
+    description: Input Cluster Name (required if protection level >=2, max 16 chars, '_' not permitted )
+  - name: DR_Cluster_Description
+    description: Input Cluster Description (optional, max 64 chars)
+  - label: Search DR Hosts on Storage
+    name: DR_Search_Host
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: DR_Hosts
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.DR_Search_Host.value}%20and%20ISADD2HOSTGROUP::false
+  - enforced: true
+    name: Class_2
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_3
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?cluster=1.%20Create%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Cluster_Name.value}_2"%20on%20storage:%20"${option.DR_Storage.value}"&hosts=2.%20Add%20host%20"${option.DR_Hosts.value}"%20to%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Cluster_Name.value}_2"
+    description: Select to confirm the DR Cluster result <BR><BR><h2>DR Test Cluster</h2>
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: DR_Test_Hosts
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.DR_Search_Host.value}%20and%20ISADD2HOSTGROUP::false
+  - enforced: true
+    name: Class_3
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_4
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?cluster=1.%20Create%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Cluster_Name.value}_3"%20on%20storage:%20"${option.DR_Storage.value}"&hosts=2.%20Add%20host%20"${option.DR_Test_Hosts.value}"%20to%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.DR_Cluster_Name.value}_3"
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Cluster_Name: ${option.Cluster_Name}
+          Cluster_Description: ${option.Cluster_Description}
+          Country: ${option.Country}
+          OS_Type: ${option.OS_Type}
+          Site: ${option.Site}
+          Room: ${option.Room}
+          Storage: ${option.Storage}
+          Class_1: ${option.Class_1}
+          Hosts: ${option.Hosts}
+          Session_Name: ${option.Session_Name}
+          Enable_HyperMetro: ${option.Enable_HyperMetro}
+          Metro_Hosts: ${option.Metro_Hosts}
+          Metro_Storage: ${option.Metro_Storage}
+          Metro_Storage_Room: ${option.Metro_Storage_Room}
+          Protection_Level: ${option.Protection_Level}
+          DR_Sync_Mode: ${option.DR_Sync_Mode}
+          DR_Cluster_Name: ${option.DR_Cluster_Name}
+          DR_Cluster_Description: ${option.DR_Cluster_Description}
+          DR_Storage: ${option.DR_Storage}
+          DR_Storage_Room: ${option.DR_Storage_Room}
+          Class_2: ${option.Class_2}
+          DR_Hosts: ${option.DR_Hosts}
+          Class_3: ${option.Class_3}
+          DR_Test_Hosts: ${option.DR_Test_Hosts}
+          Check_Result_1: ${option.Check_Result_1}
+          Check_Result_2: ${option.Check_Result_2}
+          Check_Result_3: ${option.Check_Result_3}
+          Check_Result_4: ${option.Check_Result_4}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/05_create_cluster.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]?
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]?
+        type: highlight-output
+    strategy: node-first
+  uuid: 1106b34b-0a7c-4364-be03-c88c1e44b498

@@ -1,0 +1,9 @@
+- name: Un-Map LUNs from Host
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/unmap_luns_from_host.yml"

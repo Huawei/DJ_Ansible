@@ -1,0 +1,203 @@
+# Required Parameters:
+#   cgName:            consistency group name
+#   localLunIds:       a list of local LUN IDs
+#   remoteLunIds:      a list of remote LUN IDs
+#
+# Optional Parameters:
+#   deletePairs:       delete pairs after remove from CG, default: yes, options: yes, no
+#
+
+- block:
+    - name: Query Replication CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP?filter=NAME%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data | length != 1)
+
+    - name: Get Replication CG
+      set_fact:
+        modifiedCg: "{{ CG.json.data[0] }}"
+        isStandby: "{{ CG.json.data[0].RUNNINGSTATUS == GLOBAL.replication.syncStatus.standby }}"
+
+  when: cgName|default(none) is not none
+
+- set_fact:
+    existPairIds: []
+
+- name: Check Exist Replication Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR?filter=LOCALRESID%3A%3A{{item.1}}%20and%20REMOTERESID%3A%3A{{remoteLunIds[item.0]}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: EXIST_PAIRS
+  with_indexed_items: "{{ localLunIds }}"
+
+- name: Get Exist Pair IDs
+  vars:
+    queryPairId: "[? REMOTEDEVICEID=='{{modifiedCg.remoteArrayID}}'].ID"
+  set_fact:
+    existPairIds: "{{ existPairIds + EXIST_PAIRS.results[item.0].json.data | default([]) | json_query(queryPairId) }}"
+  with_indexed_items: "{{ localLunIds }}"
+
+
+- name: Split Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SPLIT_CONSISTENCY_GROUP"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ modifiedCg.ID }}"
+  register: SPLIT_CG
+  when: isStandby|bool == False
+
+- name: Check Split Result
+  debug:
+    msg: "{{ SPLIT_CG.json.error }}"
+  failed_when: SPLIT_CG.json.error.code|int != 0
+  when: isStandby|bool == False
+
+
+- name: Remove Replication Pairs from CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/DEL_MIRROR"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ modifiedCg.ID }}"
+      RMLIST:
+        - "{{ item }}"
+  register: REMOVE_PAIRS
+  with_items: "{{ existPairIds }}"
+  when: existPairIds|length > 0
+
+- name: Check Remove Pairs Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ REMOVE_PAIRS.results | json_query(queryMsg) }}"
+  failed_when: REMOVE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+  when: existPairIds|length > 0
+
+
+- name: Sync Replication CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SYNCHRONIZE_CONSISTENCY_GROUP"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ modifiedCg.ID }}"
+  register: SYNC_CG
+  when: isStandby|bool == False
+
+- name: Check Sync Result
+  debug:
+    msg: "{{ SYNC_CG.json.error }}"
+  failed_when: SYNC_CG.json.error.code|int != 0
+  when: isStandby|bool == False
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP/{{modifiedCg.ID}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SYNC_CG_WAIT
+  vars:
+    syncStatus: "{{ SYNC_CG_WAIT.json.data.RUNNINGSTATUS }}"
+  retries: "{{ GLOBAL.replication.syncRetries }}"
+  delay: "{{ GLOBAL.replication.syncDelay }}"
+  until: syncStatus != GLOBAL.replication.syncStatus.syncing
+  when:
+    - isStandby|bool == False
+    - waitSync|default(False)|bool == True
+
+- block:
+    - name: Delete Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_PAIRS
+      with_items: "{{ existPairIds }}"
+
+    - name: Check Delete Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DELETE_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: DELETE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when:
+    - deletePairs|default(True)|bool == True
+    - existPairIds|length > 0
+
+- block:
+    - name: Sync Replication Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/REPLICATIONPAIR/sync"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: SYNC_PAIRS
+      with_items: "{{ existPairIds }}"
+
+    - name: Check Sync Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ SYNC_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: SYNC_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when:
+    - deletePairs|default(True)|bool == False
+    - existPairIds|length > 0
+    - isStandby|bool == False

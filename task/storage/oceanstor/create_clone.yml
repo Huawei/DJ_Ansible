@@ -1,0 +1,105 @@
+# Create Clone Pair
+#
+# Required parameters:
+#   deviceName:            # storage device name
+#   pairName:              # pair name
+#   sourceLun:             # source LUN name
+#
+# Optional parameters:
+#   speed:                 # copy speed, default: 2, options: 1/low, 2/medium, 3/high, 4/highest
+#   sync:                  # sync immediate, default: 1, options: 0/no, 1/yes
+#   desc:                  # description
+#   waitSync:              # wait sync complete, default: yes, options: yes, no
+#   keepPair:              # keep pair after sync, default: yes, options: yes, no
+
+- name: Query Source LUN by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{sourceLun|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SOURCE_LUN
+  when: sourceLun is defined
+
+- name: Check Source Lun Exists
+  set_fact:
+    sourceLunId: "{{ SOURCE_LUN.json.data[0].ID }}"
+  failed_when: SOURCE_LUN.json.error.code|int !=0 or SOURCE_LUN.json.data | length != 1
+
+- name: Create Clone Pair
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/create"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      sourceID: "{{sourceLunId}}"
+      name: "{{pairName}}"
+      copyRate: "{{speed|default(GLOBAL.clone.syncSpeed)}}"
+      isNeedSynchronize: "{{sync|default(1)}}"
+      description: "{{desc|default('')}}"
+  register: NEW_PAIR
+
+- name: Check Create Result
+  debug:
+    msg: "{{ NEW_PAIR.json.error }}"
+  failed_when: NEW_PAIR.json.error.code|int != 0
+
+- name: Get Pair ID
+  set_fact:
+    pairId: "{{ NEW_PAIR.json.data.ID }}"
+    targetId: "{{ NEW_PAIR.json.data.targetID }}"
+    targetName: "{{ NEW_PAIR.json.data.targetName }}"
+    waitSync: "{{ waitSync|default(True) }}"
+    keepPair: "{{ keepPair|default(True) }}"
+  failed_when: NEW_PAIR.json.error.code|int != 0
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/{{pairId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: WAIT_SYNC
+  vars:
+    syncStatus: "{{ WAIT_SYNC.json.data.syncStatus }}"
+  retries: "{{ GLOBAL.clone.syncRetries }}"
+  delay: "{{ GLOBAL.clone.syncDelay }}"
+  until: syncStatus != GLOBAL.clone.syncStatus.syncing
+  when: waitSync|bool == True
+
+- name: Delete Clone Pair
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/{{pairId}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{pairId}}"
+      isDeleteDstLun: False
+  register: DEL_PAIR
+  when: keepPair|bool == False
+
+- name: Check delete result
+  debug:
+    msg: "{{ DEL_PAIR.json.error }}"
+  failed_when: DEL_PAIR.json.error.code|int != 0
+  when: keepPair|bool == False

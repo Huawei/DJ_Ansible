@@ -1,0 +1,62 @@
+# Required Parameters:
+#   snapNames:               a list of snapshot names, can be replaced with snapIds
+#
+# Option parameters:
+#   snapIds:                 a list of snapshot IDs
+
+- block:
+    - name: Query Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/SNAPSHOT?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: SNAPSHOTS
+      with_items: "{{ snapNames }}"
+
+    - set_fact:
+        snapIds: []
+
+    - name: Get Snapshot IDs
+      vars:
+        queryId: "[*].ID"
+      set_fact:
+        snapIds: "{{ snapIds + SNAPSHOTS.results[item.0].json.data | json_query(queryId) }}"
+      with_indexed_items: "{{ snapNames }}"
+
+    - name: Check Snapshot IDs
+      debug:
+        msg:
+          snapIds: "{{ snapIds }}"
+      failed_when: snapIds|length != snapNames|length
+
+  when: snapNames|default(none) is not none
+
+
+- name: Deactivate Snapshots
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/stop"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ item }}"
+  register: DEACTIVATE_SNAPSHOTS
+  with_items: "{{ snapIds }}"
+
+- name: Check Deactivate Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ DEACTIVATE_SNAPSHOTS.results | json_query(queryMsg) }}"
+  failed_when: DEACTIVATE_SNAPSHOTS.results | json_query(queryError) | difference([0]) | length > 0

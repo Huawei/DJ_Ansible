@@ -1,0 +1,152 @@
+# Required Parameters:
+#   pgName:            protection group name
+#   cgName:            clone consistency group name
+#
+# Optional Parameters:
+#   pgId:                    protection group ID
+#   sync:                    whether to sync immediately, default: yes, options: yes, no
+#   syncSpeed:               sync speed, default: 2, options: 1:low, 2:medium, 3:high, 4:highest
+#   waitSync:                wait until sync complete, default: no, options: yes, no
+#   cloneNamePrefix:         rename clone names, prefix
+#   cloneNameSuffixStart:    rename clone names, suffix start number, default: 0
+#   cloneNameSuffixDigits:   rename clone names, suffix digits, default DEFAULT.suffixDigits
+#   cloneDesc:               clone description
+#
+# Generated Parameters:
+#   newCgId:           new clone CG ID
+
+- block:
+    - name: Query PG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup?filter=protectGroupName%3A%3A{{pgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: PG
+      failed_when: (PG.json.error.code|int != 0) or ('data' not in PG.json) or (PG.json.data|length != 1)
+
+    - set_fact:
+        pgId: "{{ PG.json.data[0].protectGroupId }}"
+
+  when: pgName|default(none) is not none
+
+
+- name: Create Clone CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      name: "{{ cgName }}"
+      sourcePgId: "{{ pgId }}"
+      isNeedSynchronize: "{{ sync|default(True) }}"
+      copyRate: "{{ syncSpeed|default(GLOBAL.clone.syncSpeed) }}"
+  register: NEW_CG
+
+- name: Check Create Clone CG Result
+  debug:
+    msg: "{{ NEW_CG.json.error }}"
+  failed_when: NEW_CG.json.error.code|int != 0
+
+- set_fact:
+    newCgId: "{{ NEW_CG.json.data.ID }}"
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup/{{newCgId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: WAIT_SYNC
+  vars:
+    syncStatus: "{{ WAIT_SYNC.json.data.syncStatus }}"
+  retries: "{{ GLOBAL.clone.syncRetries }}"
+  delay: "{{ GLOBAL.clone.syncDelay }}"
+  until: syncStatus != GLOBAL.clone.syncStatus.syncing
+  when: waitSync|default(False)|bool == True
+
+- block:
+    - name: Query Clone Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/associate?ASSOCIATEOBJTYPE=57703&ASSOCIATEOBJID={{newCgId}}&range=[0-4096]"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CLONE_PAIRS
+
+    - set_fact:
+        cloneIds: "{{ CLONE_PAIRS.json.data | json_query('[*].ID') }}"
+        targetIds: "{{ CLONE_PAIRS.json.data | json_query('[*].targetID') }}"
+        cloneNameSuffix: "%0{{cloneNameSuffixDigits|default(DEFAULT.suffixDigits)}}d"
+
+    - name: Modify Clone Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/modify"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item.1 }}"
+          name: "{{cloneNamePrefix}}{{ cloneNameSuffix | format( cloneNameSuffixStart|default(0)|int + item.0|int ) }}"
+          description: "{{ cloneDesc|default('') }}"
+      register: MODIFY_CLONE_PAIRS
+      with_indexed_items: "{{ cloneIds }}"
+
+    - name: Check Modify Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ MODIFY_CLONE_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: MODIFY_CLONE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+    - name: Modify Target LUN Description
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun/{{item}}"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          DESCRIPTION: "{{ cloneDesc }}"
+      register: MODIFY_LUNS
+      with_items: "{{ targetIds }}"
+      when: cloneDesc|default(none) is not none
+
+    - name: Check Modify Target LUNs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ MODIFY_LUNS.results | json_query(queryMsg) }}"
+      failed_when: MODIFY_LUNS.results | json_query(queryError) | difference([0]) | length > 0
+      when: cloneDesc|default(none) is not none
+
+  when: cloneNamePrefix|default(none) is not none

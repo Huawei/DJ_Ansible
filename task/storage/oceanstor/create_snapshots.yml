@@ -1,0 +1,137 @@
+# Required Parameters:
+#   lunNames:           a list of LUN Names, can be replaced with lunIds
+#   snapNames:          a list of Snapshot Names
+#
+# Optional Parameters:
+#   lunIds:             a list of LUN IDs
+#   desc:               description, can be replaced with snapDescs
+#   snapDescs:          descriptions for each snapshot
+#   activate:           activate snapshots after create, default: True
+#
+# Generated Parameters:
+#   newSnapIds:          new snapshot IDs
+
+- set_fact:
+    newSnapIds: []
+
+- block:
+    - name: Query LUNs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LUNs
+      with_items: "{{ lunNames }}"
+
+    - set_fact:
+        lunIds: []
+
+    - name: Get LUN IDs
+      vars:
+        queryId: "[? NAME=='{{item.1}}'].ID"
+      set_fact:
+        lunIds: "{{ lunIds + LUNs.results[item.0].json.data | default([]) | json_query(queryId) }}"
+      with_indexed_items: "{{ lunNames }}"
+
+    - name: Check LUN IDs
+      debug:
+        msg:
+          lunIds: "{{ lunIds }}"
+      failed_when: lunIds|length != lunNames|length
+
+  when: lunNames|default(none) is not none
+
+
+- name: Create Snapshots
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      NAME: "{{ snapNames[item.0] }}"
+      PARENTTYPE: 11                   # 11: LUN, 27: Snapshot
+      PARENTID: "{{ item.1 }}"
+      DESCRIPTION: "{{ desc|default(snapDescs[item.0]|default('')) }}"
+  register: SNAPSHOTS
+  with_indexed_items: "{{ lunIds }}"
+
+- name: Check Create Snapshots Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ SNAPSHOTS.results | json_query(queryMsg) }}"
+  failed_when: SNAPSHOTS.results | json_query(queryError) | difference([0]) | length > 0
+
+- name: Get Snapshot IDs
+  vars:
+    queryId: "[*].json.data.ID"
+  set_fact:
+    newSnapIds: "{{ SNAPSHOTS.results | json_query(queryId) }}"
+
+- name: Check Snapshot IDs
+  debug:
+    msg:
+      newSnapIds: "{{ newSnapIds }}"
+  failed_when: newSnapIds|length != lunIds|length
+
+- block:
+    - name: Activate Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/activate"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          SNAPSHOTLIST: "{{ newSnapIds }}"
+      register: ACTIVE_SNAPSHOTS
+
+    - name: Check Activate Snapshots Result
+      debug:
+        msg: "{{ ACTIVE_SNAPSHOTS.json.error }}"
+      failed_when: ACTIVE_SNAPSHOTS.json.error.code|int != 0
+
+  when: activate|default(True)|bool == True
+
+- block:
+    - name: Deactivate Snapshots
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/stop"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: DEACTIVATE_SNAPSHOTS
+      with_items: "{{ newSnapIds }}"
+
+    - name: Check Deactivate Snapshtos Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DEACTIVATE_SNAPSHOTS.results | json_query(queryMsg) }}"
+      failed_when: DEACTIVATE_SNAPSHOTS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: activate|default(True)|bool == False

@@ -1,0 +1,189 @@
+# Get Host LUN ID
+#
+# Required parameters:
+#   hostName:               Host Name
+#   hostGroupName:          Host Group Name
+#
+# Generated parameters:
+#   checkedLgNames         Checked LUN Group Names
+#   checkedLuns            Checked LUNs
+#   checkedHostLunIds      Checked Host LUN IDs
+#   checkedHostLunIdMax    Checked Host LUN IDs MAX
+#   checkedHostLunIdMin    Checked Host LUN IDs MIN
+
+
+- set_fact:
+    checkedHostLunIds: []
+    checkedLuns: {}
+    checkedLgNames: []
+    checkedLgs: []
+    checkedLgIds: []
+    checkedHostLunIdMax: -1
+    checkedHostLunIdMin: 4096
+
+- block:
+    - name: Query Host by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?filter=NAME%3A%3A{{hostName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOST
+      failed_when: (HOST.json.error.code|int !=0) or ('data' not in HOST.json) or (HOST.json.data|length != 1)
+
+    - set_fact:
+        checkHostId: "{{ HOST.json.data[0].ID }}"
+
+    - name: Query Host Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/associate?ASSOCIATEOBJTYPE=21&ASSOCIATEOBJID={{checkHostId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOST_MAPPING
+
+    - set_fact:
+        checkedLgNames: "{{ HOST_MAPPING.json.data | json_query(queryHostLgName) }}"
+      vars:
+        queryHostLgName: "[? mappingType=='1' && lunGroupName!=''].lunGroupName"
+
+    - name: Query LGs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LGs
+      with_items: "{{ checkedLgNames }}"
+
+    - name: Get LG IDs
+      vars:
+        queryLgIds: "[? NAME=='{{item.1}}'].ID"
+        queryLgs: "[? NAME=='{{item.1}}']"
+      set_fact:
+        checkedLgIds: "{{ checkedLgIds + LGs.results[item.0].json.data | default([]) | json_query(queryLgIds) }}"
+        checkedLgs: "{{ checkedLgs + LGs.results[item.0].json.data | default([]) | json_query(queryLgs) }}"
+      with_indexed_items: "{{ checkedLgNames }}"
+
+    - name: Query Host LUN IDs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostLunInfo?lunGroupId={{item}}&hostId={{checkHostId}}&range=[0-4096]"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOST_LUN_IDs
+      with_items: "{{ checkedLgIds }}"
+
+    - set_fact:
+        checkedHostLunIds: "{{ checkedHostLunIds + HOST_LUN_IDs.results[item.0].json.data | default([]) | json_query('[*].hostLunId') }}"
+        checkedLuns: "{{ checkedLuns | combine({ item.1: HOST_LUN_IDs.results[item.0].json.data | default([]) }) }}"
+      with_indexed_items: "{{ checkedLgNames }}"
+
+  when: hostName|default(none) is not none
+
+- block:
+    - name: Query Host Group by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup?filter=NAME%3A%3A{{hostGroupName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOSTGROUP
+      failed_when: (HOSTGROUP.json.error.code|int !=0) or ('data' not in HOSTGROUP.json) or (HOSTGROUP.json.data|length != 1)
+
+    - set_fact:
+        checkHostGroupId: "{{ HOSTGROUP.json.data[0].ID }}"
+
+    - name: Query Host Group Mapping
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/associate?ASSOCIATEOBJTYPE=14&ASSOCIATEOBJID={{checkHostGroupId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOSTGROUP_MAPPING
+
+    - set_fact:
+        checkedLgNames: "{{ HOSTGROUP_MAPPING.json.data | json_query(queryHostGroupLgName) }}"
+      vars:
+        queryHostGroupLgName: "[? mappingType=='2' && lunGroupName!=''].lunGroupName"
+
+    - name: Query LGs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LGs
+      with_items: "{{ checkedLgNames }}"
+
+    - name: Get LG IDs
+      vars:
+        queryLgIds: "[? NAME=='{{item.1}}'].ID"
+        queryLgs: "[? NAME=='{{item.1}}']"
+      set_fact:
+        checkedLgIds: "{{ checkedLgIds + LGs.results[item.0].json.data | default([]) | json_query(queryLgIds) }}"
+        checkedLgs: "{{ checkedLgs + LGs.results[item.0].json.data | default([]) | json_query(queryLgs) }}"
+      with_indexed_items: "{{ checkedLgNames }}"
+
+    - name: Query Host LUN IDs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostLunInfo?lunGroupId={{item}}&hostGroupId={{checkHostGroupId}}&range=[0-4096]"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOST_LUN_IDs
+      with_items: "{{ checkedLgIds }}"
+
+    - set_fact:
+        checkedHostLunIds: "{{ checkedHostLunIds + HOST_LUN_IDs.results[item.0].json.data | default([]) | json_query('[*].hostLunId') }}"
+        checkedLuns: "{{ checkedLuns | combine({ item.1: HOST_LUN_IDs.results[item.0].json.data | default([]) }) }}"
+      with_indexed_items: "{{ checkedLgNames }}"
+
+  when: hostGroupName|default(none) is not none
+
+- set_fact:
+    checkedHostLunIdMax: "{{ item|int }}"
+  when: checkedHostLunIdMax|int < item|int
+  with_items: "{{ checkedHostLunIds }}"
+
+- set_fact:
+    checkedHostLunIdMin: "{{item|int}}"
+  when: checkedHostLunIdMin|int > item|int
+  with_items: "{{ checkedHostLunIds }}"
+
+- debug:
+    msg:
+      checkedHostLunIdMax: "{{checkedHostLunIdMax}}"
+      checkedHostLunIdMin: "{{checkedHostLunIdMin}}"

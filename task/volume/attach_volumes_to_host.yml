@@ -1,0 +1,77 @@
+# Required Parameters:
+#   volumeName:      volume fuzzy name, can be instead with volumeIds
+#   hostName:        host name, can be instead with hostId
+#
+# Generated Parameters (can be overwritten):
+#   volumeIds:       a list of volume IDs
+#   hostId:          host ID
+
+- name: Get Volumes by Fuzzy Name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?limit=1000&start=0&name={{volumeName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: VOLUMES
+  when: volumeName is defined
+
+- name: Get Volume ID List
+  set_fact:
+    volumeIds: "{{ VOLUMES.json.volumes | json_query('[*].id') }}"
+  failed_when: VOLUMES.json.volumes | length < 1
+  when: volumeName is defined
+
+- name: Get Host by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{hostName}}"
+  register: HOSTS
+  when: hostName is defined
+
+- name: Get Host ID
+  vars:
+    query: "[?name=='{{ hostName }}'].id"
+  set_fact:
+    hostId: "{{ HOSTS.json.hosts | json_query(query) | first }}"
+  failed_when: HOSTS.json.hosts | json_query(query) | length != 1
+  when: hostName is defined
+
+- name: Show Param
+  debug:
+    msg:
+      volume_ids: "{{ volumeIds }}"
+      host_id: "{{ hostId }}"
+
+- name: Attach Volumes
+  vars:
+    query: "[?name=='{{ hostName }}'].id"
+    hostId: "{{ HOSTS.json.hosts | json_query(query) | first }}"
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}/host-mapping"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    status_code: 202
+    body_format: json
+    body: 
+      volume_ids: "{{ volumeIds }}"
+      host_id: "{{ hostId }}"
+  register: ATTACH_VOLUME
+
+- import_tasks: ../task/wait_task_complete.yml
+  vars:
+    taskId: "{{ ATTACH_VOLUME.json.task_id }}"

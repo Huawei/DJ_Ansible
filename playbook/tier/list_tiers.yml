@@ -14,16 +14,16 @@
 
 - name: List Tiers
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     detail: false
     params: "detail={{ detail }}"
     sortDir: asc
-  vars_files:
-    - ../global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Set params - sortKey & sortDir
       set_fact:
@@ -41,13 +41,13 @@
       vars:
         query: "[?name=='{{ azName }}'].id"
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.azs }}?az_name={{azName|urlencode}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{azName|urlencode}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: AZ
       failed_when: AZ.json.az_list | json_query(query) | length != 1
       when: azName is defined
@@ -65,13 +65,13 @@
       vars:
         query: "[?name=='{{ projectName }}'].id"
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.projects }}?name={{projectName|urlencode}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?name={{projectName|urlencode}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: PROJECT
       failed_when: PROJECT.json.projectList | json_query(query) | length != 1
       when: projectName is defined
@@ -87,13 +87,13 @@
 
     - name: List Tiers
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tiers }}?{{params}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.tiers }}?{{params}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: TIERS
 
     - name: Show Tiers

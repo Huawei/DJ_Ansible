@@ -1,0 +1,9 @@
+- name: Add Hosts to Host Group
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_hosts_to_hostgroup.yml"

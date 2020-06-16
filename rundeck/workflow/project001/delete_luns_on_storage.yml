@@ -1,0 +1,11 @@
+# Required Parameters:
+#   deviceName:            device Name, can be replaced with deviceSn
+#   lunNames:              a list a LUN names
+#
+# Optional Parameters:
+#   delCloneLun:           delete the clone target LUN
+#   deviceSn:              device SN
+
+- include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+- include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_luns.yml"
+- include_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"

@@ -1,0 +1,238 @@
+# Required Parameters:
+#   cgName:            consistency group name
+#   remoteSn:          Remote Device SN
+#
+# Optional Parameters:
+#   recoveryPolicy:    recover policy, default: 1, options: 1/automatic, 2/manual
+#   syncSpeed:         initial speed, default: 2, options: 1/low, 2/medium, 3/high, 4/highest
+#   desc:              description
+#
+# Optional Parameters
+#   localPgId:         local PG ID
+#   remotePgId:        remote PG ID
+#   localLunIds:       a list of local LUN IDs
+#   remoteLunIds:      a list of remote LUN IDs
+#   addPairIds:        a list of pair IDs to add
+#
+# Generated Parameters:
+#   newCgId:           New CG ID
+
+- name: Get HyperMetro Domain
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroDomain"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DOMAINS
+
+- name: Get HyperMetro Domain ID
+  vars:
+    remoteDevices: "{{ DOMAINS.json.data[item|int].REMOTEDEVICES }}"
+  set_fact:
+    domainId: "{{ DOMAINS.json.data[item|int].ID }}"
+  when: remoteDevices[0].devESN == remoteSn
+  with_sequence: start=0 count="{{DOMAINS.json.data|length}}"
+
+- set_fact:
+    existPairIds: "{{ addPairIds if (addPairIds|default(none) is not none) else [] }}"
+    newPairIds: []
+    existObjIds: []
+    cgParams:
+      NAME: "{{ cgName }}"
+      DOMAINID: "{{ domainId }}"
+      SPEED: "{{ syncSpeed|default(GLOBAL.metro.syncSpeed) }}"
+      DESCRIPTION: "{{ desc|default('') }}"
+      RECOVERYPOLICY: "{{ recoveryPolicy|default(GLOBAL.metro.recoveryPolicy) }}"
+
+- set_fact:
+    cgParams: "{{ cgParams | combine( {'localPgId':localPgId, 'remotePgId':remotePgId} ) }}"
+  when:
+    - localPgId|default(none) is not none
+    - remotePgId|default(none) is not none
+
+- block:
+    - name: Check Exist HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair?filter=DOMAINID%3A%3A{{domainId}}%20and%20LOCALOBJID%3A%3A{{item.1}}%20and%20REMOTEOBJID%3A%3A{{remoteLunIds[item.0]}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: ExistHyperMetroPairs
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Get Exist HyperMetro Pair IDs
+      vars:
+        queryPairId: "[*].ID"
+        queryObjId: "[*].LOCALOBJID"
+      set_fact:
+        existPairIds: "{{ existPairIds + ExistHyperMetroPairs.results[item.0].json.data | default([]) | json_query(queryPairId) }}"
+        existObjIds: "{{ existObjIds + ExistHyperMetroPairs.results[item.0].json.data | default([]) | json_query(queryObjId) }}"
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Create New HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          DOMAINID: "{{ domainId }}"
+          HCRESOURCETYPE: 1
+          LOCALOBJID: "{{ item.1 }}"
+          REMOTEOBJID: "{{ remoteLunIds[item.0] }}"
+      register: NEW_PAIRS
+      when: item.1|string not in existObjIds
+      with_indexed_items: "{{ localLunIds }}"
+
+    - name: Check Create Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ NEW_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: NEW_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+    - name: Get HyperMetro Pair IDs
+      vars:
+        queryPairId: "[*].json.data.ID"
+      set_fact:
+        newPairIds: "{{ NEW_PAIRS.results | json_query(queryPairId) }}"
+
+  when:
+    - localLunIds|default(none) is not none
+    - remoteLunIds|default(none) is not none
+    - localLunIds|length > 0
+    - localLunIds|length = remoteLunIds|length
+
+- name: Create HyperMetro CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ cgParams }}"
+  register: NEW_CG
+
+- name: Check Create CG Result
+  debug:
+    msg: "{{ NEW_CG.json.error }}"
+  failed_when: (NEW_CG.json.error.code|int !=0) or ('data' not in NEW_CG.json)
+
+- set_fact:
+    newCgId: "{{ NEW_CG.json.data.ID }}"
+
+- debug: var=newCgId
+
+
+- block:
+    - name: Pause Exist HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/disable_hcpair"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: PAUSE_PAIRS
+      with_items: "{{ existPairIds }}"
+
+    - name: Check Pause Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ PAUSE_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: PAUSE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: existPairIds|length > 0
+
+- block:
+    - name: Add HyperMetro Pairs to CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hyperMetro/associate/pair"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ newCgId }}"
+          ASSOCIATEOBJID: "{{ item }}"
+      register: ADD_PAIRS
+      with_items: "{{ existPairIds + newPairIds }}"
+
+    - name: Check Add Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ ADD_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: ADD_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when:
+    - existPairIds|length > 0 or newPairIds|length > 0
+
+
+- name: Sync HyperMetro CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/sync"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ newCgId }}"
+  register: SYNC
+
+- name: Check Sync Result
+  debug:
+    msg: "{{ SYNC.json.error }}"
+  failed_when: SYNC.json.error.code|int != 0
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/{{newCgId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SYNC_CG_WAIT
+  vars:
+    syncStatus: "{{ SYNC_CG_WAIT.json.data.RUNNINGSTATUS }}"
+  retries: "{{ GLOBAL.metro.syncRetries }}"
+  delay: "{{ GLOBAL.metro.syncDelay }}"
+  until: syncStatus != GLOBAL.metro.syncStatus.syncing
+  when: waitSync|default(False)|bool == True

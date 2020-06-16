@@ -1,0 +1,651 @@
+- name: Migrate Host
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+
+    # Check Params
+    - block:
+        - set_fact:
+            checked_params:
+              Storage: "{{ (Storage is not none and Storage != DEFAULT.noneValue) and (Storage|string|length == 20) }}"
+              Storage_Room: "{{ (Storage_Room is not none and Storage_Room != DEFAULT.noneValue) and Storage_Room in AZ }}"
+              Host: "{{ Host is not none and Host != DEFAULT.noneValue }}"
+              Target_Storage: "{{ (Target_Storage is not none and Target_Storage != DEFAULT.noneValue) and (Target_Storage|string|length == 20) and (Target_Storage != Storage) }}"
+              Check_Result_1: "{{ ('lun' in Check_Result_1 and 'host' in Check_Result_1) }}"
+
+        - name: Precheck_0_1 - Check Params
+          debug:
+            msg: "{{checked_params}}"
+          failed_when: checked_params.values()|unique != [True]
+
+    - set_fact:
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        primaryDeviceSn: "{{ Storage|string }}"
+        primaryRoom: "{{ Storage_Room }}"
+        primarySite: "{{ Storage_Site }}"
+        primaryHostName: "{{ Host }}"
+        targetDeviceSn: "{{ Target_Storage|string }}"
+        targetRoom: "{{ Target_Room }}"
+        targetClusterName: "{{ Target_Cluster_Name }}"
+        targetPoolId: "{{ Target_Pool }}"
+        targetWorkload: "{{ Target_Workload }}"
+
+    - set_fact:
+        protectType: "{{ REPTYPE['N1']['enum'] }}"              # See ../../config/project001.yml
+        replicaType: "{{ REPTYPE['N1']['type'] }}"              # See ../../config/project001.yml
+        enableAlua: "{{ 1 if (OS_Type == 'SOL') else 0 }}"             # Enable ALUA for Solaris
+        enableMetroAlua: "{{ 1 if (OS_Type == 'SOL') else 0 }}"
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+
+    - set_fact:
+        primaryLunNames: []
+        primaryLunSectors: []
+        primaryLunDescs: []
+        primaryLunLgs: []
+        targetLuns: []
+        targetLunPrefix: "{{primaryHostName}}_{{protectType}}N"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - block:
+        - name: Precheck_1 - Check Primary Host
+          debug:
+            msg:
+              host: "{{ primaryHostName }}"
+              device: "{{ primaryDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/host/check_hosts.yml"
+          vars:
+            hostNames: ["{{ primaryHostName }}"]
+
+        - name: Login Device
+          set_fact:
+            deviceSn: "{{ primaryDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            primaryDeviceName: "{{ deviceName }}"
+            primaryDeviceHost: "{{ deviceHost }}"
+            primaryDevicePort: "{{ devicePort }}"
+            primaryDeviceToken: "{{ deviceToken }}"
+            primaryDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hosts.yml"
+          vars:
+            hostNames: ["{{ primaryHostName }}"]
+
+        - set_fact:
+            primaryHostId: "{{ checkedHosts[0].ID }}"
+            primaryHostLocation: "{{ checkedHosts[0].LOCATION }}"
+            primaryHostDesc: "{{ checkedHosts[0].DESCRIPTION }}"
+            primaryHostInCluster: "{{ checkedHosts[0].ISADD2HOSTGROUP|bool }}"
+            primaryClusterName: "{{ checkedHosts[0].PARENTNAME if (checkedHosts[0].ISADD2HOSTGROUP|bool == True) else none }}"
+
+        - name: Query FC Initiators
+          uri:
+            url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/fc_initiator?filter=PARENTID%3A%3A{{primaryHostId}}"
+            method: GET
+            validate_certs: no
+            headers:
+              Accept: "application/json"
+              Content-Type: "application/json;charset=utf8"
+              iBaseToken: "{{ deviceToken }}"
+              Cookie: "session={{ deviceSession }}"
+          register: PRIMARY_HOST_WWNs
+
+        - set_fact:
+            primaryHostWwns: "{{ PRIMARY_HOST_WWNs.json.data | json_query('[*].ID') }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id.yml"
+          vars:
+            hostName: "{{ primaryHostName }}"
+
+        - set_fact:
+            nextScsiId: "{{ checkedHostLunIdMax|int + 1 }}"
+            primaryLgNames: "{{ checkedLgNames }}"
+            primaryLgDescs: "{{ checkedLgs | json_query('[*].DESCRIPTION') }}"
+            targetLgDescs: []
+
+        - set_fact:
+            targetLgDescs: "{{ targetLgDescs + [targetLgDesc] }}"
+          vars:
+            targetLgDesc: "N1{{item[2:3]}}00_{{ item.split('_')[1] }}"
+          with_items: "{{ primaryLgDescs }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: "{{ primaryLgNames }}"
+
+        - set_fact:
+            primaryLunNames: "{{ primaryLunNames + checkedLuns[item] | json_query('[*].NAME') }}"
+            primaryLunDescs: "{{ primaryLunDescs + checkedLuns[item] | json_query('[*].DESCRIPTION') }}"
+            primaryLunSectors: "{{ primaryLunSectors + checkedLuns[item] | json_query('[*].CAPACITY') }}"
+            primaryLunLgs: "{{ primaryLunLgs + ( [item] * checkedLuns[item]|length ) }}"
+          with_items: "{{ primaryLgNames }}"
+
+        - set_fact:
+            targetLuns: "{{ targetLuns + [targetLun] }}"
+          vars:
+            targetLun:
+              name: "{{ lunNameTemplate | format(targetLunPrefix, nextScsiId|int + item.0) }}"
+              desc: "{{ primaryLunDescs[item.0][0:1] }}_00_{{replicaType}}_00_0000000000000000_01|{{primaryLunDescs[item.0].split('|')[1]}}"
+              sector: "{{ primaryLunSectors[item.0] }}"
+              lg: "{{ primaryLunLgs[item.0] }}"
+              class: "{{ primaryLunDescs[item.0][0:1] }}"
+              scsiId: "{{ nextScsiId|int + item.0 }}"
+          with_indexed_items: "{{ primaryLunNames }}"
+
+        - set_fact:
+            targetClasses: "{{ targetLuns | json_query('[*].class') | unique }}"
+            targetLunsInClass: {}
+
+        - set_fact:
+            targetLunsInClass: "{{ targetLunsInClass | combine( { item: targetLuns | json_query(queryLunsInClass) } ) }}"
+          vars:
+            queryLunsInClass: "[? class == '{{item}}'].name"
+          with_items: "{{ targetClasses }}"
+
+    - block:
+        - name: Precheck_2 - Check Target Host
+          debug:
+            msg:
+              host: "{{ primaryHostName }}"
+              device: "{{ targetDeviceSn }}"
+
+        - set_fact:
+            targetHostLocation: "{{ primaryHostLocation[0:-20] + targetDeviceSn }}"
+
+        - name: Login Device
+          set_fact:
+            deviceSn: "{{ targetDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            targetDeviceName: "{{ deviceName }}"
+            targetDeviceHost: "{{ deviceHost }}"
+            targetDevicePort: "{{ devicePort }}"
+            targetDeviceToken: "{{ deviceToken }}"
+            targetDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hosts.yml"
+          vars:
+            hostNames: ["{{ primaryHostName }}"]
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+          vars:
+            lgNames: "{{ primaryLgNames }}"
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+          vars:
+            lunNames: "{{ targetLuns | json_query('[*].name') }}"
+            checkExist: False
+          when: targetLuns|length > 0
+
+    - block:
+
+        # Begin Workflow Steps
+
+        - set_fact:
+
+            # Create Target Host
+            Step_1_1_Execute: True
+            Step_1_1_Completed: False
+            Step_1_1_Rollbacked: False
+
+            # Add Target Host to Cluster
+            Step_1_2_Execute: "{{ (primaryHostInCluster|bool == True) and (targetClusterName is not none) }}"
+            Step_1_2_Completed: False
+            Step_1_2_Rollbacked: False
+
+            # Create Target LUN Groups
+            Step_1_3_Execute: True
+            Step_1_3_Completed: False
+            Step_1_3_Rollbacked: False
+
+            # Create Target LUNs
+            Step_1_4_Execute: "{{ targetLuns|length > 0 }}"
+            Step_1_4_Completed: False
+            Step_1_4_Rollbacked: False
+
+            # Set Class for Target LUNs
+            Step_2_1_Execute: "{{ targetLuns|length > 0 }}"
+            Step_2_1_Completed: False
+            Step_2_1_Rollbacked: False
+
+            # Modify Host AZ on DJ
+            Step_2_2_Execute: "{{ primaryRoom != targetRoom }}"
+            Step_2_2_Completed: False
+            Step_2_2_Rollbacked: False
+
+            # Insert Target LUNs to KPI table
+            Step_3_1_Execute: "{{ targetLuns|length > 0 }}"
+            Step_3_1_Completed: False
+
+        - name: Workflow - Migrate Host
+          debug:
+            msg:
+              Step_1_1: "[{{Step_1_1_Execute}}] Create Target Host"
+              Step_1_2: "[{{Step_1_2_Execute}}] Add Target Host to Cluster"
+              Step_1_3: "[{{Step_1_3_Execute}}] Create Target LUN Groups"
+              Step_1_4: "[{{Step_1_4_Execute}}] Create Target LUNs"
+              Step_2_1: "[{{Step_2_1_Execute}}] Set Class for Target LUNs"
+              Step_2_2: "[{{Step_2_2_Execute}}] Modify Host AZ on DJ"
+              Step_3_1: "[{{Step_3_1_Execute}}] Insert Target LUNs to KPI table"
+
+        - block:
+            - name: Step_1_1 - Create Target Host
+              debug:
+                msg:
+                  params:
+                    host:
+                      hostName: "{{ primaryHostName }}"
+                      osType: "{{ OSTYPE[OS_Type]['enum'] }}"
+                      alua: "{{ enableAlua }}"
+                      hypermetro: "{{ enableMetroAlua }}"
+                      wwns: "{{ primaryHostWwns }}"
+                      desc: "{{ primaryHostDesc }}"
+                      location: "{{ targetHostLocation }}"
+                    device: "{{ targetDeviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_host.yml"
+              vars:
+                hostName: "{{ primaryHostName }}"
+                osType: "{{ OSTYPE[OS_Type]['enum'] }}"
+                alua: "{{ enableAlua|int }}"
+                hypermetro: "{{ enableMetroAlua|int }}"
+                wwns: "{{ primaryHostWwns }}"
+                desc: "{{ primaryHostDesc }}"
+                location: "{{ targetHostLocation }}"
+
+            - set_fact:
+                Step_1_1_Completed: True
+          when: Step_1_1_Execute
+
+        - block:
+            - name: Step_1_2 - Add Target Host to Cluster
+              debug:
+                msg:
+                  params:
+                    host: "{{ primaryHostName }}"
+                    hostGroup: "{{ targetClusterName }}"
+                    device: "{{ targetDeviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_hosts_to_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ targetClusterName }}"
+                hostNames: ["{{ primaryHostName }}"]
+
+            - set_fact:
+                Step_1_2_Completed: True
+          when: Step_1_2_Execute
+
+        - block:
+            - name: Step_1_3 - Create Target LUN Groups
+              debug:
+                msg:
+                  params:
+                    lg: "{{ primaryLgNames }}"
+                    desc: "{{ targetLgDescs }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_lg.yml"
+              vars:
+                lgName: "{{ primaryLgNames[i] }}"
+                pgName: "{{ primaryHostName }}_PG{{ primaryLgNames[i][-2:] }}"
+                mapHostNames: ["{{ primaryHostName }}"]
+                desc: "{{ targetLgDescs[i] }}"
+              loop: "{{ range(0, primaryLgNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_3_Completed: True
+          when: Step_1_3_Execute
+
+        - block:
+            - name: Step_1_4 - Create Target LUNs
+              debug:
+                msg:
+                  params:
+                    luns:
+                      lunNames: "{{ targetLuns | json_query('[*].name') }}"
+                      lunDescs: "{{ targetLuns | json_query('[*].desc') }}"
+                      poolId: "{{ targetPoolId }}"
+                      workload: "{{ targetWorkload }}"
+                    device: "{{ targetDeviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_lun.yml"
+              vars:
+                lunName: "{{ targetLuns[i].name }}"
+                lunSector: "{{ targetLuns[i].sector }}"
+                poolId:  "{{ targetPoolId }}"
+                workload: "{{ targetWorkload }}"
+                desc: "{{ targetLuns[i].desc }}"
+                addLgName: "{{ targetLuns[i].lg }}"
+                scsiId: "{{ targetLuns[i].scsiId }}"
+              loop: "{{ range(0, targetLuns|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+              vars:
+                lunNames: "{{ targetLuns | json_query('[*].name') }}"
+
+            - set_fact:
+                targetLunIds: "{{ lunIds }}"
+                Step_1_4_Completed: True
+
+            # End Step_1_4
+
+          # End block
+          when: Step_1_4_Execute
+
+
+        - block:
+            - name: Step_2_1 - Set Class for Target LUNs
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ targetLunsInClass }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+              vars:
+                volumeNames: "{{ targetLuns | json_query('[*].name') }}"
+                waitExist: True
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ targetLunsInClass[tierName] }}"
+              loop: "{{ targetClasses }}"
+              loop_control:
+                loop_var: tierName
+
+            - set_fact:
+                Step_2_1_Completed: True
+
+            # End Step_2_1
+
+          # End block
+          when: Step_2_1_Execute
+
+        - block:
+            - name: Step_2_2 - Modify Host AZ on DJ
+              debug:
+                msg:
+                  params:
+                    hostName: "{{ primaryHostName }}"
+                    boundAzNames: ["{{ targetRoom }}"]
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/host/modify_host.yml"
+              vars:
+                hostName: "{{ primaryHostName }}"
+                boundAzNames: ["{{ targetRoom }}"]
+                syncStorage: False
+
+            - set_fact:
+                Step_2_2_Completed: True
+
+            # End Step_2_2
+
+          # End block
+          when: Step_2_2_Execute
+
+        - block:
+            - name: Step_3_1 - Insert Primary LUNs to KPI table
+              debug:
+                msg:
+                  params:
+                    lunIds: "{{ targetLunIds }}"
+                    device: "{{ targetDeviceName }}"
+
+            - include_tasks: update_lun_kpi_table.yml
+              vars:
+                TYPE_OF_OPERATION: "create"
+                WBE_CODE: "{{ WBE_CODE }}"
+                TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+                SYSTEM_NAME: "{{ primaryHostName }}"
+                SITE: "{{ primarySite }}"
+                ENVIRONMENT: "{{ OS_Type }}"
+                STORAGE_CLASS: "{{ targetLuns[i].class }}"
+                CAPACITY_GB: "{{ (targetLuns[i].sector|int / 1024 / 1024 / 2) | int }}"
+                STORAGE: "{{ targetDeviceName }}"
+                VDISK_UID: "{{ targetLunIds[i] }}"
+              loop: "{{ range(0, targetLuns|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_3_1_Completed: True
+
+            # End Step_3_1
+
+          # End block
+          when: Step_3_1_Execute
+
+      # End Block
+      rescue:
+      # Begin Rollback
+
+        - block:
+            - name: Rollback_2_2 - Modify Host AZ on DJ
+              debug:
+                msg:
+                  params:
+                    hostName: "{{ primaryHostName }}"
+                    unboundAzNames: ["{{ targetRoom }}"]
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/host/modify_host.yml"
+              vars:
+                hostName: "{{ primaryHostName }}"
+                unboundAzNames: ["{{ targetRoom }}"]
+                syncStorage: False
+
+            - set_fact:
+                Step_2_2_Rollbacked: True
+
+          when: Step_2_2_Completed
+
+        - block:
+            - name: Rollback_2_1 - Remove Class for Target LUNs
+              debug:
+                msg:
+                  params:
+                    volumeNames: "{{ targetLuns | json_query('[*].name') }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+              vars:
+                volumeNames: "{{ targetLuns | json_query('[*].name') }}"
+
+            - set_fact:
+                Step_2_1_Rollbacked: True
+
+          when: Step_2_1_Completed
+
+        - block:
+            - name: Rollback_1_3 - Delete Target LUN Groups
+              debug:
+                msg:
+                  params:
+                    lg: "{{ primaryLgNames }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_lg.yml"
+              vars:
+                lgName: "{{ primaryLgNames[i] }}"
+                unmap: True
+              loop: "{{ range(0, primaryLgNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_3_Rollbacked: True
+          when: Step_1_3_Completed
+
+        - block:
+            - name: Rollback_1_2 - Remove Target Host from Cluster
+              debug:
+                msg:
+                  params:
+                    host: "{{ primaryHostName }}"
+                    hostGroup: "{{ targetClusterName }}"
+                    device: "{{ targetDeviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_hosts_from_hostgroup.yml"
+              vars:
+                hostGroupName: "{{ targetClusterName }}"
+                hostNames: ["{{ primaryHostName }}"]
+
+            - set_fact:
+                Step_1_2_Rollbacked: True
+          when: Step_1_2_Completed
+
+        - block:
+            - name: Rollback_1_1 - Delete Target Host
+              debug:
+                msg:
+                  params:
+                    host: "{{ primaryHostName }}"
+                    device: "{{ targetDeviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_host.yml"
+              vars:
+                hostName: "{{ primaryHostName }}"
+
+            - set_fact:
+                Step_1_1_Rollbacked: True
+          when: Step_1_1_Completed
+
+        - block:
+            - name: Rollback_1_4 - Delete Target LUNs
+              debug:
+                msg:
+                  params:
+                    lunNames: "{{ targetLuns | json_query('[*].name') }}"
+                    device: "{{ targetDeviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_luns.yml"
+              vars:
+                lunNames: "{{ targetLuns | json_query('[*].name') }}"
+
+            - set_fact:
+                Step_1_4_Rollbacked: True
+          when: Step_1_4_Completed
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+
+        # End Workflow Rollbacks
+
+      # End Rescure
+
+    # End Workflow
+
+    - block:
+
+        # Begin Validate Results
+
+        - name: Result_1_1 - Create Target Host
+          debug:
+            msg:
+              params:
+                host:
+                  hostName: "{{ primaryHostName }}"
+                  osType: "{{ OSTYPE[OS_Type]['enum'] }}"
+                  alua: "{{ enableAlua }}"
+                  hypermetro: "{{ enableMetroAlua }}"
+                  wwns: "{{ primaryHostWwns }}"
+                  desc: "{{ primaryHostDesc }}"
+                  location: "{{ targetHostLocation }}"
+                device: "{{ targetDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_1_Completed }}"
+                rollbacked: "{{ Step_1_1_Rollbacked }}"
+          failed_when: Step_1_1_Completed|bool == False
+          when: Step_1_1_Execute
+
+        - name: Result_1_2 - Add Target Host to Cluster
+          debug:
+            msg:
+              params:
+                host: "{{ primaryHostName }}"
+                hostGroup: "{{ targetClusterName }}"
+                device: "{{ targetDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_2_Completed }}"
+                rollbacked: "{{ Step_1_2_Rollbacked }}"
+          failed_when: Step_1_2_Completed|bool == False
+          when: Step_1_2_Execute
+
+        - name: Result_1_3 - Create Target LUN Groups
+          debug:
+            msg:
+              params:
+                lg: "{{ primaryLgNames }}"
+                desc: "{{ targetLgDescs }}"
+              result:
+                succeeded: "{{ Step_1_3_Completed }}"
+                rollbacked: "{{ Step_1_3_Rollbacked }}"
+          failed_when: Step_1_3_Completed|bool == False
+          when: Step_1_3_Execute
+
+        - name: Result_1_4 - Create Target LUNs
+          debug:
+            msg:
+              params:
+                lunNames: "{{ targetLuns | json_query('[*].name') }}"
+                device: "{{ targetDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_4_Completed }}"
+                rollbacked: "{{ Step_1_4_Rollbacked }}"
+          failed_when: Step_1_4_Completed|bool == False
+          when: Step_1_4_Execute
+
+        - name: Result_2_1 - Set Class for Target LUNs
+          debug:
+            msg:
+              params:
+                volumeNames: "{{ targetLunsInClass }}"
+              result:
+                succeeded: "{{ Step_2_1_Completed }}"
+                rollbacked: "{{ Step_2_1_Rollbacked }}"
+          failed_when: Step_2_1_Completed|bool == False
+          when: Step_2_1_Execute
+
+        - name: Result_2_2 - Modify Host AZ on DJ
+          debug:
+            msg:
+              params:
+                hostName: "{{ primaryHostName }}"
+                boundAzNames: ["{{ targetRoom }}"]
+              result:
+                succeeded: "{{ Step_2_2_Completed }}"
+                rollbacked: "{{ Step_2_2_Rollbacked }}"
+          failed_when: Step_2_2_Completed|bool == False
+          when: Step_2_2_Execute
+
+        - name: Result_3_1 - Insert Primary LUNs to KPI table
+          debug:
+            msg:
+              params:
+                lunIds: "{{ targetLunIds }}"
+                device: "{{ targetDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_1_Completed }}"
+          failed_when: Step_3_1_Completed|bool == False
+          when: Step_3_1_Execute
+
+
+    # End Validate Results
+
+  # End Tasks
+
+# End Playbook

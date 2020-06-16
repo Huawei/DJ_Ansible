@@ -1,0 +1,208 @@
+# Create LUN Group
+#
+# Required parameters:
+#   lgName:                 LUN Group Name
+#
+# Optional parameters:
+#   lgId:                   Specify LUN Grup ID
+#   desc:                   Description
+#   addLunNames:            Add a list of LUNs to LUN Group
+#   addLunIds:              Add a list of LUN IDs to LUN Group
+#   mapHostNames:           Map LUN Group to a list of Hosts
+#   mapHostGroupNames:      Map LUN Group to a list of Host Groups
+#   pgName:                 Create Protection Group for LUN Group
+#   pgId:                   Specify Protection Grup ID
+#
+# Generated Parameters:
+#   newLgId:           New LG ID
+#   newPgId:           New PG ID
+
+- set_fact:
+    newLgId: "{{ none }}"
+    newPgId: "{{ none }}"
+    newLgParams:
+      NAME: "{{ lgName }}"
+
+- set_fact:
+    newLgParams: "{{ newLgParams | combine({'DESCRIPTION': desc}) }}"
+  when: desc|default(none) is not none
+
+- set_fact:
+    newLgParams: "{{ newLgParams | combine({'ID': lgId}) }}"
+  when: lgId|default(none) is not none
+
+- name: Create LG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ newLgParams }}"
+  register: NEW_LG
+
+- name: Check Create LG Result
+  debug:
+    msg: "{{ NEW_LG.json.error }}"
+  failed_when: (NEW_LG.json.error.code|int !=0) or ('data' not in NEW_LG.json)
+
+- set_fact:
+    newLgId: "{{ NEW_LG.json.data.ID }}"
+
+
+- block:
+    - import_tasks: check_luns.yml
+      vars:
+        lunNames: "{{ addLunNames }}"
+
+    - set_fact:
+        addLunIds: "{{ lunIds }}"
+
+  # End block
+  when: 
+    - addLunNames|default(none) is not none
+    - addLunNames|length > 0
+
+- block:
+    - name: Add LUNs to LUN Group
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup/associate"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body: 
+          ID: "{{ newLgId }}"
+          ASSOCIATEOBJTYPE: 11
+          ASSOCIATEOBJID: "{{ item }}"
+      register: LG_ADD_LUNs
+      with_items: "{{ addLunIds }}"
+
+    - name: Check Add LUNs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ LG_ADD_LUNs.results | json_query(queryMsg) }}"
+      failed_when: LG_ADD_LUNs.results | json_query(queryError) | difference([0]) | length > 0
+  
+  # End block
+  when: 
+    - addLunIds|default(none) is not none
+    - addLunIds|length > 0
+
+- block:
+    - import_tasks: check_hosts.yml
+      vars:
+        hostNames: "{{ mapHostNames }}"
+
+    - name: Map LUN Group to Hosts
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body: 
+          lunGroupId: "{{ newLgId }}"
+          hostId: "{{ item }}"
+      register: NEW_HOST_MAPPINGS
+      with_items: "{{ hostIds }}"
+
+    - name: Check Map Hosts Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ NEW_HOST_MAPPINGS.results | json_query(queryMsg) }}"
+      failed_when: NEW_HOST_MAPPINGS.results | json_query(queryError) | difference([0]) | length > 0
+  
+  # End block
+  when: 
+    - mapHostNames|default(none) is not none
+    - mapHostNames|length > 0
+
+- block:
+    - import_tasks: check_hostgroups.yml
+      vars:
+        hostGroupNames: "{{ mapHostGroupNames }}"
+
+    - name: Map LUN Group to Host Group
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body: 
+          lunGroupId: "{{ newLgId }}"
+          hostGroupId: "{{ item }}"
+      register: NEW_HOSTGROUP_MAPPINGS
+      with_items: "{{ hostGroupIds }}"
+
+    - name: Check Map Host Groups Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ NEW_HOSTGROUP_MAPPINGS.results | json_query(queryMsg) }}"
+      failed_when: NEW_HOSTGROUP_MAPPINGS.results | json_query(queryError) | difference([0]) | length > 0
+
+  # End Block
+  when: 
+    - mapHostGroupNames|default(none) is not none
+    - mapHostGroupNames|length > 0
+
+- block:
+    - set_fact:
+        newPgParams:
+          protectGroupName: "{{ pgName }}"
+          lunGroupId: "{{ newLgId }}"
+
+    - set_fact:
+        newPgParams: "{{ newPgParams | combine({'description': desc}) }}"
+      when: desc|default(none) is not none
+
+    - set_fact:
+        newPgParams: "{{ newPgParams | combine({'protectGroupId': pgId}) }}"
+      when: pgId|default(none) is not none
+
+    - name: Create PG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body: "{{ newPgParams }}"
+      register: NEW_PG
+
+    - name: Check Create PG Result
+      debug:
+        msg: "{{ NEW_PG.json.error }}"
+      failed_when: (NEW_PG.json.error.code|int != 0)  or ('data' not in NEW_LG.json)
+
+    - set_fact:
+        newPgId: "{{ NEW_PG.json.data.protectGroupId }}"
+  when:
+    - pgName|default(none) is not none

@@ -1,0 +1,43 @@
+# Check Replication CGs Exists or Not
+#
+# Required parameters:
+#   cgNames:                # Replication CG Names
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedRepCgs:             # a list of Checked Replication CGs
+
+- name: Set default variables
+  set_fact:
+    cgIds: []
+    checkedRepCgs: []
+
+- name: Query Replication CGs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/CONSISTENTGROUP?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: RCGs
+  with_items: "{{ cgNames }}"
+
+- name: Get Replication CG IDs
+  vars:
+    queryRcgIds: "[? NAME=='{{item.1}}'].ID"
+    queryRcgs: "[? NAME=='{{item.1}}']"
+  set_fact:
+    cgIds: "{{ cgIds + RCGs.results[item.0].json.data | default([]) | json_query(queryRcgIds) }}"
+    checkedRepCgs: "{{ checkedRepCgs + RCGs.results[item.0].json.data | default([]) | json_query(queryRcgs) }}"
+  with_indexed_items: "{{ cgNames }}"
+
+- name: Check Replication Name Exist
+  debug:
+    msg:
+      cgIds: "{{ cgIds }}"
+  failed_when: (checkExist|default(True)|bool == True and cgIds|length != cgNames|length) or (checkExist|default(True)|bool == False and cgIds|length > 0)

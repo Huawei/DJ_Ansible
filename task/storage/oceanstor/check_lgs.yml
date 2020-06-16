@@ -1,0 +1,87 @@
+# Check LUN Groups Exists or Not
+#
+# Required parameters:
+#   lgNames:                # a list of LUN Group Name
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedLgs:             # a list of Checked LUN Groups
+#   checkedMappings:        # a list of Mappings info
+#   checkedLuns:            # a dict of LUNs belong to LUN Groups
+
+
+- name: Set default variables
+  set_fact:
+    lgIds: []
+    checkedLgs: []
+    checkedMappings: []
+    checkedLuns: {}
+
+- name: Query LGs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lungroup?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LGs
+  with_items: "{{ lgNames }}"
+
+- name: Get LG IDs
+  vars:
+    queryLgIds: "[? NAME=='{{item.1}}'].ID"
+    queryLgs: "[? NAME=='{{item.1}}']"
+  set_fact:
+    lgIds: "{{ lgIds + LGs.results[item.0].json.data | default([]) | json_query(queryLgIds) }}"
+    checkedLgs: "{{ checkedLgs + LGs.results[item.0].json.data | default([]) | json_query(queryLgs) }}"
+  with_indexed_items: "{{ lgNames }}"
+
+- name: Check LG Name Exist
+  debug:
+    msg:
+      lgIds: "{{ lgIds }}"
+  failed_when: (checkExist|default(True)|bool == True and lgIds|length != lgNames|length) or (checkExist|default(True)|bool == False and lgIds|length > 0)
+
+- name: Query LG Mapping
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/associate?ASSOCIATEOBJTYPE=256&ASSOCIATEOBJID={{lgIds[item.0]}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: MAPPINGS
+  with_indexed_items: "{{ lgNames }}"
+  when: 
+    - checkExist|default(True)|bool == True
+
+- name: Get LG Mappings
+  set_fact:
+    checkedMappings: "{{ MAPPINGS.results | json_query('[*].json.data') }}"
+  when: 
+    - checkExist|default(True)|bool == True
+
+- name: Query LUNs by LG ID
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun/associate?TYPE=11&ASSOCIATEOBJTYPE=256&ASSOCIATEOBJID={{item}}&range=[0-4096]"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LUNs
+  with_items: "{{ lgIds }}"
+
+- name: Get LUNs
+  set_fact:
+    checkedLuns: "{{ checkedLuns | combine( { item.1: LUNs.results[item.0].json.data | default([]) } ) }}"
+  with_indexed_items: "{{ lgNames }}"

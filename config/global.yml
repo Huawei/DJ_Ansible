@@ -1,0 +1,1356 @@
+---
+
+dummy:
+
+GLOBAL:
+  baseDir: /var/lib/rundeck/ansible
+  tokenFile: temp/tokens.json          # Load token from file, save token to file
+  clone:
+    syncSpeed: 2          # 1/low, 2/medium, 3/high, 4/highest
+    syncRetries: 3600     # 5 hours
+    syncDelay: 5          # 5 seconds
+    syncStatus:
+      unsynced: "0"
+      syncing: "1"
+      normal: "2"
+      paused: "3"
+  metro:
+    recoveryPolicy: 1     # 1/automatic, 2/manual
+    syncSpeed: 2          # 1/low, 2/medium, 3/high, 4/highest
+    syncRetries: 3600     # 5 hours
+    syncDelay: 5          # 5 seconds
+    syncStatus:
+      normal: "1"
+      syncing: "23"
+      paused: "41"
+  replication:
+    recoveryPolicy: 1     # 1/automatic, 2/manual
+    syncSpeed: 2          # 1/low, 2/medium, 3/high, 4/highest
+    syncType: 3           # 1/manual, 2/wait after last sync begin, 3/wait after last sync ends
+    interval: 60          # synchronize interval in seconds (10 ~ 86400)
+    compress: False       # enable compress for async replication: true, false
+    timeout: 10           # synchronize remote I/O timeout threshold in seconds, default: 10, options: 10~30, or set to 255 to disable timeout
+    syncRetries: 3600     # 5 hours
+    syncDelay: 5          # 5 seconds
+    syncStatus:
+      normal: "1"
+      syncing: "23"
+      splited: "26"
+      standby: "110"
+    syncMode:
+      sync: 1
+      async: 2
+
+
+DJ:
+  host: <DJ_FLOAT_IP>                  # DJ host name or ip address
+  port: 26335                          # DJ northbond api port, default: 26335
+  user: <DJ_USER_NAME>                 # DJ user name, the user type must be 'Third-party user', the role 'NBI User Group' must be assigned to the user
+  pswd: <DJ_USER_PASSWORD>             # DJ user password
+  lang: en_US                          # DJ language setting, options: zh_CN, en_US
+
+STORAGES:
+    - name: "<STORAGE_NAME>"           # Storage device name
+      sn:   "<STORAGE_ESN>"            # Storage device SN
+      ipList:                          # Storage management IP addresses
+        - <MGMT_IP_1>
+        - <MGMT_IP_2>
+      port: 8088                       # Storage DeviceManager port, default: 8088
+      user: <STORAGE_USER_NAME>        # Storage user name
+      pswd: <STORAGE_USER_PASSWORD>    # Storage user password
+      site: <STORAGE_SITE>
+
+DJDATASERVICE:                         # DJ Data service configuration
+  host:       localhost                # default data service listening host name or IP address, change to internal IP or localhost for production
+  port:       26336                    # default data service port
+  API:                                 # Data service APIs
+    echo:       /rest/data/v1/echo     # echo datas, echo name/value list
+    enum:       /rest/data/v1/enum     # return enum name/value list
+    search:     /rest/data/v1/search   # search object, return object name/value list, used for rundeck drop down list options
+    join:       /rest/data/v1/join     # join object with relevant objects, return object name/value list, used for rundeck drop down list options
+    split:      /rest/data/v1/split    # split attribute, return vlaue list
+
+DMDATASERVICE:                         # DeviceManager Data service configuration
+  host:       localhost                # default data service listening host name or IP address, change to internal IP or localhost for production
+  port:       26337                    # defaut data service port
+  API:                                 # Data service APIs
+    detail:     /data/v1/detail        # get object detail, return object name/value, used for rundeck drop down list options
+    search:     /data/v1/search        # search object, return object name/value list, used for rundeck drop down list options
+    join:       /data/v1/join          # join object with relevant objects, return object name/value list, used for rundeck drop down list options
+    associate:  /data/v1/associate     # query object by associate objects, return object name/value list, used for rundeck drop down list options
+    split:      /data/v1/split         # split attribute, return vlaue list
+
+DEFAULT:
+  noneName: "NONE"
+  noneValue: "__NONE__"
+  suffixDigits: 3
+
+LOGGING:
+  format:  '[%(asctime)s] %(levelname)-5s - %(message)s'
+  datefmt: '%Y-%m-%d %H:%M:%S'
+  level:   'DEBUG'
+  levelno:
+    CRITICAL: 50
+    ERROR: 40
+    WARNING: 30
+    INFO: 20
+    DEBUG: 10
+    NOTSET: 0
+
+DJSERVICE:
+  API:
+    sessions:       /rest/plat/smapp/v1/sessions
+    tasks:          /rest/taskmgmt/v1/tasks
+    projects:       /rest/projectmgmt/v1/projects
+    azs:            /rest/azmgmt/v1/availability-zones
+    tiers:          /rest/service-policy/v1/service-levels
+    hosts:          /rest/hostmgmt/v1/hosts
+    hostgroups:     /rest/hostmgmt/v1/hostgroups
+    volumes:        /rest/blockservice/v1/volumes
+    volumeProjects: /rest/blockservice/v1/projects
+    storages:       /rest/storagemgmt/v1/storages
+    instances:      /rest/resourcedb/v1/instances
+    relations:      /rest/resourcedb/v1/relations
+    perfmgr:        /rest/metrics/v1/mgr-svc
+    perfdata:       /rest/metrics/v1/data-svc
+    datasets:       /rest/metrics/v1/datasets
+
+BOOL:                                  # Boolean to int ENUM
+  T:
+    enum: 1
+    desc: "Yes"
+  F:
+    enum: 0
+    desc: "No"
+
+OPERATOR:                              # CMDB Operators ENUM
+  EQ:
+    enum: "="
+    desc: "equal"
+  NE:
+    enum: "!="
+    desc: "not equal"
+  CT:
+    enum: "~"
+    desc: "contain"
+  NC:
+    enum: "!~"
+    desc: "not contain"
+  IN:
+    enum: "⊆"
+    desc: "in"
+  NI:
+    enum: "!⊆"
+    desc: "not in"
+  BG:
+    enum: "^"
+    desc: "begin with"
+  NB:
+    enum: "!^"
+    desc: "not begin with"
+  ED:
+    enum: "$"
+    desc: "end with"
+  ND:
+    enum: "!$"
+    desc: "not end with"
+  NL:
+    enum: "N"
+    desc: "is null"
+  NN:
+    enum: "!N"
+    desc: "not null"
+  LT:
+    enum: "<"
+    desc: "less than"
+  GE:
+    enum: ">="
+    desc: "not less than"
+  GT:
+    enum: ">"
+    desc: "greater than"
+  NG:
+    enum: "<="
+    desc: "not greater than"
+
+INVENTORY:  
+  az:
+    className: SYS_DjAz
+    attributes:
+      - id
+      - last_Modified
+      - creatTime
+      - name
+      - remark
+    relations:
+      storage: 
+        source: false
+        relationName: M_DjAzContainsStorDevice
+      host: 
+        source: false
+        relationName: M_DjAzContainsDjHost
+      hostgroup: 
+        source: false
+        relationName: M_DjAzContainsDjHostGroup
+      fabric: 
+        source: false
+        relationName: M_DjAzContainsFabric
+
+  project:
+    className: SYS_DjProject
+    attributes:
+      - id
+      - last_Modified
+      - creatTime
+      - name
+      - remark
+      - resourceGroupId
+    relations:
+      volume: 
+        source: false
+        relationName: M_DjProjectContainsLun
+      host: 
+        source: false
+        relationName: M_DjProjectContainsDjHost
+      hostgroup: 
+        source: false
+        relationName: M_DjProjectContainsDjHostGroup
+
+  tier:
+    className: SYS_DjTier
+    attributes:
+      - id
+      - last_Modified
+      - nativeId
+      - name
+      - type
+      - poolTotalCapacity
+      - poolUsedCapacity
+    relations:
+      pool: 
+        source: false
+        relationName: M_DjTierContainsStoragePool
+      storageport: 
+        source: false
+        relationName: M_DjTierContainsStoragePort
+      volume: 
+        source: false
+        relationName: M_DjTierContainsLun
+    objTypeId: 1126174784749568
+    indicators: {
+      "bandwidthTiB": "1126174784815118", 
+      "maxResponseTime": "1126174784815111", 
+      "readBandwidth": "1126174784815107", 
+      "readHitRatio": "1126174784815115", 
+      "readRatio": "1126174784815114", 
+      "readResponseTime": "1126174784815109", 
+      "readSize": "1126174784815112", 
+      "readThroughput": "1126174784815105", 
+      "throughputTiB": "1126174784815117", 
+      "writeBandwidth": "1126174784815108", 
+      "writeHitRatio": "1126174784815116", 
+      "writeResponseTime": "1126174784815110", 
+      "writeSize": "1126174784815113", 
+      "writeThroughput": "1126174784815106"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+    performance:
+      dataset: perf-tier
+      metrics:
+        - bandwidthTiB
+        - responseTime
+        - throughputTiB
+        - readBandwidth
+        - writeBandwidth
+        - readThroughput
+        - writeThroughput
+        - readHitRatio
+        - writeHitRatio
+        - readSize
+        - writeSize
+        - maxResponseTime
+        - readResponseTime
+        - writeResponseTime
+        - readRatio
+
+  host:
+    className: SYS_DjHost
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - name
+      - status
+      - type
+      - accessMode
+      - ipAddress
+      - version
+      - ultraPathVersion
+      - nativeMultiPathVersion
+      - djProjectId
+    relations:
+      az: 
+        source: true
+        relationName: M_DjAzContainsDjHost
+      project: 
+        source: true
+        relationName: M_DjProjectContainsDjHost
+      hostgroup: 
+        source: true
+        relationName: M_DjHostGroupContainsDjHost
+      hostini: 
+        source: false
+        relationName: M_DjHostConsistsOfInitiator
+      volume: 
+        source: false
+        relationName: M_DjHostAttachedLun
+      storagehost: 
+        source: false
+        relationName: M_DjHostAssociateStorageHost
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - host.type
+      - host.ipAddress
+      - host.status
+      - host.version
+      - host.accessMode
+      - host.ultraPathVersion
+      - host.nativeMultiPathVersion
+      - host.hostGroup
+      - host.hostGroupId
+      - host.hostGroupNativeId
+      - host.project
+      - host.projectId
+      - host.az
+      - host.azId
+    statistics:
+      dataset: stat-dj-host-present
+      metrics:
+        - count1
+        - numOfLuns
+        - totalCapacity
+        - allocCapacity
+        - protectionCapacity
+        - dedupedCapacity
+        - compressedCapacity
+
+  hostini:
+    className: SYS_DjHostInitiator
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - wwn
+      - type
+      - status
+      - djHostId
+    relations:
+      host: 
+        source: true
+        relationName: M_DjHostConsistsOfInitiator
+
+  hostgroup:
+    className: SYS_DjHostGroup
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - name
+      - sourceType
+      - djProjectId
+    relations:
+      az: 
+        source: true
+        relationName: M_DjAzContainsDjHostGroup
+      project: 
+        source: true
+        relationName: M_DjProjectContainsDjHostGroup
+      host: 
+        source: false
+        relationName: M_DjHostGroupContainsDjHost
+      volume: 
+        source: false
+        relationName: M_DjHostGroupAttachedLun
+
+  storage:
+    className: SYS_StorDevice
+    attributes: 
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - status
+      - productName
+      - deviceName
+      - ipAddress
+      - manufacturer
+      - sn
+      - version
+      - totalCapacity
+      - usedCapacity
+      - freeDisksCapacity
+    relations:
+      az:
+        source: true
+        relationName: M_DjAzContainsStorDevice
+      controller: 
+        source: false
+        relationName: M_StorDevConsistsOfController
+      storageport: 
+        source: false
+        relationName: M_StorDevConsistsOfStorPort
+      pool: 
+        source: false
+        relationName: M_StorDevConsistsOfStorPool
+      disk: 
+        source: false
+        relationName: M_StorDevConsistsOfStorDisk
+      volume: 
+        source: false
+        relationName: M_StorDevConsistsOfLun
+      diskdomain: 
+        source: false
+        relationName: M_StorDevConsistsOfDiskPool
+      storagehost:
+        source: false
+        relationName: M_StorDevConsistsOfStorHost
+    objTypeId: 1125904201809920
+    indicators: {
+      "bandwidth": "1125904201875458", 
+      "cpuUsage": "1125904201875457",
+      "memoryUsage": "1125904201875463", 
+      "readBandwidth": "1125904201875459", 
+      "readThroughput": "1125904201875461", 
+      "responseTime": "1125904201875464", 
+      "throughput": "1125904201875465", 
+      "writeBandwidth": "1125904201875460", 
+      "writeThroughput": "1125904201875462"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - device.ipAddress
+      - device.status
+      - device.productName
+      - device.manufacturer
+      - device.sn
+      - device.softwareVersion
+      - device.az
+      - device.azId
+    performance:
+      dataset: perf-storage-device
+      metrics:
+        - cpuUsage
+        - memoryUsage
+        - responseTime
+        - throughput
+        - readThroughput
+        - writeThroughput
+        - bandwidth
+        - readBandwidth
+        - writeBandwidth
+    statistics:
+      dataset: stat-storage-device
+      metrics:
+        - count1
+        - totalCapacity
+        - usedCapacity
+        - freeDisksCapacity
+
+  controller:
+    className: SYS_Controller
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - status
+      - isMaster
+      - engine
+      - location
+      - softVer
+      - cpuInfo
+      - memorySize
+      - storageDeviceId
+    relations:
+      storage: 
+        source: true
+        relationName: M_StorDevConsistsOfController
+    objTypeId: 1125908496777216
+    indicators: {
+      "bandwidth": "1125908496842755", 
+      "cpuUsage": "1125908496842753", 
+      "memoryUsage": "1125908496842761", 
+      "queueLength": "1125908496842760", 
+      "readBandwidth": "1125908496842756", 
+      "readHitRatio": "1125908496842766", 
+      "readResponseTime": "1125908496842770", 
+      "readThroughput": "1125908496842758", 
+      "responseTime": "1125908496842762", 
+      "throughput": "1125908496842763", 
+      "writeBandwidth": "1125908496842757", 
+      "writeCacheUsage": "1125908496842754", 
+      "writeHitRatio": "1125908496842767", 
+      "writeResponseTime": "1125908496842771", 
+      "writeThroughput": "1125908496842759"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - controller.status
+      - controller.engine
+      - controller.location
+      - device.name
+      - device.ipAddress
+      - device.status
+      - device.productName
+      - device.manufacturer
+      - device.sn
+      - device.softwareVersion
+      - device.az
+      - device.azId
+      - device.nativeId
+      - device.resid
+    performance:
+      dataset: perf-controller
+      metrics:
+        - throughput
+        - readBandwidth
+        - writeBandwidth
+        - responseTime
+        - cpuUsage
+        - memoryUsage
+        - queueLength
+        - readThroughput
+        - writeThroughput
+        - bandwidth
+        - writeCacheUsage
+        - readHitRatio
+        - writeHitRatio
+        - readResponseTime
+        - writeResponseTime
+    statistics:
+      dataset: stat-controller-present
+      metrics:
+        - count1
+
+  pool:
+    className: SYS_StoragePool
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - status
+      - runningStatus
+      - type
+      - totalCapacity
+      - usedCapacity
+      - dedupedCapacity
+      - compressedCapacity
+      - protectionCapacity
+      - tier0Capacity
+      - tier1Capacity
+      - tier2Capacity
+      - tier0RaidLv
+      - tier1RaidLv
+      - tier2RaidLv
+      - poolId
+      - storageDeviceId
+    relations:
+      tier: 
+        source: true
+        relationName: M_DjTierContainsStoragePool
+      storage: 
+        source: true
+        relationName: M_StorDevConsistsOfStorPool
+    objTypeId: 1125912791744512
+    indicators: {
+      "bandwidth": "1125912791810051", 
+      "readBandwidth": "1125912791810052", 
+      "readThroughput": "1125912791810054", 
+      "responseTime": "1125912791810050", 
+      "throughput": "1125912791810049", 
+      "writeBandwidth": "1125912791810053", 
+      "writeThroughput": "1125912791810055"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - pool.poolId
+      - pool.status
+      - pool.runningStatus
+      - pool.type
+      - pool.raidLevel
+      - pool.tier
+      - pool.tierId
+      - pool.tierNativeId
+      - device.name
+      - device.ipAddress
+      - device.status
+      - device.productName
+      - device.manufacturer
+      - device.sn
+      - device.softwareVersion
+      - device.az
+      - device.azId
+      - device.nativeId
+      - device.resid
+    performance:
+      dataset: perf-storage-pool
+      metrics:
+        - bandwidth
+        - responseTime
+        - throughput
+        - readBandwidth
+        - writeBandwidth
+        - readThroughput
+        - writeThroughput
+    statistics:     
+      dataset: stat-storage-pool
+      metrics:
+        - count1
+        - totalCapacity
+        - usedCapacity
+        - protectionCapacity
+        - dedupedCapacity
+        - compressedCapacity
+        - tier0Capacity
+        - tier1Capacity
+        - tier2Capacity
+
+  disk:
+    className: SYS_StorageDisk
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - sn
+      - manufacturer
+      - physicalModel
+      - firmware
+      - speed
+      - capacity
+      - status
+      - physicalType
+      - logicalType
+      - healthScore
+      - diskId
+      - poolId
+      - storageDeviceId
+    relations:
+      storage: 
+        source: true
+        relationName: M_StorDevConsistsOfStorDisk
+    objTypeId: 1125917086711808
+    indicators: {
+      "bandwidth": "1125917086777346", 
+      "queueLength": "1125917086777349", 
+      "readThroughput": "1125917086777347", 
+      "responseTime": "1125917086777351", 
+      "serviceTime": "1125917086777350", 
+      "throughput": "1125917086777352", 
+      "utility": "1125917086777345", 
+      "writeThroughput": "1125917086777348"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - disk.manufacturer
+      - disk.logicalType
+      - disk.physicalModel
+      - disk.physicalType
+      - disk.status
+      - disk.sn
+      - disk.speed
+      - disk.diskPool
+      - disk.diskPoolId
+      - disk.diskPoolNativeId
+      - device.name
+      - device.ipAddress
+      - device.status
+      - device.productName
+      - device.manufacturer
+      - device.sn
+      - device.softwareVersion
+      - device.az
+      - device.azId
+      - device.nativeId
+      - device.resid
+    performance:
+      dataset: perf-storage-disk
+      metrics:
+        - utility
+        - responseTime
+        - serviceTime
+        - queueLength
+        - throughput
+        - readThroughput
+        - writeThroughput
+        - bandwidth
+    statistics:
+      dataset: stat-storage-disk-present
+      metrics:
+        - count1
+        - capacity
+        - healthScore
+  
+  diskdomain:
+    className: SYS_DiskPool
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - status
+      - runningStatus
+      - encryptDiskType
+      - totalCapacity
+      - usedCapacity
+      - freeCapacity
+      - spareCapacity
+      - usedSpareCapacity
+      - poolId
+      - storageDeviceId
+    relations:
+      storage: 
+        source: true
+        relationName: M_StorDevConsistsOfDiskPool
+  
+  volume:
+    className: SYS_Lun
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - lunType
+      - mapped
+      - wwn
+      - totalCapacity
+      - allocCapacity
+      - protectionCapacity
+      - dedupedCapacity
+      - compressedCapacity
+      - lunId
+      - poolId
+      - storageDeviceId
+      - djTierId
+      - djProjectId
+    relations:
+      project: 
+        source: true
+        relationName: M_DjProjectContainsLun
+      tier: 
+        source: true
+        relationName: M_DjTierContainsLun
+      host: 
+        source: true
+        relationName: M_DjHostAttachedLun
+      hostgroup: 
+        source: true
+        relationName: M_DjHostGroupAttachedLun
+      storage: 
+        source: true
+        relationName: M_StorDevConsistsOfLun
+    objTypeId: 1125921381679104
+    indicators: {
+      "bandwidth": "1125921381744643", 
+      "hitRatio": "1125921381744660", 
+      "maxResponseTime": "1125921381744655", 
+      "queueLength": "1125921381744650", 
+      "readBandwidth": "1125921381744646", 
+      "readHitRatio": "1125921381744644", 
+      "readRatio": "1125921381744658", 
+      "readResponseTime": "1125921381744656", 
+      "readSize": "1125921381744652", 
+      "readThroughput": "1125921381744648", 
+      "responseTime": "1125921381744642", 
+      "serviceTime": "1125921381744654", 
+      "throughput": "1125921381744641", 
+      "utility": "1125921381744651", 
+      "writeBandwidth": "1125921381744647", 
+      "writeHitRatio": "1125921381744645", 
+      "writeRatio": "1125921381744659", 
+      "writeResponseTime": "1125921381744657", 
+      "writeSize": "1125921381744653", 
+      "writeThroughput": "1125921381744649"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - lun.lunId
+      - lun.wwn
+      - lun.mapped
+      - lun.lunType
+      - lun.tier
+      - lun.tierId
+      - lun.tierNativeId
+      - lun.project
+      - lun.projectId
+      - lun.host
+      - lun.hostId
+      - lun.hostNativeId
+      - lun.hostGroup
+      - lun.hostGroupId
+      - lun.hostGroupNativeId
+      - lun.pool
+      - lun.poolId
+      - lun.poolNativeId
+      - device.name
+      - device.ipAddress
+      - device.status
+      - device.productName
+      - device.manufacturer
+      - device.sn
+      - device.softwareVersion
+      - device.az
+      - device.azId
+      - device.nativeId
+      - device.resid
+    performance:
+      dataset: perf-lun
+      metrics:
+        - bandwidth
+        - responseTime
+        - throughput
+        - readBandwidth
+        - writeBandwidth
+        - readThroughput
+        - writeThroughput
+        - readHitRatio
+        - writeHitRatio
+        - queueLength
+        - utility
+        - readSize
+        - writeSize
+        - serviceTime
+        - maxResponseTime
+        - readResponseTime
+        - writeResponseTime
+        - readRatio
+        - writeRatio
+        - hitRatio
+    statistics:
+      dataset: stat-lun
+      metrics:
+        - count1
+        - totalCapacity
+        - allocCapacity              # real occupied space, allocCapacity > totalCapacity for thick LUN
+        - protectionCapacity
+        - dedupedCapacity            # not applicable for Dorado
+        - compressedCapacity         # not applicable for Dorado
+
+  storageport:
+    className: SYS_StoragePort
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - portId
+      - portName
+      - location
+      - connectStatus
+      - status
+      - portType
+      - mac
+      - mgmtIp
+      - ipv4Mask
+      - mgmtIpv6
+      - ipv6Mask
+      - iscsiName
+      - bondId
+      - bondName
+      - wwn
+      - sfpStatus
+      - logicalType
+      - numOfInitiators
+      - speed
+      - maxSpeed
+      - storageDeviceId
+    relations:
+      tier: 
+        source: true
+        relationName: M_DjTierContainsStoragePort
+      storage: 
+        source: true
+        relationName: M_StorDevConsistsOfStorPort
+    objTypeId: 1125925676646400
+    indicators: {
+      "bandwidth": "1125925676711938", 
+      "maxResponseTime": "1125925676711959", 
+      "queueLength": "1125925676711955", 
+      "readBandwidth": "1125925676711939", 
+      "readRatio": "1125925676711960", 
+      "readResponseTime": "1125925676711952", 
+      "readSize": "1125925676711956", 
+      "readThroughput": "1125925676711943", 
+      "responseTime": "1125925676711945", 
+      "serviceTime": "1125925676711958", 
+      "throughput": "1125925676711946", 
+      "utility": "1125925676711951", 
+      "writeBandwidth": "1125925676711940", 
+      "writeRatio": "1125925676711961", 
+      "writeResponseTime": "1125925676711953", 
+      "writeSize": "1125925676711957", 
+      "writeThroughput": "1125925676711944"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - port.portId
+      - port.portType
+      - port.connectStatus
+      - port.wwn
+      - port.location
+      - port.speed
+      - port.maxSpeed
+      - port.logicalType
+      - port.tier
+      - port.tierId
+      - port.tierNativeId
+      - device.name
+      - device.ipAddress
+      - device.status
+      - device.productName
+      - device.manufacturer
+      - device.sn
+      - device.softwareVersion
+      - device.az
+      - device.azId
+      - device.nativeId
+      - device.resid
+    performance:
+      dataset: perf-storage-port
+      metrics:
+        - bandwidth
+        - throughput
+        - responseTime
+        - readBandwidth
+        - writeBandwidth
+        - readThroughput
+        - writeThroughput
+        - utility
+        - readResponseTime
+        - writeResponseTime
+        - queueLength
+        - readSize
+        - writeSize
+        - serviceTime
+        - maxResponseTime
+        - readRatio
+        - writeRatio
+    statistics:
+      dataset: stat-storage-port-present
+      metrics:
+        - count1
+        - numberOfInitiators
+
+  storagehost:
+    className: SYS_StorageHost
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - ipAddress
+      - type
+      - hostId
+      - storageDeviceId
+      - djHostId
+    relations:
+      host: 
+        source: true
+        relationName: M_DjHostAssociateStorageHost
+      storage:
+        source: true
+        relationName: M_StorDevConsistsOfStorHost
+    objTypeId: 1125938561548288
+    indicators: {
+      "bandwidth": "1125938561613829", 
+      "maxBandwidth": "1125938561613825", 
+      "maxResponseTime": "1125938561613839", 
+      "maxThroughput": "1125938561613828", 
+      "queueLength": "1125938561613827", 
+      "readBandwidth": "1125938561613831", 
+      "readResponseTime": "1125938561613840", 
+      "readSize": "1125938561613832", 
+      "readThroughput": "1125938561613833", 
+      "readTransDelay": "1125938561613842", 
+      "responseTime": "1125938561613838", 
+      "serviceTime": "1125938561613837", 
+      "throughput": "1125938561613830", 
+      "utility": "1125938561613826", 
+      "writeBandwidth": "1125938561613834", 
+      "writeResponseTime": "1125938561613841", 
+      "writeSize": "1125938561613835", 
+      "writeThroughput": "1125938561613836", 
+      "writeTransDelay": "1125938561613843"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - djhost.resId
+      - djhost.name
+      - djhost.type
+      - djhost.ipAddress
+      - djhost.status
+      - djhost.version
+      - djhost.accessMode
+      - djhost.ultraPathVersion
+      - djhost.nativeMultiPathVersion
+      - djhost.hostGroup
+      - djhost.hostGroupId
+      - djhost.hostGroupNativeId
+      - djhost.project
+      - djhost.projectId
+      - djhost.az
+      - djhost.azId
+      - device.name
+      - device.ipAddress
+      - device.status
+      - device.productName
+      - device.manufacturer
+      - device.sn
+      - device.softwareVersion
+      - device.az
+      - device.azId
+      - device.nativeId
+      - device.resid
+    performance:
+      dataset: perf-storage-host
+      metrics:
+        - maxBandwidth
+        - utility
+        - queueLength
+        - maxThroughput
+        - bandwidth
+        - throughput
+        - readBandwidth
+        - readSize
+        - readThroughput
+        - writeBandwidth
+        - writeSize
+        - writeThroughput
+        - serviceTime
+        - responseTime
+        - maxResponseTime
+        - readResponseTime
+        - writeResponseTime
+        - readTransDelay
+        - writeTransDelay
+    statistics:     
+      dataset: stat-storage-host-present
+      metrics:
+        - count1
+
+  fcswitch:
+    className: SYS_FCSwitch
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - status
+      - syncStatus
+      - sn
+      - deviceName
+      - manufacturer
+      - productName
+      - ipAddress
+      - portNum
+      - domainId
+      - version
+      - wwn
+      - fabricWwn
+      - virtualFabricId
+      - isLogical
+      - fabricId
+    relations:
+      fabric: 
+        source: true
+        relationName: M_FabricContainsFCSwitch
+      fcswitchport: 
+        source: false
+        relationName: M_FCSwitchContainsPort
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - device.sn
+      - device.productName
+      - device.manufacturer
+      - device.ipAddress
+      - device.status
+      - device.wwn
+      - device.domainId
+      - device.fabricWwn
+      - device.fabricName
+      - device.isLogical
+      - device.az
+      - device.azId
+    statistics:      
+      dataset: stat-fcswitch-present
+      metrics:
+        - count1
+        - numberOfPorts  
+
+  fcswitchport:
+    className: SYS_FCSwitchPort
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - connectStatus
+      - status
+      - speed
+      - wwn
+      - portType
+      - portIndex
+      - portNumber
+      - slotNumber
+      - fcSwitchId
+    relations:
+      fcswitch: 
+        source: true
+        relationName: M_FCSwitchContainsPort
+    objTypeId: 1970329131941888
+    indicators: {
+      "bandwidth": "1970329132007425", 
+      "bandwidthRx": "1970329132007434", 
+      "bandwidthTx": "1970329132007440", 
+      "bbCreditZero": "1970329132007433", 
+      "class3Discard": "1970329132007430", 
+      "error": "1970329132007439", 
+      "invalidCrc": "1970329132007426", 
+      "linkFailures": "1970329132007437", 
+      "linkReset": "1970329132007429", 
+      "linkResetRx": "1970329132007428", 
+      "linkResetTx": "1970329132007427", 
+      "signalLoss": "1970329132007438", 
+      "syncLoss": "1970329132007431", 
+      "utility": "1970329132007436", 
+      "utilityRx": "1970329132007432", 
+      "utilityTx": "1970329132007435"
+    }
+    dimensions:
+      - object.id
+      - object.name
+      - object.nativeId
+      - port.status
+      - port.speed
+      - port.portType
+      - port.connectStatus
+      - port.wwn
+      - port.portIndex
+      - port.slotNumber
+      - port.portNumber
+      - port.associateFCAlias
+      - port.associateFCAliasId
+      - port.associateFCZone
+      - port.associateFCZoneId
+      - port.remoteWwn
+      - port.remoteNodeWwn
+      - host.name
+      - host.ipAddress
+      - host.project
+      - host.projectId
+      - host.hostGroup
+      - host.hostGroupId
+      - host.hostGroupNativeId
+      - host.nativeId
+      - host.resId
+      - storage.name
+      - storage.ipAddress
+      - storage.sn
+      - storage.nativeId
+      - storage.resId
+      - switch.name
+      - switch.sn
+      - switch.productName
+      - switch.manufacturer
+      - switch.ipAddress
+      - switch.status
+      - switch.wwn
+      - switch.domainId
+      - switch.fabricWwn
+      - switch.fabricName
+      - switch.isLogical
+      - switch.az
+      - switch.azId
+      - switch.nativeId
+      - switch.resId
+    performance:
+      dataset: perf-fcswitch-port
+      metrics:
+        - error
+        - bandwidthRx
+        - bandwidthTx
+        - invalidCrc
+        - class3Discard
+        - linkResetRx
+        - linkResetTx
+        - linkReset
+        - linkFailures
+        - signalLoss
+        - syncLoss
+        - utilityRx
+        - utilityTx
+        - bandwidth
+        - utility
+        - bbCreditZero
+    statistics:
+      dataset: stat-fcswitch-port-present
+      metrics:
+        - count1
+  
+  fcswitchportlink:
+    className: FcLink
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - portWwn
+      - nodeWwn
+      - remotePortWwn
+      - remoteNodeWwn
+  
+  fabric:
+    className: SYS_Fabric
+    attributes:
+      - id
+      - nativeId
+      - last_Modified
+      - lastMonitorTime
+      - dataStatus
+      - name
+      - wwn
+    relations:
+      az: 
+        source: true
+        relationName: M_DjAzContainsFabric
+      fcswitch: 
+        source: false
+        relationName: M_FabricContainsFCSwitch
+      fczone: 
+        source: false
+        relationName: M_FabricContainsZone
+      fcalias: 
+        source: false
+        relationName: M_FabricContainsAlias
+
+  fczone:
+    className: SYS_FCSwitchZone
+    attributes:
+      - id
+      - last_Modified
+      - dataStatus
+      - name
+      - cfg
+      - status
+      - fabricWwn
+      - memberCount
+      - fabricId
+    relations:
+      fabric: 
+        source: true
+        relationName: M_FabricContainsZone
+
+  fczonewwn:
+    className: SYS_FCZoneMemberWwn
+    attributes:
+      - id
+      - last_Modified
+      - zoneId
+      - fabricWwn
+      - wwn
+
+  fczoneport:
+    className: SYS_FCZoneMemberPort
+    attributes:
+      - id
+      - last_Modified
+      - zoneId
+      - fabricWwn
+      - portIndex
+      - domainId
+
+  fczonealias:
+    className: SYS_FCZoneMemberAlias
+    attributes:
+      - id
+      - last_Modified
+      - zoneId
+      - fabricWwn
+      - aliasName
+
+  fcalias:
+    className: SYS_FCSwitchAlias
+    attributes:
+      - id
+      - last_Modified
+      - dataStatus
+      - name
+      - type
+      - memberCount
+      - fabricWwn
+      - fabricId
+    relations:
+      fabric: 
+        source: true
+        relationName: M_FabricContainsAlias
+
+  fcaliaswwn:
+    className: SYS_FCAliasMemberWwn
+    attributes:
+      - id
+      - last_Modified
+      - aliasId
+      - fabricWwn
+      - wwn
+
+  fcaliasport:
+    className: SYS_FCAliasMemberPort
+      - id
+      - last_Modified
+      - aliasId
+      - fabricWwn
+      - portIndex
+      - domainId

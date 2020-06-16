@@ -1,0 +1,100 @@
+# Remove hosts from host group
+#
+# Required parameters:
+#   hostGroupName:          Host group name, can be replaced with hostGroupId
+#   hostNames:              A list of host names, can be replaced with hostIds
+#
+# Generated parameters (can be overwritten)
+#   hostGroupId:            Host group ID
+#   hostIds:                A list of host IDs
+
+- name: Set default variables
+  set_fact:
+    remove_host_failed: no
+
+- name: Query Host Group by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup?filter=NAME%3A%3A{{hostGroupName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOSTGROUP
+  when:
+    - hostGroupName is defined and hostGroupName is not none
+
+- name: Check Host Group Name Exists
+  debug:
+    msg: 
+      hostGroupName: "{{hostGroupName}}"
+  failed_when: (HOSTGROUP.json.error.code|int != 0) or ('data' not in HOSTGROUP.json) or (HOSTGROUP.json.data | length != 1)
+  when:
+    - hostGroupName is defined and hostGroupName is not none
+
+- name: Get Host Group ID
+  set_fact:
+    hostGroupId: "{{ HOSTGROUP.json.data[0].ID }}"
+  when:
+    - hostGroupName is defined and hostGroupName is not none
+
+- import_tasks: check_hosts.yml
+  vars:
+    checkHostGroup: "{{ hostGroupName|default(none) }}"
+  when:
+    - hostNames is defined and hostNames is not none and hostNames|length > 0
+
+- name: Remove Hosts from Host Group
+  block:
+    - name: Remove Hosts from Host Group
+      uri:   
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host/associate?ID={{hostGroupId}}&ASSOCIATEOBJTYPE=21&ASSOCIATEOBJID={{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: REMOVE_HOSTS
+      with_items: "{{ hostIds }}"
+    - name: Check Remove Host Result
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ REMOVE_HOSTS.results | json_query(queryMsg) }}"
+      failed_when: REMOVE_HOSTS.results | json_query(queryError) | difference([0]) | length > 0
+  rescue:
+    - name: Add Hosts to Host Group
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup/associate"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{hostGroupId}}"
+          ASSOCIATEOBJTYPE: 21
+          ASSOCIATEOBJID: "{{item}}"
+      register: ADD_HOSTS
+      with_items: "{{ hostIds }}"
+    - name: Set Remove Host Failed
+      set_fact:
+        remove_host_failed: yes
+  when:
+    - hostIds is defined
+    - hostIds | length > 0
+
+
+- name: Check Errors
+  debug:
+    msg:
+      fail: "{{remove_host_failed}}"
+  failed_when: remove_host_failed|bool == True

@@ -1,0 +1,72 @@
+# Include this tasks at the beginning of playbooks to login to DJ
+# 
+# Optional parameters:
+#   djHost:                 # DJ host name or ip address
+#   djUser:                 # DJ user name, the user type must be 'Third-party user', with API operation rights
+#   djPswd:                 # DJ user password
+#   djPort:                 # DJ northbond api port, default: 26335
+#   djToken:                # DJ token, after login, use this to replace djUser & djPswd
+#   tokenFile:              # Load DJ token from file, save DJ token to file
+
+- name: Set DJ auth info
+  vars:
+    globalTokenFile: "{{GLOBAL.baseDir}}/{{GLOBAL.tokenFile}}"
+  set_fact:
+    djHost: "{{ djHost | default(DJ.host) }}"
+    djUser: "{{ djUser | default(DJ.user) }}"
+    djPswd: "{{ djPswd | default(DJ.pswd) }}"
+    djPort: "{{ djPort | default(DJ.port) }}"
+    tokenFile: "{{ tokenFile | default(globalTokenFile) }}"
+
+- name: Load DJ Token
+  include_vars:
+    file: "{{tokenFile}}"
+    name: TOKENS
+  when: djToken is not defined
+
+- name: Set DJ Token
+  set_fact:
+    djToken: "{{ TOKENS[djHost][djUser].token }}"
+  when: 
+    - djToken is not defined
+    - djHost in TOKENS
+    - djUser in TOKENS[djHost]
+
+- name: Check DJ Token
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.tasks }}?start=0&limit=1"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    status_code: 200, 401
+  register: CHECK
+  when: djToken is defined
+
+- name: Login DJ
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.sessions }}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+    body_format: json
+    body:
+      grantType: "password"
+      userName: "{{djUser}}"
+      value: "{{djPswd}}"
+  register: SESSION
+  when: (djToken is not defined) or (CHECK is defined and CHECK.status|int == 401)
+
+- name: Update DJ Token
+  set_fact: 
+    djToken: "{{ SESSION.json.accessSession }}"
+  when: (djToken is not defined) or (CHECK is defined and CHECK.status|int == 401)
+
+- name: Save Token
+  vars:
+    tokenEntry: "{{ TOKENS[djHost] | default({}) | combine( {djUser:{'token':djToken}} ) }}"
+  local_action: copy content={{ TOKENS | combine( { djHost:tokenEntry }) }} dest={{ tokenFile }}

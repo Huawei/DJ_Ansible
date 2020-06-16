@@ -1,0 +1,59 @@
+# Required Parameters:
+#   volumeNames:     a list of volume names, can be replaced with volumeIds
+#
+# Optional Parameters:
+#   volumeIds:       a list of volume IDs
+
+- name: Get volume IDs by Name
+  block:
+    - name: Set default variables
+      set_fact:
+        volumeIds: []
+
+    - name: Query Volumes by Name
+      uri:
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{djToken}}"
+      register: VOLUMES
+      with_items: "{{ volumeNames }}"
+
+    - name: Get Volume IDs
+      vars:
+        queryVolumeId: "[? name=='{{item.1}}'].id"
+      set_fact:
+        volumeIds: "{{ volumeIds + VOLUMES.results[item.0].json.volumes | json_query(queryVolumeId) }}"
+      with_indexed_items: "{{ volumeNames }}"
+
+    - name: Check Volumes Exist
+      debug:
+        msg:
+          volumeIds: "{{ volumeIds }}"
+      failed_when: volumeIds|length == 0
+  when: 
+    - volumeNames is defined
+    - volumeNames is not none
+    - volumeNames|length > 0
+
+- name: Delete Volumes
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}/delete"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    status_code: 202
+    body_format: json
+    body: 
+      volume_ids: "{{ volumeIds }}"
+  register: DELETE_VOLUME
+
+- import_tasks: ../task/wait_task_complete.yml
+  vars:
+    taskId: "{{ DELETE_VOLUME.json.task_id }}"

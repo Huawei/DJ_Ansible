@@ -1,0 +1,75 @@
+# Required Parameters:
+#   deviceName:     storage device name, can be replaced with storageId
+#
+# Generated Parameters (can be overwritten):
+#   deviceId:       storage device ID
+
+- name: Query Storages
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.storages }}?start=1&limit=1000"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: DEVICES
+  when: 
+    - deviceName is defined
+    - deviceName is not none
+
+- name: Check Storage Exists
+  vars:
+    query: "[?name=='{{ deviceName }}'].id"
+  set_fact:
+    deviceId: "{{ DEVICES.json.datas | json_query(query) | first }}"
+  failed_when: DEVICES.json.datas | json_query(query) | length != 1
+  when: 
+    - deviceName is defined
+    - deviceName is not none
+
+- name: Sync Storage
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.storages }}/refresh"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      id: "{{deviceId}}"
+  register: SYNCTASK
+  retries: 1
+  delay: 120
+  until:
+    - SYNCTASK.status == 200
+
+- name: Wait Sync Start
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.storages }}/{{deviceId}}/detail"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: DETAIL
+  retries: 60
+  delay: 1
+  until: DETAIL.json.syn_status|int == 1     # 0/NotSync, 1/Syncing, 2/Synced, 3/Unknown
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.storages }}/{{deviceId}}/detail"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: DETAIL
+  retries: 60
+  delay: 5
+  until: DETAIL.json.syn_status|int != 1     # 0/NotSync, 1/Syncing, 2/Synced, 3/Unknown

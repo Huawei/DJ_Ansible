@@ -1,0 +1,136 @@
+# Required Parameters:
+#   cgName:            consistency group name
+#
+# Optional Parameters:
+#   deletePairs:       delete pairs after remove from CG, default: yes, options: yes, no
+
+- set_fact:
+    newCgId: "{{ none }}"
+
+- block:
+    - name: Query HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup?filter=NAME%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data|length != 1)
+
+    - set_fact:
+        cgId: "{{ CG.json.data[0].ID }}"
+        domainId: "{{ CG.json.data[0].DOMAINID }}"
+
+    - name: Query HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair?filter=CGID%3A%3A{{cgId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HyperMetroPairs
+
+    - name: Get HyperMetro Pair IDs
+      vars:
+        query: "[*].ID"
+      set_fact:
+        removedPairIds: "{{ HyperMetroPairs.json.data | json_query(query) }}"
+
+    - name: Pause HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/stop"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ cgId }}"
+      register: STOP_CG
+
+    - name: Check Pause CG Result
+      debug:
+        msg: "{{ STOP_CG.json.error }}"
+      failed_when: STOP_CG.json.error.code|int != 0
+
+    - name: Delete HyperMetro CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/{{cgId}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_CG
+
+    - name: Check Delete CG Result
+      debug:
+        msg: "{{ DELETE_CG.json.error }}"
+      failed_when: DELETE_CG.json.error.code|int != 0
+
+- block:
+    - name: Delete HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DELETE_PAIRS
+      with_items: "{{ removedPairIds }}"
+
+    - name: Check Delete Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DELETE_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: DELETE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: 
+    - deletePairs|default(True)|bool == True 
+    - removedPairIds|length > 0
+
+- block:
+    - name: Sync HyperMetro Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetroPair/synchronize_hcpair"
+        method: PUT
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+      register: SYNC_PAIRS
+      with_items: "{{ removedPairIds }}"
+
+    - name: Check Sync Pairs Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ SYNC_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: SYNC_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: 
+    - deletePairs|default(True)|bool == False
+    - removedPairIds|length > 0

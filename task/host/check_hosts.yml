@@ -1,0 +1,121 @@
+# Check host names exists on DJ
+#
+# Required parameters:
+#   hostNames:              # a list of host names
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+#   checkStatus:            # check if host status is normal, options: true/false
+#   checkPortStatus:        # check if at least 1 initiator status is online, options: true/false
+#   checkBelongHostGroup:   # check host belong to host group or not, options: true/false
+#   checkHostGroup:         # check whether host belongs to a specific host group
+# 
+# Generated variables:
+#   checkedHosts:           # a list of DJ hosts
+
+- name: Set default variables
+  set_fact:
+    hostIds: []
+    checkedHosts: []
+
+- name: Query Hosts by Name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{item}}"
+  register: HOSTS
+  with_items: "{{ hostNames }}"
+
+- name: Get Host IDs
+  vars:
+    queryHostIds: "[?name=='{{ item.1 }}'].id"
+    queryHosts: "[?name=='{{ item.1 }}']"
+  set_fact:
+    hostIds: "{{ hostIds + HOSTS.results[item.0].json.hosts | default([]) | json_query(queryHostIds) }}"
+    checkedHosts: "{{ checkedHosts + HOSTS.results[item.0].json.hosts | default([]) | json_query(queryHosts) }}"
+  with_indexed_items: "{{ hostNames }}"
+
+- name: Check Host Name Exist
+  debug:
+    msg:
+      hostIds: "{{ hostIds }}"
+  failed_when: (checkExist|default(True)|bool == True and hostIds|length != hostNames|length) or (checkExist|default(True)|bool == False and hostIds|length > 0)
+
+- name: Check Host Status
+  debug:
+    msg:
+      status: "{{ checkedHosts[item.0].display_status }}"
+  failed_when: checkedHosts[item.0].display_status != 'NORMAL'
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkStatus is defined
+    - checkStatus is not none
+    - checkStatus|bool == True
+
+- name: Check Host Belong to Host Group
+  debug:
+    msg:
+      host: "{{ item.1 }}"
+      hostGroups: "{{ checkedHosts[item.0].hostGroups}}"
+  failed_when: checkBelongHostGroup|bool != (checkedHosts[item.0].hostGroups|length > 0)
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True 
+    - checkBelongHostGroup is defined
+    - checkBelongHostGroup is not none
+
+- name: Check Host Belong to a specific Host Group
+  vars:
+    queryHostGroup: "[?name=='{{ checkHostGroup }}']"
+  debug:
+    msg:
+      host: "{{ item.1 }}"
+      hostGroups: "{{ checkedHosts[item.0].hostGroups }}"
+      checkHostGroup: "{{ checkHostGroup }}"
+  failed_when: checkedHosts[item.0].hostGroups | json_query(queryHostGroup) | length == 0
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkHostGroup is defined
+    - checkHostGroup is not none
+
+
+- name: Get Host Port
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/{{hostId}}/initiators"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: PORTS
+  with_items: "{{ hostIds }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkPortStatus is defined
+    - checkPortStatus is not none
+    - checkPortStatus|bool == True
+
+- name: Check Port Status
+  vars:
+    query: "[? status=='ONLINE'].port_name"
+  debug:
+    msg:
+      host: "{{ item.1 }}"
+      onlinePorts: "{{ PORTS.results[item.0].json.initiators | json_query(query) }}"
+  failed_when: PORTS.results[item.0].json.initiators | json_query(query) | length == 0
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkPortStatus is defined
+    - checkPortStatus is not none
+    - checkPortStatus|bool == True

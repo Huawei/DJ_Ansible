@@ -1,0 +1,52 @@
+# Required Parameters:
+#   cgName:            clone consistency group name, can be replaced with cgId
+#
+# Optional Parameters:
+#   cgId:              clone CG ID
+#   deleteTarget:      delete target LUN, default: no, options: yes, no
+
+- block:
+    - name: Query Clone CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup?cgType=1&filter=name%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data | length != 1)
+
+    - name: Check Clone CG Status
+      vars:
+        syncStatus: "{{ CG.json.data[0].syncStatus }}"   # 0:unsynced, 1:syncing, 2:normal, 3:sync_paused
+      set_fact:
+        cgId: "{{ CG.json.data[0].ID }}"
+        copyAction: "{{ 0 if syncStatus in ['0', '2'] else 3 if syncStatus == '3' else -1 if syncStatus == '1' else -2 }}"    # 0:start, 1:pause, 2:stop, 3:continue
+      failed_when: syncStatus not in ['0','1','2','3']
+
+  when: cgName|default(none) is not none
+
+
+- name: Delete Clone CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ cgId }}"
+      isDeleteDstLun: "{{ deleteTarget|default(False)|bool }}"
+  register: DELETE_CG
+
+- name: Check Delete Result
+  debug:
+    msg: "{{ DELETE_CG.json.error }}"
+  failed_when: DELETE_CG.json.error.code|int != 0

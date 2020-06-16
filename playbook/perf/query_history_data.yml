@@ -29,7 +29,7 @@
 - name: Query Hisotry Performance
   hosts: localhost
   vars_files:
-    - ../global.yml
+    - ../../config/global.yml
   vars:
     endTime: "{{ansible_date_time.epoch}}"     # default current epoch (seconds), use `data +%s` to get current unix time
     timeSpan: "1h"                             # default last 1 hour, can be s,m,h,d,w,M,y
@@ -49,7 +49,7 @@
   gather_facts: yes
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Get Indicator IDs                          # map indicator names to IDs
       set_fact:
@@ -62,13 +62,13 @@
         className: "{{ INVENTORY[objType].className }}"    # map objType to objTypeId
         params: "pageNo=1&pageSize=1000&condition={\"constraint\":[{\"simple\":{\"name\":\"dataStatus\",\"operator\":\"equal\",\"value\":\"normal\"}},{\"logOp\":\"and\",\"simple\":{\"name\":\"name\",\"operator\":\"contain\",\"value\":\"{{objName|urlencode}}\"}}]}"
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.instances}}/{{className}}?{{params}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.instances }}/{{className}}?{{params}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: INSTANCES
       when: objName is defined
 
@@ -79,13 +79,13 @@
 
     - name: Get Hisotry Performance Data
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.perfdata }}/history-data/action/query"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.perfdata }}/history-data/action/query"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body: 
           obj_type_id: "{{ objTypeId }}"

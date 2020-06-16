@@ -1,0 +1,278 @@
+- defaultTab: monitor
+  description: 'Modify Host Name, Description, Class, Session and correlated LUNs and Groups'
+  executionEnabled: true
+  id: f7f0ab86-aa23-493e-9afc-afab636b7238
+  loglevel: INFO
+  name: 03_modify_host_info
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Modify Host Name, Description, Class, Session and correlated LUNs and Groups
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Select Primary Host</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search Host Name
+    name: Host_Search
+  - enforced: true
+    name: Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_1"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - enforced: true
+    name: Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storagehost","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}},{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Storage_Room.value}"}}]}}]
+  - enforced: true
+    name: Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}}]
+    description: <BR><h2>Modify Host Info</h2>
+  - enforced: true
+    name: Host_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME:2&valueAttr=NAME:2&filter=NAME::${option.Host.value}
+  - description: Input New Host Name (max 16 chars, '_' not permitted)
+    name: Modify_Host_Name
+  - enforced: true
+    name: Host_Description
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/host?nameAttr=DESCRIPTION&valueAttr=DESCRIPTION&filter=NAME::${option.Host.value}
+  - description: Input New Description (max 64 chars)
+    name: Modify_Host_Description
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=Modify%20host:%20"${option.Host.value}",%20correlated%20LUNs
+    description: Select to confirm the primary host result <BR><BR><h2>Protection Info</h2>
+  - enforced: true
+    name: LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupName&matchAttr=mappingType&match=1&range=[0-100]&obj=host&filter=NAME::${option.Host.value}
+  - enforced: true
+    name: Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/protectgroup?nameAttr=protectGroupName&valueAttr=protectGroupName&range=[0-100]&filter=lunGroupId::${option.LUN_Group_ID.value}
+  - enforced: true
+    name: Enable_HyperMetro
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:0:1&valueAttr=DESCRIPTION:0:0:1&filter=NAME::${option.LUN_Group.value}
+  - enforced: true
+    name: Protection_Level
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:1:2&valueAttr=DESCRIPTION:0:1:2&filter=NAME::${option.LUN_Group.value}
+  - enforced: true
+    name: Session_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:1&nameSplit=_&valueAttr=DESCRIPTION:1&valueSplit=_&filter=NAME::${option.LUN_Group.value}
+  - name: Modify_Session_Name
+    description: Input New Session Name (start with {Country}0, max 19 chars, '_' not permitted) <BR><BR><h2>Performance Class</h2>
+  - enforced: true
+    name: Class_1
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.LUN_Group.value}
+  - enforced: false
+    name: Modify_Class_1
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - enforced: true
+    name: Class_2
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:3:4&valueAttr=DESCRIPTION:0:3:4&filter=NAME::${option.LUN_Group.value}
+  - enforced: false
+    name: Modify_Class_2
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - enforced: true
+    name: Class_3
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:4:5&valueAttr=DESCRIPTION:0:4:5&filter=NAME::${option.LUN_Group.value}
+  - enforced: false
+    name: Modify_Class_3
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+    description: <BR><h2>Metro Host</h2>
+  - enforced: true
+    name: Metro_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Metro_Storage.value}/data/v1/search/host?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=NAME::${option.Host.value}
+  - enforced: true
+    name: Metro_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/detail/HyperMetroDomain?ID=${option.Metro_Domain.value}&nameAttr=REMOTEDEVICES:11&nameSplit="&valueAttr=REMOTEDEVICES:7&valueSplit="
+  - enforced: true
+    name: Metro_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Metro_Storage.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_2
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=Modify%20host:%20"${option.Metro_Host.value}"%20and%20correlated%20LUNs
+    description: Select to confirm the metro host result <BR><BR><h2>DR Host</h2>
+  - enforced: true
+    name: DR_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/associate/mapping?nameAttr=hostName&valueAttr=hostName&range=[0-100]&obj=lungroup&filter=NAME::${option.DR_LUN_Group.value}
+  - enforced: true
+    name: DR_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/remote_device?nameAttr=NAME&valueAttr=SN&range=[0-100]&filter=ID::${option.DR_Storage_ID.value}
+  - enforced: true
+    name: DR_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.DR_Storage.value}"}}]}}]
+    description: <BR><h2>Modify DR Host Info</h2>
+  - enforced: true
+    name: DR_Host_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME:2&valueAttr=NAME:2&filter=NAME::${option.DR_Host.value}
+  - description: Input New Remote Host Name (max 16 chars, character '_' not permitted)
+    name: Modify_DR_Host_Name
+  - enforced: true
+    name: DR_Host_Description
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?nameAttr=DESCRIPTION&valueAttr=DESCRIPTION&filter=NAME::${option.DR_Host.value}
+  - description: Input New Description (max 64 chars)
+    name: Modify_DR_Host_Description
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_3
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=Modify%20host:%20"${option.DR_Host.value}"%20and%20correlated%20LUNs
+    description: Select to confirm result <BR><BR><h2>DR Test Host</h2>
+  - enforced: true
+    name: DR_Test_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.DR_Host_Name.value}_3
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_4
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=Modify%20DR%20Test%20host:%20"${option.DR_Test_Host.value}"%20and%20correlated%20snapshots
+    description: Select to confirm result <BR><BR><h2>Additional Info</h2>
+  - enforced: true
+    name: LUN_Group_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?nameAttr=ID&valueAttr=ID&range=[0-100]&filter=NAME::${option.LUN_Group.value}
+  - enforced: true
+    name: LUN_Group_NO
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?nameAttr=NAME:4:2&nameSplit=_&valueAttr=NAME:4:2&valueSplit=_&range=[0-100]&filter=NAME::${option.LUN_Group.value}
+  - enforced: true
+    name: Metro_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/hypermetro_consistentgroup?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  - enforced: true
+    name: Metro_CG_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/hypermetro_consistentgroup?nameAttr=ID&valueAttr=ID&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  - enforced: true
+    name: Metro_Domain
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/hypermetro_consistentgroup?nameAttr=DOMAINNAME&valueAttr=DOMAINID&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  - enforced: true
+    name: DR_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  - enforced: true
+    name: DR_CG_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=ID&valueAttr=ID&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  - enforced: true
+    name: DR_Storage_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=remoteArrayID&valueAttr=remoteArrayID&range=[0-100]&filter=NAME::${option.DR_CG.value}
+  - enforced: true
+    name: DR_Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=rmtPgName&valueAttr=rmtPgName&range=[0-100]&filter=NAME::${option.DR_CG.value}
+  - enforced: true
+    name: DR_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/protectgroup?nameAttr=lunGroupName&valueAttr=lunGroupName&range=[0-100]&filter=protectGroupName::${option.DR_Protection_Group.value}
+  - enforced: true
+    name: DR_Test_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME::${option.DR_Test_Host.value}_LG${option.LUN_Group_NO.value}
+  - enforced: true
+    name: DR_Star
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/dr_star?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=memberType::2%20and%20localResource::${option.Protection_Group.value}
+  - enforced: true
+    name: DR_Star_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/dr_star?nameAttr=ID&valueAttr=ID&range=[0-100]&filter=memberType::2%20and%20localResource::${option.Protection_Group.value}
+  - enforced: true
+    name: Standby_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Metro_Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  - enforced: true
+    name: Standby_CG_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Metro_Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=ID&valueAttr=ID&range=[0-100]&filter=localPgName::${option.Protection_Group.value}
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Country: ${option.Country}
+          Storage: ${option.Storage}
+          Storage_Room: ${option.Storage_Room}
+          Host: ${option.Host}
+          LUN_Group: ${option.LUN_Group}
+          Enable_HyperMetro: ${option.Enable_HyperMetro}
+          Protection_Level: ${option.Protection_Level}
+          Host_Name: ${option.Host_Name}
+          Modify_Host_Name: ${option.Modify_Host_Name}
+          Host_Description: ${option.Host_Description}
+          Modify_Host_Description: ${option.Modify_Host_Description}
+          Class_1: ${option.Class_1}
+          Modify_Class_1: ${option.Modify_Class_1}
+          Session_Name: ${option.Session_Name}
+          Modify_Session_Name: ${option.Modify_Session_Name}
+          Check_Result_1: ${option.Check_Result_1}
+
+          Metro_Host: ${option.Metro_Host}
+          Metro_Storage: ${option.Metro_Storage}
+          Metro_Storage_Room: ${option.Metro_Storage_Room}
+          Check_Result_2: ${option.Check_Result_2}
+
+          DR_Storage: ${option.DR_Storage}
+          DR_Host: ${option.DR_Host}
+          DR_Host_Name: ${option.DR_Host_Name}
+          Modify_DR_Host_Name: ${option.Modify_DR_Host_Name}
+          DR_Host_Description: ${option.DR_Host_Description}
+          Modify_DR_Host_Description: ${option.Modify_DR_Host_Description}
+          Class_2: ${option.Class_2}
+          Modify_Class_2: ${option.Modify_Class_2}
+          Check_Result_3: ${option.Check_Result_3}
+
+          DR_Test_Host: ${option.DR_Test_Host}
+          Class_3: ${option.Class_3}
+          Modify_Class_3: ${option.Modify_Class_3}
+          Check_Result_4: ${option.Check_Result_4}
+
+          Protection_Group: ${option.Protection_Group}
+          Metro_CG: ${option.Metro_CG}
+          Metro_CG_ID: ${option.Metro_CG_ID}
+          DR_CG: ${option.DR_CG}
+          DR_CG_ID: ${option.DR_CG_ID}
+          DR_Protection_Group: ${option.DR_Protection_Group}
+          DR_LUN_Group: ${option.DR_LUN_Group}
+          DR_Test_LUN_Group: ${option.DR_Test_LUN_Group}
+          DR_Star: ${option.DR_Star}
+          DR_Star_ID: ${option.DR_Star_ID}
+          Standby_CG: ${option.Standby_CG}
+          Standby_CG_ID: ${option.Standby_CG_ID}
+
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/03_modify_host_info.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: f7f0ab86-aa23-493e-9afc-afab636b7238

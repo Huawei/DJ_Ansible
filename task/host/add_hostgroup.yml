@@ -1,0 +1,124 @@
+# Add a host group
+#
+# Required Parameters:
+#   hostGroupName:      Host Group Name
+#   hostNames:          A list of Host Names, can be replace with hostIds
+#
+# Optional Parameters:
+#   projectName:        project name, can be replaced with projectId
+#   azNames:            a list of AZ name, can be replaced with azIds
+#
+# Generated Parameters:
+#   hostIds:            A list of host IDs
+#   projectId:          project ID
+#   azIds:              a list of AZ IDs
+
+- name: Get Hosts by Name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hosts }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{ item }}"
+  register: HOSTS
+  with_items: "{{ hostNames }}"
+  when: hostNames is defined
+
+- name: Purge Host IDs
+  set_fact:
+    hostIds: []
+  when: hostNames is defined
+
+- name: Get Host IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    hostId: "{{ HOSTS.results[item.0].json.hosts | json_query(query) }}"
+  set_fact:
+    hostIds: "{{ hostIds + hostId }}"
+  with_indexed_items: "{{ hostNames }}"
+  when: hostNames is defined
+
+- name: Generate Params
+  set_fact:
+    params:
+      name: "{{ hostGroupName }}"
+      host_ids: "{{ hostIds }}"
+
+- name: Query project by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.projects }}?name={{projectName}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: PROJECT
+  when: projectName is defined
+
+- name: Get project ID
+  vars:
+    query: "[?name=='{{ projectName }}'].id"
+  set_fact:
+    projectId: "{{ PROJECT.json.projectList | json_query(query) | first }}"
+  failed_when: PROJECT.json.projectList | json_query(query) | length != 1
+  when: projectName is defined
+
+- name: Set Param - projectId
+  set_fact:
+    params: "{{ params | combine( { 'project_id': projectId } ) }}"
+  when: projectId is defined
+
+- name: Query AZs by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.azs }}?az_name={{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: AZs
+  with_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Purge AZ IDs
+  set_fact:
+    azIds: []
+  when: azNames is defined
+
+- name: Get AZ IDs
+  vars:
+    query: "[?name=='{{ item.1 }}'].id"
+    azId: "{{ AZs.results[item.0].json.az_list | json_query(query) }}"
+  set_fact:
+    azIds: "{{ azIds + azId }}"
+  with_indexed_items: "{{ azNames }}"
+  when: azNames is defined
+
+- name: Set Param - azIds
+  set_fact:
+    params: "{{ params | combine( { 'azs': azIds } ) }}"
+  when: azIds is defined
+
+- name: Add Host Group
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body: "{{ params }}"
+  register: HOSTGROUP
+
+- name: Show Host Group
+  debug:
+    msg: "{{ HOSTGROUP.json }}"

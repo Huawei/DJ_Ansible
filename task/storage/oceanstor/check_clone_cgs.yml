@@ -1,0 +1,43 @@
+# Check Clone CGs Exists or Not
+#
+# Required parameters:
+#   cgNames:                # a list of Clone CG Name
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedCloneCgs:             # a list of Checked Clone CGs
+
+- name: Set default variables
+  set_fact:
+    cgIds: []
+    checkedCloneCgs: []
+
+- name: Query Clone CGs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup?cgType=1&filter=name%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: CCGs
+  with_items: "{{ cgNames }}"
+
+- name: Get Clone CG IDs
+  vars:
+    queryCcgIds: "[? name=='{{item.1}}'].ID"
+    queryCcgs: "[? name=='{{item.1}}']"
+  set_fact:
+    cgIds: "{{ cgIds + CCGs.results[item.0].json.data | default([]) | json_query(queryCcgIds) }}"
+    checkedCloneCgs: "{{ checkedCloneCgs + CCGs.results[item.0].json.data | default([]) | json_query(queryCcgs) }}"
+  with_indexed_items: "{{ cgNames }}"
+
+- name: Check Clone CG Name Exist
+  debug:
+    msg:
+      cgIds: "{{ cgIds }}"
+  failed_when: (checkExist|default(True)|bool == True and cgIds|length != cgNames|length) or (checkExist|default(True)|bool == False and cgIds|length > 0)

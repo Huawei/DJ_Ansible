@@ -9,21 +9,21 @@
 - name: Get Tier by name
   hosts: localhost
   vars_files:
-    - ../global.yml
+    - ../../config/global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Get Tier by name
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tiers }}?name={{tierName|urlencode}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.tiers }}?name={{tierName|urlencode}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: TIER
 
     - name: Check Tier

@@ -1,0 +1,66 @@
+# Required Parameters:
+#   cgName:            consistency group name
+#
+# Optional Parameters:
+#   waitSync:          wait sync or not, default: False, options: True/False
+
+
+- name: Query HyperMetro CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup?filter=NAME%3A%3A{{cgName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: CG
+  failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data | length != 1)
+
+- name: Get HyperMetro CG ID
+  set_fact:
+    syncedCgId: "{{ CG.json.data[0].ID }}"
+    cgStatus: "{{ CG.json.data[0].RUNNINGSTATUS }}"                   # 1: Normal, 23: Synchronizing, 41: Paused, 100: to be synchronized
+
+- name: Sync HyperMetro CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/sync"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ syncedCgId }}"
+  register: SYNC_CG
+  when: cgStatus == GLOBAL.metro.syncStatus.paused
+
+- name: Check Sync Result
+  debug:
+    msg: "{{ SYNC_CG.json.error }}"
+  failed_when: SYNC_CG.json.error.code|int != 0
+  when: cgStatus == GLOBAL.metro.syncStatus.paused
+
+- name: Wait Sync Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/HyperMetro_ConsistentGroup/{{syncedCgId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SYNC_CG_WAIT
+  vars:
+    syncStatus: "{{ SYNC_CG_WAIT.json.data.RUNNINGSTATUS }}"
+  retries: "{{ GLOBAL.metro.syncRetries }}"
+  delay: "{{ GLOBAL.metro.syncDelay }}"
+  until: syncStatus != GLOBAL.metro.syncStatus.syncing
+  when:
+    - waitSync|default(False)|bool == True
+    - cgStatus == GLOBAL.metro.syncStatus.paused

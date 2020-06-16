@@ -1,0 +1,167 @@
+- defaultTab: monitor
+  description: Move WWNs from DR Host to DR Test Host, Activate Snapshot CG
+  executionEnabled: true
+  id: 7abb03e6-e2ef-493f-ab3c-532961e67f38
+  loglevel: INFO
+  name: 29_dr_test_for_host
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Move WWNs from DR Host to DR Test Host, Activate Snapshot CG
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Ticket</h2>
+  - required: true
+    name: WBE_CODE
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+  - required: true
+    name: TICKET_NUMBER
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+    description: <BR><h2>Select DR Host</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search Host Name
+    name: Host_Search
+  - enforced: true
+    name: DR_Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_2"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - enforced: true
+    name: DR_Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storagehost","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.DR_Host.value}"}}]}},{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.DR_Storage_Room.value}"}}]}}]
+  - enforced: true
+    name: DR_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.DR_Host.value}"}}]}}]
+  - enforced: true
+    name: DR_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupName&matchAttr=mappingType&match=1&range=[0-100]&obj=host&filter=NAME::${option.DR_Host.value}
+    description: <BR><h2>DR Test Host</h2>
+  - enforced: true
+    name: DR_Test_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.DR_Host_Name.value}_3
+  - enforced: true
+    name: DR_Test_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/associate/snapshot_consistency_group?nameAttr=NAME&valueAttr=NAME&matchAttr=NAME&match=${option.Session_Name.value}&range=[0-4096]&obj=protectgroup&objIdAttr=protectGroupId&filter=protectGroupName::${option.DR_Protection_Group.value}
+  - enforced: true
+    name: DR_Test_CG_Status
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/SNAPCG?nameAttr=desc&valueAttr=enum&filter={"enum":${option.DR_Test_CG_Status_Enum.value}}
+  - enforced: true
+    name: DR_Test_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME::${option.DR_Test_Host.value}_LG${option.DR_LUN_Group_NO.value}
+  - enforced: true
+    name: Class_3
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:4:5&valueAttr=DESCRIPTION:0:4:5&filter=NAME::${option.DR_LUN_Group.value}
+  - name: Designate_Class_3
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=Move%20WWNs%20from%20DR%20Host%20"${option.DR_Host.value}"%20to%20DR%20Test%20Host%20"${option.DR_Test_Host.value}"&snap=Activate%20DR%20Test%20Snapshot%20CG%20"${option.DR_Test_CG.value}"
+    description: Select to confirm the result <BR><BR><h2>Additional Info</h2>
+  - enforced: true
+    name: DR_LUN_Group_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/lungroup?nameAttr=ID&valueAttr=ID&range=[0-100]&filter=NAME::${option.DR_LUN_Group.value}
+  - enforced: true
+    name: DR_LUN_Group_NO
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/lungroup?nameAttr=NAME:4:2&nameSplit=_&valueAttr=NAME:4:2&valueSplit=_&range=[0-100]&filter=NAME::${option.DR_LUN_Group.value}
+  - enforced: true
+    name: Session_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:1&nameSplit=_&valueAttr=DESCRIPTION:1&valueSplit=_&filter=NAME::${option.DR_LUN_Group.value}
+  - enforced: true
+    name: DR_Host_Name
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME:2&nameSplit=_&valueAttr=NAME:2&valueSplit=_&filter=NAME::${option.DR_Host.value}
+  - enforced: true
+    name: DR_Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/protectgroup?nameAttr=protectGroupName&valueAttr=protectGroupName&range=[0-100]&filter=lunGroupId::${option.DR_LUN_Group_ID.value}
+  - enforced: true
+    name: DR_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=localPgName::${option.DR_Protection_Group.value}%20and%20RUNNINGSTATUS::1
+  - enforced: true
+    name: DR_Test_CG_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/snapshot_consistency_group?nameAttr=ID&valueAttr=ID&filter=NAME::${option.DR_Test_CG.value}
+  - enforced: true
+    name: DR_Test_CG_Status_Enum
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/snapshot_consistency_group?nameAttr=RUNNINGSTATUS&valueAttr=RUNNINGSTATUS&filter=NAME::${option.DR_Test_CG.value}
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          WBE_CODE: ${option.WBE_CODE}
+          TICKET_NUMBER: ${option.TICKET_NUMBER}
+          DR_Host: ${option.DR_Host}
+          DR_Test_Host: ${option.DR_Test_Host}
+          DR_Storage: ${option.DR_Storage}
+          DR_Storage_Room: ${option.DR_Storage_Room}
+          DR_Protection_Group: ${option.DR_Protection_Group}
+          DR_CG: ${option.DR_CG}
+          DR_Test_LUN_Group: ${option.DR_Test_LUN_Group}
+          DR_Test_CG: ${option.DR_Test_CG}
+          DR_Test_CG_Status: ${option.DR_Test_CG_Status}
+          Class_3: ${option.Class_3}
+          Designate_Class_3: ${option.Designate_Class_3}
+          Check_Result_1: ${option.Check_Result_1}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/29_dr_test_for_host.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    - configuration:
+        command: /bin/psql automation -c "\copy (select * from activity where WBE_CODE = '${option.WBE_CODE}' and TICKET_NUMBER = '${option.TICKET_NUMBER}') TO '/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv' CSV HEADER"
+      description: Export Changes
+      nodeStep: true
+      type: localexec
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv'>${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+          - config:
+              datatype: text/html
+            type: render-datatype
+      type: localexec
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 7abb03e6-e2ef-493f-ab3c-532961e67f38

@@ -1,0 +1,151 @@
+- defaultTab: monitor
+  description: Migrate Cluster to another storage, create the same new LUNs/LGs/PGs
+  executionEnabled: true
+  id: b6e0b946-ee3c-4e96-9ae1-a7ac2d1a725a
+  loglevel: INFO
+  name: 46_migrate_cluster
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Migrate Cluster to another storage, create the same new LUNs/LG/PG
+  - description: (Optional) Alternative username/password to login all storage
+    name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+  - description: <BR><h2>Ticket</h2>
+    name: Password
+    secure: true
+    valueExposed: true
+  - name: WBE_CODE
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+  - description: <BR><h2>Select Primary Cluster</h2>
+    name: TICKET_NUMBER
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - enforced: true
+    name: OS_Type
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search a Host in the Cluster
+    name: Host_Search
+  - enforced: true
+    name: Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_1"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - enforced: true
+    name: Cluster
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=PARENTNAME&valueAttr=PARENTNAME&filter=NAME::${option.Host.value}
+  - enforced: true
+    name: Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storagehost","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}},{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Storage_Room.value}"}}]}}]
+  - enforced: true
+    name: Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}}]
+  - description: <BR><h2>Target Storage</h2>
+    enforced: true
+    name: Storage_Site
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/AZ?nameAttr=dc&valueAttr=dc&filter={"key":"${option.Storage_Room.value}"}
+  - enforced: true
+    name: Target_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/AZ?nameAttr=key&valueAttr=key&filter={"dc":"${option.Storage_Site.value}"}
+  - enforced: true
+    name: Target_Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}},{"logOp":"and","simple":{"name":"sn","operator":"not%20equal","value":"${option.Storage.value}"}}]}&relations=[{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Target_Room.value}"}}]}}]
+  - label: Search Hosts on Storage
+    name: Search_Host
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Target_Hosts
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Target_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.Search_Host.value}%20and%20ISADD2HOSTGROUP::false
+  - enforced: true
+    name: Target_Pool
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Target_Storage.value}/data/v1/search/storagepool?nameAttr=NAME&valueAttr=ID
+  - enforced: true
+    name: Target_Workload
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Target_Storage.value}/data/v1/search/workload_type?nameAttr=NAME&valueAttr=ID
+  - delimiter: ','
+    description: Select to confirm target host result
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?cluster=1.%20Create%20target%20cluster%20"${option.Cluster.value}"%20on%20storage:%20${option.Target_Storage.value}&lun=2.%20Create%20new%20LUNs/LG/PG
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          WBE_CODE: ${option.WBE_CODE}
+          TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Country: ${option.Country}
+          OS_Type: ${option.OS_Type}
+          Cluster: ${option.Cluster}
+          Storage: ${option.Storage}
+          Storage_Room: ${option.Storage_Room}
+          Storage_Site: ${option.Storage_Site}
+
+          Target_Storage: ${option.Target_Storage}
+          Target_Room: ${option.Target_Room}
+          Target_Hosts: ${option.Target_Hosts}
+          Target_Pool: ${option.Target_Pool}
+          Target_Workload: ${option.Target_Workload}
+          Check_Result_1: ${option.Check_Result_1}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/46_migrate_cluster.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    - configuration:
+        command: /bin/psql automation -c "\copy (select * from activity where WBE_CODE = '${option.WBE_CODE}' and TICKET_NUMBER = '${option.TICKET_NUMBER}') TO '/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv' CSV HEADER"
+      description: Export Changes
+      nodeStep: true
+      type: localexec
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv'>${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+        - config:
+            datatype: text/html
+          type: render-datatype
+      type: localexec
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: b6e0b946-ee3c-4e96-9ae1-a7ac2d1a725a

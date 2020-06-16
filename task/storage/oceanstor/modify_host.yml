@@ -1,0 +1,125 @@
+# Modify host
+#
+# Required parameters:
+#   hostName:               Host name
+#
+# Optional parameters:
+#   newHostName             New host name
+#   osType:                 Host os type, options: 0: Linux, 1: Windows, 2: Solaris, 3: HP-UX, 4: AIX, 5: XenServer, 6: Mac OS, 7: ESX, 11: OpenVMS, 12: Oracle_VM_x86, 13: Oracle_VM_SPARC
+#   alua:                   Enalbe alua or not, default 0, options: 0: OFF, 1: ON
+#   hypermetro:             Enalbe path optimize for hypermetro, default 0, options: 0: OFF, 1: ON
+#   ip:                     Host IP Address
+#   desc:                   Description
+
+- name: Query Host by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?filter=NAME%3A%3A{{hostName|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOST
+
+- name: Check Host Exists 
+  debug:
+    msg:
+      hostExist: "{{ (HOST.json.error.code|int == 0) and ('data' in HOST.json) and (HOST.json.data|length == 1) }}"
+  failed_when: (HOST.json.error.code|int != 0) or ('data' not in HOST.json) or (HOST.json.data|length != 1)
+
+- name: Get Host attributes
+  set_fact:
+    hostId: "{{ HOST.json.data[0].ID }}"
+    oldDesc: "{{ HOST.json.data[0].DESCRIPTION }}"
+    oldOsType: "{{ HOST.json.data[0].OPERATIONSYSTEM | int }}"
+    oldIp: "{{ HOST.json.data[0].IP }}"
+    oldAlua: "{{ (HOST.json.data[0].aluaProtocol | int) if ('aluaProtocol' in HOST.json.data[0]) else none }}"
+    oldHypermetro: "{{ (HOST.json.data[0].hyperMetroPathOptimized | int) if ('hyperMetroPathOptimized' in HOST.json.data[0]) else none }}"
+    oldParams: {}
+    newParams: {}
+
+- name: Set Param - hostName
+  set_fact:
+    oldParams: "{{ oldParams | combine({'NAME':hostName}) }}"
+    newParams: "{{ newParams | combine({'NAME':newHostName}) }}"
+  when:
+    - newHostName is defined
+    - newHostName is not none
+    - newHostName != hostName
+
+- name: Set Param - desc
+  set_fact:
+    oldParams: "{{ oldParams | combine({'DESCRIPTION':oldDesc}) }}"
+    newParams: "{{ newParams | combine({'DESCRIPTION':desc}) }}"
+  when:
+    - desc is defined
+    - desc is not none
+    - desc != oldDesc
+
+- name: Set Param - osType
+  set_fact:
+    oldParams: "{{ oldParams | combine({'OPERATIONSYSTEM':oldOsType}) }}"
+    newParams: "{{ newParams | combine({'OPERATIONSYSTEM':osType}) }}"
+  when:
+    - osType is defined
+    - osType is not none
+    - osType != oldOsType
+
+- name: Set Param - ip
+  set_fact:
+    oldParams: "{{ oldParams | combine({'IP':oldIp}) }}"
+    newParams: "{{ newParams | combine({'IP':ip}) }}"
+  when:
+    - ip is defined
+    - ip is not none
+    - ip != oldIp
+
+- name: Set Param - alua
+  set_fact:
+    oldParams: "{{ oldParams | combine({'aluaProtocol':oldAlua}) }}"
+    newParams: "{{ newParams | combine({'aluaProtocol':alua}) }}"
+  when:
+    - alua is defined
+    - alua is not none
+    - alua != oldAlua
+
+- name: Set Param - hypermetro
+  set_fact:
+    oldParams: "{{ oldParams | combine({'hyperMetroPathOptimized':oldHypermetro}) }}"
+    newParams: "{{ newParams | combine({'hyperMetroPathOptimized':hypermetro}) }}"
+  when:
+    - hypermetro is defined
+    - hypermetro is not none
+    - hypermetro != oldHypermetro
+    - alua is defined
+    - alua is not none
+    - alua|int == 1
+
+- name: Modify Host
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host/{{hostId}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ newParams }}"
+  register: MODIFY_HOST
+  when: 
+    - newParams.keys()|length > 0
+
+- name: Check Modify Host Result
+  debug:
+    msg: 
+      old: "{{ oldParams }}"
+      new: "{{ newParams }}"
+      result:
+        error: "{{ MODIFY_HOST.json.error }}"
+  failed_when: MODIFY_HOST.json.error.code|int != 0
+  when: 
+    - newParams.keys()|length > 0

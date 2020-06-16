@@ -1,0 +1,46 @@
+# Required Parameters:
+#   hostGroupName:       host group name, can be replaced with hostGroupId
+#
+# Optional Parameters:
+#   syncStorage:    sync to storage, default: true, options: true, false
+#
+# Generated Parameters:
+#   hostGroupId:         host group ID
+
+- name: Set default variables
+  set_fact:
+    syncStorage: "{{ syncStorage | default(true) }}"
+
+- name: Get Host Group by name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{hostGroupName}}"
+  register: HOSTGROUPS
+  when: hostGroupName is defined
+
+- name: Get Host Group ID
+  vars:
+    query: "[?name=='{{ hostGroupName }}'].id"
+  set_fact:
+    hostGroupId: "{{ HOSTGROUPS.json.hostgroups | json_query(query) | first }}"
+  failed_when: HOSTGROUPS.json.hostgroups | json_query(query) | length != 1
+  when: hostGroupName is defined
+
+- name: Delete Host Group
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupId}}?sync_to_storage={{syncStorage|lower}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  when: hostGroupId is defined

@@ -9,8 +9,9 @@
 #   --extra-vars "dataSet=perf-lun filterValues=['1113-001','1113-1815'] metrics=['throughput','responseTime']"
 
 # Optional Parameters:
-#   endTime:         epoch in seconds, default value is current time
-#   timeSpan:        time range before endTime, default value is 1h (1 hour), supported unit: s,m,h,d,w,M,y
+#   endTime:         End time, format: "YYYY-MM-DD hh:mm:ss", default: current time, can be replaced with endEpoch
+#   timeSpan:        time range before endEpoch, default value is 1h (1 hour), supported unit: s,m,h,d,w,M,y
+#   beginTime:       Begin time, format: "YYYY-MM-DD hh:mm:ss", default: endTime - timeSpan, can be replaced with beginEpoch
 #   granularity:     sample rate, default value is: auto, supported values: auto,1m,30m,1d
 #   filterDimension: filter dimension, default value is: object.name
 #   dimensions:      a list of dimensions, default ['object.id','object.name']
@@ -21,32 +22,34 @@
 #   sep:             separator, default '|'
 #
 # Examples:
-#   --extra-vars "endTime=`date -d '2019-11-21 23:00:00' +%s` timeSpan=30m granularity=1m" \
+#   --extra-vars "beginTime='2019-11-21 23:00:00' timeSpan=30m granularity=1m" \
 #   --extra-vars "filterDimension=object.name filterValues=['1113-001','1113-1815']" \
 #   --extra-vars "dimensions=['object.id','object.name']" \
 #   --extra-vars "metrics=['throughput','responseTime'] agg=avg" \
 #   --extra-vars "pageNo=1 pageSize=120"
 #   --extra-vars "export='perf-lun-last1h.csv' sep='|'"
+#
+# Generated Parameters (can be overwritten):
+#   endEpoch:       epoch in seconds, default value is current time
+#   beginEpoch:     epoch in seconds, default value is endEpoch - timeSpan
+#
+# Examples:
+#   --extra-vars "beginEpoch=`date -d '2019-11-20 23:00:00' +%s`"
 
 - name: Query Histogram Time Series data
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     pageNo: 1
     pageSize: 60
     granularity: "auto"                                 # default auto, valid values: auto, 1m, 30m, 1d
     filterDimension: "object.name"                      # default object name
     agg: "avg"                                          # default average, valid values: min, avg, max, sum
-    endTime: "{{ansible_date_time.epoch}}"              # default current epoch (seconds), use `data +%s` to get current unix time
+    endEpoch: "{{ ansible_date_time.epoch if (endTime is not defined or endTime is none) else (endTime|to_datetime).strftime('%s') }}"
     timeSpan: "1h"                                      # default last 1 hour, can be s,m,h,d,w,M,y
     dimensions: ['object.id','object.name']             # dimensions 
-
-
-    # Generated Parameters (can be overwritten):
-    #   beginTime:     epoch in seconds, default value is endTime - timeSpan
-    #
-    # Examples:
-    #   --extra-vars "beginTime=`date -d '2019-11-20 23:00:00' +%s`"
-
+    
     unit: "{{ timeSpan[-1] if timeSpan is regex('^[0-9]+[s|m|h|d|w|M|y]$') else 's' }}"     # default unit set to seconds
     seconds: 
       s: 1                        # second
@@ -57,13 +60,11 @@
       M: "{{ 3600 * 24 * 30 }}"   # month
       y: "{{ 3600 * 24 * 365 }}"  # year
     
-    beginTime: "{{ endTime|int - timeSpan|replace(unit,'')|int * seconds[unit]|int }}"  # default timeSpan before current epoch (seconds)
-  vars_files:
-    - ../global.yml
+    beginEpoch: "{{ (endEpoch|int - timeSpan|replace(unit,'')|int * seconds[unit]|int) if (beginTime is not defined or beginTime is none) else (beginTime|to_datetime).strftime('%s') }}"
   gather_facts: yes
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Generate Indexed Dimensions
       set_fact:
@@ -77,18 +78,18 @@
 
     - name: Post Query
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.datasets}}/{{dataSet}}?pageNo={{pageNo}}&pageSize={{pageSize}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.datasets }}/{{dataSet}}?pageNo={{pageNo}}&pageSize={{pageSize}}"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body:
             timeRange:
-              beginTime: "{{ beginTime }}000"
-              endTime: "{{ endTime }}000"
+              beginTime: "{{ beginEpoch }}000"
+              endTime: "{{ endEpoch }}000"
               granularity: "{{ granularity }}"
             filters:
               dimensions:
@@ -103,7 +104,7 @@
         msg: "{{ RESULT.json }}"
       when: export is not defined
     
-    - import_tasks: ../util/json2csv.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/util/json2csv.yml"
       vars:
         data: "{{ RESULT.json.datas }}"
         keys: "{{ RESULT.json.datas[0] | dict2items | json_query('[*].key') }}"

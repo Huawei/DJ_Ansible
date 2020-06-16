@@ -1,0 +1,87 @@
+- name: Delete LUNs
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - set_fact:
+        deleteLunNames: "{{ Select_LUN.split(',') if (Select_LUN is not none) else [] }}"
+
+    - block:
+        - name: Read LUN name from upload file
+          read_csv:
+            path: "{{ Upload_LUN }}"
+            delimiter: '|'
+          register: UPLOAD_LUNS
+
+        - set_fact:
+            deleteLunNames: "{{ deleteLunNames + UPLOAD_LUNS.list | json_query('[*].name') }}"
+
+      when: Upload_LUN is not none
+
+    - name: Check LUNs on DJ
+      debug:
+        msg:
+          volumeNames: "{{ deleteLunNames }}"
+      failed_when: deleteLunNames|length == 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+      vars:
+        volumeNames: "{{ deleteLunNames }}"
+        checkAttached: False
+
+    - set_fact:
+        volumesInTier: "{{ checkedVolumes | json_query(queryVolumesInTier) }}"
+        volumesNotInTier: "{{ checkedVolumes | json_query(queryVolumesNotInTier) }}"
+      vars:
+        queryVolumesInTier: "[? service_level_name != '' && service_level_name != null ].name"
+        queryVolumesNotInTier: "[? service_level_name == '' || service_level_name == null ].name"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+      vars:
+        volumeNames: "{{ volumesInTier }}"
+      when: volumesInTier|length > 0
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/disable_volumes_qos.yml"
+      vars:
+        volumeNames: "{{ volumesNotInTier }}"
+
+    - set_fact:
+        storageSns: "{{ checkedVolumes | json_query('[*].storage_sn') | unique }}"
+        storageLunNames: {}
+
+    - set_fact:
+        storageLunNames: "{{ storageLunNames | combine({item: checkedVolumes | json_query(queryLunName) }) }}"
+      vars:
+        queryLunName: "[? storage_sn=='{{item}}'].name"
+      with_items: "{{ storageSns }}"
+
+    - include_tasks: "delete_luns_on_storage.yml"
+      vars:
+        deviceSn: "{{ storageSn }}"
+        lunNames: "{{ storageLunNames[storageSn] }}"
+        delCloneLun: "{{ Delete_Clone_Target|bool }}"
+      loop: "{{ storageSns }}"
+      loop_control:
+        loop_var: storageSn
+
+    # Minus orphan capacity
+    - include_tasks: "update_lun_kpi_table.yml"
+      vars:
+        queryDeviceName: "[? sn=='{{checkedVolumes[item.0].storage_sn}}'].name"
+        queryDeviceSite: "[? sn=='{{checkedVolumes[item.0].storage_sn}}'].site"
+        TYPE_OF_OPERATION: "delete"
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        SYSTEM_NAME: ""
+        SITE: "{{ STORAGES | json_query(queryDeviceSite) | first }}"
+        ENVIRONMENT: ""
+        STORAGE_CLASS: "{{ checkedVolumes[item.0].service_level_name }}"
+        CAPACITY_GB: "-{{ checkedVolumes[item.0].capacity }}"
+        STORAGE: "{{ STORAGES | json_query(queryDeviceName) | first }}"
+        VDISK_UID: "{{ checkedVolumes[item.0].volume_raw_id }}"
+      with_indexed_items: "{{ deleteLunNames }}"

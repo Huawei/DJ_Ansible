@@ -1,0 +1,66 @@
+# Check host group names exists on DJ
+#
+# Required parameters:
+#   hostGroupNames:         # a list of host group names
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedHostGroups:           # a list of host groups on DJ
+
+- name: Set default variables
+  set_fact:
+    hostGroupIds: []
+    checkedHostGroups: []
+    hostsInHostGroups: []
+
+- name: Query Host Groups by Name
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/summary"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{item}}"
+  register: HOSTGROUPS
+  with_items: "{{ hostGroupNames }}"
+
+- name: Get Host Group IDs
+  vars:
+    queryHostGroupIds: "[?name=='{{ item.1 }}'].id"
+    queryHostGroups: "[?name=='{{ item.1 }}']"
+  set_fact:
+    hostGroupIds: "{{ hostGroupIds + HOSTGROUPS.results[item.0].json.hostgroups | default([]) | json_query(queryHostGroupIds) }}"
+    checkedHostGroups: "{{ checkedHostGroups + HOSTGROUPS.results[item.0].json.hostgroups | default([]) | json_query(queryHostGroups) }}"
+  with_indexed_items: "{{ hostGroupNames }}"
+
+- name: Check Host Group Name Exist
+  debug:
+    msg:
+      hostGroupIds: "{{ hostGroupIds }}"
+  failed_when: (checkExist|default(True)|bool == True and hostGroupIds|length != hostGroupNames|length) or (checkExist|default(True)|bool == False and hostGroupIds|length > 0)
+
+- name: Query Hosts In Cluster by Id
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupIds[0]}}/hosts/list"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    body_format: json
+    body:
+      name: "{{item}}"
+  register: HOSTINCLUSTER
+  with_items: "{{ hostGroupIds }}"
+
+- name: Get Hosts In Cluster
+  set_fact:
+    hostsInHostGroups: "{{ hostsInHostGroups + HOSTINCLUSTER.results[item.0].json.hosts | default([]) }}"
+  with_indexed_items: "{{ hostGroupIds }}"

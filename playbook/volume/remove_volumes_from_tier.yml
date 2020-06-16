@@ -1,0 +1,9 @@
+- name: Add Volumes to Tier
+  hosts: localhost
+  vars_files:
+    - ../../config/global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"

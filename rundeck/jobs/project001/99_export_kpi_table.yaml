@@ -1,0 +1,65 @@
+- defaultTab: monitor
+  description: ''
+  executionEnabled: true
+  id: 0bfa7b54-80c5-44ce-8659-a59aa6628fd4
+  loglevel: INFO
+  name: 99_export_kpi_table
+  nodeFilterEditable: false
+  options:
+  - dateFormat: YYYY-MM-DD hh:mm:ss
+    isDate: true
+    name: OPERATION_DATE_START
+    required: true
+  - dateFormat: YYYY-MM-DD hh:mm:ss
+    isDate: true
+    name: OPERATION_DATE_END
+    required: true
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        command: /bin/psql automation -c "\copy (select * from activity where OPERATION_DATE > '${option.OPERATION_DATE_START}' and OPERATION_DATE <= '${option.OPERATION_DATE_END}') TO '/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}.csv' CSV HEADER"
+      description: Export Changes
+      nodeStep: true
+      type: localexec
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}.csv'>${job.name}-${job.execid}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+        - config:
+            datatype: text/html
+          type: render-datatype
+      type: localexec
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 0bfa7b54-80c5-44ce-8659-a59aa6628fd4

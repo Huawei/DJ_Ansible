@@ -1,0 +1,114 @@
+- defaultTab: monitor
+  description: Delete orphan LUNs
+  executionEnabled: true
+  id: fe35405d-6c66-406c-86db-87892810cc90
+  loglevel: INFO
+  name: 16_delete_lun
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Delete orphan LUNs
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Ticket</h2>
+  - required: true
+    name: WBE_CODE
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+  - required: true
+    name: TICKET_NUMBER
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+    description: <BR><h2>Select LUNs or Upload CSV File</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search LUN Name
+    name: LUN_Search
+  - name: Changed_Before
+    value: 1800
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?0=Any%20time&1800=%2030%20minutes%20ago&43200=%20%2012%20hours%20ago&86400=%20%20%201%20day%20ago&604800=%20%20%20%201%20week%20ago
+    description: Seconds from Now
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Select_LUN
+    valuesUrl: http://localhost:26336/rest/data/v1/search/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&changedBefore=${option.Changed_Before.value}&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"false"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - name: Upload_LUN
+    description: Upload the file exported by job "12_export_lun"
+    type: file
+  - enforced: true
+    name: Delete_Clone_Target
+    value: 'Yes'
+    values:
+      - 'Yes'
+      - 'No'
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          WBE_CODE: ${option.WBE_CODE}
+          TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Select_LUN: ${option.Select_LUN}
+          Upload_LUN: ${file.Upload_LUN}
+          Delete_Clone_Target: ${option.Delete_Clone_Target}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/16_delete_lun.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    - configuration:
+        command: /bin/psql automation -c "\copy (select * from activity where WBE_CODE = '${option.WBE_CODE}' and TICKET_NUMBER = '${option.TICKET_NUMBER}') TO '/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv' CSV HEADER"
+      description: Export Changes
+      nodeStep: true
+      type: localexec
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv'>${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+          - config:
+              datatype: text/html
+            type: render-datatype
+      type: localexec
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: fe35405d-6c66-406c-86db-87892810cc90

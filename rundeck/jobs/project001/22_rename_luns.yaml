@@ -1,0 +1,70 @@
+- defaultTab: monitor
+  description: Rename LUNs (free of rules)
+  executionEnabled: true
+  id: a8c55a90-2b8d-440c-90db-ccf1e23bdcf6
+  loglevel: INFO
+  name: 22_rename_luns
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Rename LUNs (free of rules)
+    description: <BR><h2>Select LUNs or Upload CSV File</h2>
+  - label: Search LUN Name
+    name: LUN_Search
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Select_LUN
+    valuesUrl: http://localhost:26336/rest/data/v1/search/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - description: Upload the CSV file with a field of 'name' <BR>If the file contains a field of 'newName', will ignore LUN_Prefix
+    name: Upload_LUN
+    type: file
+  - name: LUN_Prefix
+    description: Maximum 28 characters, LUN naming convension is {COUNTRY:2} _ {OS:3} _ {HOST:16} _ {CHAIN:1} _ {PROTECT:1}{TYPE:1}{Suffix:3}
+  - name: Start_Suffix
+    value: 0
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          Select_LUN: ${option.Select_LUN}
+          Upload_LUN: ${file.Upload_LUN}
+          LUN_Prefix: ${option.LUN_Prefix}
+          Start_Suffix: ${option.Start_Suffix}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/22_rename_luns.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: a8c55a90-2b8d-440c-90db-ccf1e23bdcf6

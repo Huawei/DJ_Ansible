@@ -1,0 +1,137 @@
+# Required Parameters:
+#   cgName:               consistency group name, can be replaced with cgId
+#   lunNames:             LUN names, can be replaced with removeLunIds
+#
+# Optional Parameters:
+#   cgId:                 consistency group ID
+#   removeLunIds:         LUN IDs
+#
+# Optional Parameters:
+#   deletePairs:          delete pairs after remove from CG, default: yes, options: yes, no
+#   deleteTarget:         delete target LUN, default: no, options: yes, no
+
+
+- block:
+    - name: Query Clone CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup?cgType=1&filter=name%3A%3A{{cgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: CG
+      failed_when: (CG.json.error.code|int != 0) or ('data' not in CG.json) or (CG.json.data | length != 1)
+
+    - name: Get Clone CG
+      set_fact:
+        cgId: "{{ CG.json.data[0].ID }}"
+
+  when: cgName|default(none) is not none
+
+- block:
+    - set_fact:
+        removeLunIds: []
+
+    - name: Query LUNs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LUNs
+      with_items: "{{ lunNames }}"
+
+    - name: Get LUN IDs
+      vars:
+        queryId: "[? NAME=='{{item.1}}'].ID"
+      set_fact:
+        removeLunIds: "{{ removeLunIds + LUNs.results[item.0].json.data | default([]) | json_query(queryId) }}"
+      with_indexed_items: "{{ lunNames }}"
+
+  when:
+    - lunNames|default(none) is not none
+    - lunNames|length > 0
+
+- set_fact:
+    pairIds: []
+
+- name: Query Clone Pairs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/associate?ASSOCIATEOBJTYPE=57703&ASSOCIATEOBJID={{cgId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: CLONE_PAIRS
+
+- name: Get Clone Pair IDs
+  vars:
+    query: "[? sourceID=='{{item}}'].ID"
+    pairId: "{{ CLONE_PAIRS.json.data | json_query(query) }}"
+  set_fact:
+    pairIds: "{{ pairIds + pairId }}"
+  with_items: "{{ removeLunIds }}"
+
+- name: Remove Clone Pairs from CG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clone_consistentgroup/remove_associate"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ cgId }}"
+      ASSOCIATEOBJTYPE: 57702
+      ASSOCIATEOBJID: "{{ item }}"
+  register: REMOVE_PAIRS
+  with_items: "{{ pairIds }}"
+
+- name: Check Remove Pair Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ REMOVE_PAIRS.results | json_query(queryMsg) }}"
+  failed_when: REMOVE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+- block:
+    - name: Delete Clone Pairs
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/clonepair/{{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{ item }}"
+          isDeleteDstLun: "{{ deleteTarget|default(False) }}"
+      register: DELETE_PAIRS
+      with_items: "{{ pairIds }}"
+
+    - name: Check Delete Pair Results
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ DELETE_PAIRS.results | json_query(queryMsg) }}"
+      failed_when: DELETE_PAIRS.results | json_query(queryError) | difference([0]) | length > 0
+
+  when: deletePairs|default(True)|bool == True

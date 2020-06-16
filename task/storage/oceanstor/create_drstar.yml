@@ -1,0 +1,74 @@
+# Required Parameters:
+#   drStarName:            DR Star name
+#   mode:                  DR Star mode, 1: HyperMetro+Async, 2: Sync+Async
+#   memberType:            Member type: 1: Pair, 2: CG
+#   metroId:               HyperMetro Pair/CG ID
+#   asyncId:               Async Replication Pair/CG ID
+#   syncId:                Sync Replication Pair/CG ID
+#
+# Optional Parameters:
+#   swapStrategy:          Swap strategy, default: 2, options: 1: manual, 2: automatic
+#   swapSilentTime:        Swap silent time, default: 1800
+#
+# Generated Parameters:
+#   newDrStarId
+
+- set_fact:
+    drStarParams:
+      NAME: "{{ drStarName }}"
+      disasterRecoveryStrategy: "{{ mode }}"
+      memberType: "{{ memberType }}"
+      asynchronousRemoteReplicationID: "{{ asyncId }}"
+      swapStrategy: "{{ swapStrategy|default(2) }}"
+      swapSilentTime: "{{ swapSilentTime|default(1800) }}"
+
+- set_fact:
+    drStarParams: "{{ drStarParams | combine({'hyperMetroID': metroId }) }}"
+  when: mode|int == 1
+
+- set_fact:
+    drStarParams: "{{ drStarParams | combine({'synchronousRemoteReplicationID': syncId }) }}"
+  when: mode|int == 2
+
+
+- name: Create DR Star
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/dr_star"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body: "{{ drStarParams }}"
+  register: NEW_DRSTAR
+
+- name: Check Create DR Star Result
+  debug:
+    msg: "{{ NEW_DRSTAR.json.error }}"
+  failed_when: (NEW_DRSTAR.json.error.code|int !=0) or ('data' not in NEW_DRSTAR.json)
+
+- set_fact:
+    newDrStarId: "{{ NEW_DRSTAR.json.data.ID }}"
+
+- name: Enable DR Star
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/dr_star/change_dr_enable"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      ID: "{{ newDrStarId }}"
+  register: ENABLE_DRSTAR
+
+- name: Check Enable DR Star Result
+  debug:
+    msg: "{{ ENABLE_DRSTAR.json.error }}"
+  failed_when: (ENABLE_DRSTAR.json.error.code|int !=0)

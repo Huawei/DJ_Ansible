@@ -1,0 +1,163 @@
+- defaultTab: monitor
+  description: Reactivate, Deactivate, Activate or Delete Snapshot CG
+  executionEnabled: true
+  id: d71c9c55-15ec-4dbf-a221-73c284d5a83b
+  loglevel: INFO
+  name: 26_change_snapshots_for_host
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Reactivate, Deactivate, Activate or Delete Snapshot CG
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Ticket</h2>
+  - required: true
+    name: WBE_CODE
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+  - required: true
+    name: TICKET_NUMBER
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+    description: <BR><h2>Select Source Host</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search Host Name
+    name: Source_Host_Search
+  - enforced: true
+    name: Source_Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Source_Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"not%20end%20with","value":"_3"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - enforced: true
+    name: Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storagehost","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Source_Host.value}"}}]}},{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Storage_Room.value}"}}]}}]
+  - enforced: true
+    name: Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Source_Host.value}"}}]}}]
+  - enforced: true
+    name: Source_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupName&matchAttr=mappingType&match=1&range=[0-100]&obj=host&filter=NAME::${option.Source_Host.value}
+    description: Select a LUN Group to list the snapshot CGs on it <BR><BR><h2>Select Snapshot CG</h2>
+  - enforced: true
+    required: true
+    name: Snapshot_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/snapshot_consistency_group?nameAttr=NAME&valueAttr=NAME&nameDefault=&valueDefault=&range=[0-4096]&obj=protectgroup&objIdAttr=protectGroupId&filter=protectGroupName::${option.Source_Protection_Group.value}
+  - enforced: true
+    required: true
+    name: Target_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=hostName&valueAttr=hostName&range=[0-100]&obj=lungroup&filter=NAME::${option.Target_LUN_Group.value}
+  - enforced: true
+    name: Target_LUN_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/split/snapshot_consistency_group?valueAttr=NAME&valueSplit=_SNAP_&match=LG&filter=NAME::${option.Snapshot_CG.value}
+  - enforced: true
+    name: Snapshot_CG_Status
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/SNAPCG?nameAttr=desc&valueAttr=enum&filter={"enum":${option.Snapshot_CG_Status_Enum.value}}
+  - enforced: true
+    name: Operation
+    value: 'reactivate'
+    required: true
+    values:
+      - 'reactivate'
+      - 'deactivate'
+      - 'activate'
+      - 'delete'
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?lun=${option.Operation.value}%20snapshot%20CG:%20"${option.Snapshot_CG.value}"
+    description: Select to confirm the result <BR><BR><h2>Additional Info</h2>
+  - enforced: true
+    name: Source_LUN_Group_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?nameAttr=ID&valueAttr=ID&filter=NAME::${option.Source_LUN_Group.value}
+  - enforced: true
+    name: Source_Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/protectgroup?nameAttr=protectGroupName&valueAttr=protectGroupName&range=[0-100]&filter=lunGroupId::${option.Source_LUN_Group_ID.value}
+  - enforced: true
+    name: Snapshot_CG_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/snapshot_consistency_group?nameAttr=ID&valueAttr=ID&filter=NAME::${option.Snapshot_CG.value}
+  - enforced: true
+    name: Snapshot_CG_Status_Enum
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/snapshot_consistency_group?nameAttr=RUNNINGSTATUS&valueAttr=RUNNINGSTATUS&filter=NAME::${option.Snapshot_CG.value}
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Snapshot_CG: ${option.Snapshot_CG}
+          Snapshot_CG_ID: ${option.Snapshot_CG_ID}
+          Operation: ${option.Operation}
+
+          Source_Host: ${option.Source_Host}
+          Source_LUN_Group: ${option.Source_LUN_Group}
+          Source_Protection_Group: ${option.Source_Protection_Group}
+
+          WBE_CODE: ${option.WBE_CODE}
+          TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Country: ${option.Country}
+          Target_Host: ${option.Target_Host}
+          Target_LUN_Group: ${option.Target_LUN_Group}
+          Storage: ${option.Storage}
+          Storage_Room: ${option.Storage_Room}
+          Check_Result_1: ${option.Check_Result_1}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/26_change_snapshots_for_host.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    - configuration:
+        command: /bin/psql automation -c "\copy (select * from activity where WBE_CODE = '${option.WBE_CODE}' and TICKET_NUMBER = '${option.TICKET_NUMBER}') TO '/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv' CSV HEADER"
+      description: Export Changes
+      nodeStep: true
+      type: localexec
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv'>${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+          - config:
+              datatype: text/html
+            type: render-datatype
+      type: localexec
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: d71c9c55-15ec-4dbf-a221-73c284d5a83b

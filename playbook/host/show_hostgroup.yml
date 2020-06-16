@@ -22,24 +22,24 @@
 
 - name: Get Host Group
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     showHost: true
-  vars_files:
-    - ../global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
     - name: Get Host Group by name
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/summary"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/summary"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body:
           name: "{{hostGroupName}}"
@@ -56,13 +56,13 @@
 
     - name: Get Host Group
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/{{hostGroupId}}/summary"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupId}}/summary"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: HOSTGROUP
 
     - name: Show Host Group
@@ -77,13 +77,13 @@
         displayStatus: []
         managedStatus: []
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.hostgroups }}/{{hostGroupId}}/hosts/list"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupId}}/hosts/list"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body:
           name: "{{hostName}}"

@@ -1,0 +1,81 @@
+# Required Parameters:
+#   pgName:            protection group name, can be replaced with modifiedPgId
+#   lunNames:          a list of LUN Names, can be replaced with removeLunIds
+#
+# Optional Parameters:
+#   modifiedPgId
+#   removeLunIds
+
+- block:
+    - name: Query PG by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup?filter=protectGroupName%3A%3A{{pgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: PG
+      failed_when: (PG.json.error.code|int != 0) or ('data' not in PG.json) or (PG.json.data|length != 1)
+
+    - name: Get PG ID
+      set_fact:
+        modifiedPgId: "{{ PG.json.data[0].protectGroupId }}"
+  when: pgName|default(none) is not none
+
+- block:
+    - name: Query LUNs by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: LUNs
+      with_items: "{{ lunNames }}"
+
+    - set_fact:
+        removeLunIds: []
+
+    - name: Get LUN IDs
+      vars:
+        queryId: "[? NAME=='{{item.1}}'].ID"
+      set_fact:
+        removeLunIds: "{{ removeLunIds + LUNs.results[item.0].json.data | default([]) | json_query(queryId) }}"
+      with_indexed_items: "{{ lunNames }}"
+
+    - name: Check LUN Name Exist
+      debug:
+        msg:
+          removeLunIds: "{{ removeLunIds }}"
+      failed_when: removeLunIds|length != lunNames|length
+  when:
+    - lunNames|default(none) is not none
+    - lunNames|length > 0
+
+
+- name: Remove LUNS from PG
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup/associate?protectGroupId={{modifiedPgId}}&ASSOCIATEOBJTYPE=11&ASSOCIATEOBJID={{item}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: PG_REMOVE_LUNS
+  with_items: "{{ removeLunIds }}"
+
+- name: Check Remove LUNs Results
+  vars:
+    queryError: "[*].json.error.code"
+    queryMsg: "[*].json.error"
+  debug:
+    msg: "{{ PG_REMOVE_LUNS.results | json_query(queryMsg) }}"
+  failed_when: PG_REMOVE_LUNS.results | json_query(queryError) | difference([0]) | length > 0

@@ -22,17 +22,17 @@
 
 - name: List Tasks
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     pageNo: 1
     pageSize: 10
     params: "{{'limit=' + pageSize|string + '&start=' + (pageSize|int * (pageNo|int - 1)) | string }}"
     sortDir: asc
-  vars_files:
-    - ../global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Set params - sortKey & sortDir
       vars:
@@ -83,13 +83,13 @@
 
     - name: List Tasks
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.tasks }}?{{params}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.tasks }}?{{params}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: TASKS
 
     - name: Show Tasks

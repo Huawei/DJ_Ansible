@@ -1,0 +1,148 @@
+# Check host names exists on storage
+#
+# Required parameters:
+#   hostNames:              # a list of host names
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+#   checkStatus:            # check if host status is normal, options: true/false
+#   checkPortStatus:        # check if at least 1 initiator status is online, options: true/false
+#   checkBelongHostGroup:   # check host belong to host group or not, options: true/false
+#   checkHostGroup:         # check whether host belongs to a specific host group
+#   checkMapped             # check host is mapped with LUN or not, options: yes/no
+# 
+# Generated variables:
+#   checkedHosts:           # a list of hosts on storage device
+
+- name: Set default variables
+  set_fact:
+    hostIds: []
+    checkedHosts: []
+
+- name: Query Hosts by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOSTS
+  with_items: "{{ hostNames }}"
+
+- name: Get Host IDs
+  vars:
+    queryHostIds: "[? NAME=='{{item.1}}'].ID"
+    queryHosts: "[? NAME=='{{item.1}}']"
+  set_fact:
+    hostIds: "{{ hostIds + HOSTS.results[item.0].json.data | default([]) | json_query(queryHostIds) }}"
+    checkedHosts: "{{ checkedHosts + HOSTS.results[item.0].json.data | default([]) | json_query(queryHosts) }}"
+  with_indexed_items: "{{ hostNames }}"
+
+- name: Check Host Name Exist
+  debug:
+    msg:
+      hostIds: "{{ hostIds }}"
+  failed_when: (checkExist|default(True)|bool == True and hostIds|length != hostNames|length) or (checkExist|default(True)|bool == False and hostIds|length > 0)
+
+- name: Check Host Status
+  debug:
+    msg:
+      healthStatus: "{{ checkedHosts[item.0].HEALTHSTATUS }}"
+  failed_when: checkedHosts[item.0].HEALTHSTATUS|int != 1     # 1/Normal, 17/NoRedundantLink
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkStatus is defined
+    - checkStatus is not none
+    - checkStatus|bool == True
+
+- name: Check Host Mapped with LUN
+  debug:
+    msg:
+      host: "{{ item.1 }}"
+      mapedLunNum: "{{ checkedHosts[item.0].mappingLunNumber|int }}"
+  failed_when: (checkMapped|bool == True and checkedHosts[item.0].mappingLunNumber|int == 0) or (checkMapped|bool == False and checkedHosts[item.0].mappingLunNumber|int > 0)
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True 
+    - checkMapped is defined
+    - checkMapped is not none
+
+- name: Check Host Belong to Host Group
+  debug:
+    msg:
+      host: "{{ item.1 }}"
+      belongHostGroup: "{{ checkedHosts[item.0].ISADD2HOSTGROUP}}"
+  failed_when: checkBelongHostGroup|bool != checkedHosts[item.0].ISADD2HOSTGROUP|bool
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True 
+    - checkBelongHostGroup is defined
+    - checkBelongHostGroup is not none
+
+- name: Check Host Belong to a specific Host Group
+  debug:
+    msg:
+      host: "{{ item.1 }}"
+      hostGroup: "{{ checkedHosts[item.0].PARENTNAME | default('') }}"
+      checkHostGroup: "{{ checkHostGroup }}"
+  failed_when: checkedHosts[item.0].PARENTNAME is not defined or checkHostGroup != checkedHosts[item.0].PARENTNAME
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkHostGroup is defined
+    - checkHostGroup is not none
+
+- name: Query FC Initiators
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/fc_initiator?filter=PARENTID%3A%3A{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: WWNs
+  with_items: "{{ hostIds }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkPortStatus is defined
+    - checkPortStatus is not none
+    - checkPortStatus|bool == True
+
+- name: Query iSCSI Initiators
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/iscsi_initiator?filter=PARENTID%3A%3A{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: IQNs
+  with_items: "{{ hostIds }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkPortStatus is defined
+    - checkPortStatus is not none
+    - checkPortStatus|bool == True
+
+- name: Check Initiator Status
+  vars:
+    query: "[? RUNNINGSTATUS=='27'].ID"    # 0/unknown, 27/online, 28/offline 
+  debug:
+    msg:
+      onlineWwns: "{{ WWNs.results[item.0].json.data | default([]) | json_query(query) }}"
+      onlineIqns: "{{ IQNs.results[item.0].json.data | default([]) | json_query(query) }}"
+  failed_when: (IQNs.results[item.0].json.data | default([]) | json_query(query) | length == 0) and ( WWNs.results[item.0].json.data | default([]) | json_query(query) | length == 0 )
+  with_indexed_items: "{{ hostNames }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkPortStatus is defined
+    - checkPortStatus is not none
+    - checkPortStatus|bool == True

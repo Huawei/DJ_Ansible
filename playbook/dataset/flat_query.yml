@@ -2,15 +2,15 @@
 
 - name: Flat Query Dataset
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     pageNo: 1
     pageSize: 1000
-  vars_files:
-    - ../global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Show Query
       debug:
@@ -18,13 +18,13 @@
 
     - name: Query Dataset
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.datasets}}/{{dataset}}?pageNo={{pageNo}}&pageSize={{pageSize}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.datasets }}/{{dataset}}?pageNo={{pageNo}}&pageSize={{pageSize}}"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body: "{{ query }}"
       register: RESULT
@@ -34,7 +34,7 @@
         msg: "{{ RESULT.json }}"
       when: export is not defined
     
-    - import_tasks: ../util/json2csv.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/util/json2csv.yml"
       vars:
         data: "{{ RESULT.json.datas }}"
         keys: "{{ RESULT.json.datas[0] | dict2items | json_query('[*].key') }}"

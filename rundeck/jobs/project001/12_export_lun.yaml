@@ -1,0 +1,74 @@
+- defaultTab: monitor
+  description: Export LUNs to CSV file
+  executionEnabled: true
+  id: 639fae48-aafe-40cd-8273-b0adf8b95f36
+  loglevel: INFO
+  name: 12_export_lun
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Export LUNs to CSV file
+    description: <BR><h2>Select LUNs</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Filter by Name
+    name: LUN_Search
+  - enforced: true
+    name: Mapped
+    value: 'true'
+    values:
+    - 'false'
+    - 'true'
+  - name: Changed_Before
+    value: 1800
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?0=Any%20time&1800=%2030%20minutes%20ago&43200=%20%2012%20hours%20ago&86400=%20%20%201%20day%20ago&604800=%20%20%20%201%20week%20ago
+    description: Seconds from Now
+  - label: Page NO
+    name: pageNo
+    value: '1'
+  - label: Page Size
+    name: pageSize
+    value: '100'
+  - delimiter: ','
+    enforced: true
+    multivalueAllSelected: true
+    multivalued: true
+    name: LUN_List
+    valuesUrl: http://localhost:26336/rest/data/v1/search/volume?pageNo=${option.pageNo.value}&pageSize=${option.pageSize.value}&nameAttr=name&valueAttr=name&changedBefore=${option.Changed_Before.value}&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"${option.Mapped.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          objType: "volume"
+          pageNo: ${option.pageNo}
+          pageSize: ${option.pageSize}
+          filters:
+            - {"k":"name","op":"begin with","v":"${option.Country}_${option.OS_Type}"}
+            - {"k":"name","op":"contain","v":"${option.LUN_Search}"}
+            - {"k":"mapped","op":"equal","v":${option.Mapped}}
+            - {"k":"dataStatus","op":"equal","v":"normal"}
+          export: "/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}.csv"
+        ansible-playbook: /var/lib/rundeck/ansible/playbook/cmdb/list_instances.yml
+      description: Export Hosts
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}.csv'>${job.name}-${job.execid}-${job.user.name}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+        - config:
+            datatype: text/html
+          type: render-datatype
+      type: localexec
+    keepgoing: false
+    strategy: node-first
+  uuid: 639fae48-aafe-40cd-8273-b0adf8b95f36

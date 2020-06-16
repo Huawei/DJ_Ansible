@@ -1,0 +1,43 @@
+# Check Protection Groups Exists or Not
+#
+# Required parameters:
+#   pgNames:                # a list of Protection Group Name
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedPgs:             # a list of Checked Protection Groups
+
+- name: Set default variables
+  set_fact:
+    pgIds: []
+    checkedPgs: []
+
+- name: Query PGs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup?filter=protectGroupName%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: PGs
+  with_items: "{{ pgNames }}"
+
+- name: Get PG IDs
+  vars:
+    queryPgIds: "[? protectGroupName=='{{item.1}}'].protectGroupId"
+    queryPgs: "[? protectGroupName=='{{item.1}}']"
+  set_fact:
+    pgIds: "{{ pgIds + PGs.results[item.0].json.data | default([]) | json_query(queryPgIds) }}"
+    checkedPgs: "{{ checkedPgs + PGs.results[item.0].json.data | default([]) | json_query(queryPgs) }}"
+  with_indexed_items: "{{ pgNames }}"
+
+- name: Check PG Name Exist
+  debug:
+    msg:
+      pgIds: "{{ pgIds }}"
+  failed_when: (checkExist|default(True)|bool == True and pgIds|length != pgNames|length) or (checkExist|default(True)|bool == False and pgIds|length > 0)

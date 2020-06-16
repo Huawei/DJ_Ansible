@@ -1,0 +1,204 @@
+- defaultTab: monitor
+  description: Add LUN Group to Host, Create Protection Group, Replication CG, and HyperMetro CG
+  executionEnabled: true
+  id: c8b2f7ad-bdb8-41c6-a40c-0fcd3f61e8c9
+  loglevel: INFO
+  name: 33_add_lun_group_to_host
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Add LUN Group to Host, Create Protection Group, Replication CG, and HyperMetro CG
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Select Primary Host</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - enforced: true
+    name: OS_Type
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - label: Search Host Name
+    name: Host_Search
+  - enforced: true
+    name: Host
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_1"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - enforced: true
+    name: Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"storagehost","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}},{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Storage_Room.value}"}}]}}]
+  - enforced: true
+    name: Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}}]
+    description: <BR><h2>Set LUN Group Info</h2>
+  - enforced: true
+    name: Class_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - name: Session_Name
+    required: true
+    description: Input Session Name used for CGs (max 16 chars, '_' not permitted)
+  - enforced: true
+    name: Enable_HyperMetro
+    value: 'N'
+    required: true
+    values:
+      - 'N'
+      - 'Y'
+  - enforced: true
+    name: Protection_Level
+    value: '1'
+    required: true
+    values:
+      - '1'
+      - '2'
+      - '3'
+  - enforced: true
+    name: DR_Sync_Mode
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/REPMODE?nameAttr=desc&valueAttr=enum
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?lungroup=Create%20new%20LUN%20Group%20for%20primary%20host:%20"${option.Host.value}"
+    description: Select to confirm primary host result <BR><BR><h2>Metro Host</h2>
+  - enforced: true
+    name: Metro_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/HyperMetroDomain?range=[0-100]&nameAttr=REMOTEDEVICES:11&nameSplit=%22&valueAttr=REMOTEDEVICES:7&valueSplit=%22
+  - enforced: true
+    name: Metro_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Metro_Storage.value}"}}]}}]
+  - enforced: true
+    name: Exist_Metro_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Metro_Storage.value}/data/v1/search/host?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=NAME::${option.Host.value}
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_2
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20metro%20host%20"${option.Host.value}"%20on%20storage:%20${option.Metro_Storage.value}%20if%20not%20exist&lungroup=2.%20Create%20LUN%20group%20for%20metro%20host
+    description: Select to confirm metro host result <BR><BR><h2>DR Host</h2>
+  - enforced: true
+    name: DR_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/remote_device?nameAttr=NAME&valueAttr=SN&filter=ARRAYTYPE!!2
+  - enforced: true
+    name: DR_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.DR_Storage.value}"}}]}}]
+  - label: Search Existing DR Host
+    name: DR_Search_Host
+  - name: Exist_DR_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.DR_Search_Host.value}
+    description: Select existing DR host, if protection level >=2 but no existing DR host, create a new one
+  - name: DR_Host_Name
+    description: Input Host Name (required if protection level >=2 but no existing DR host, max 16 chars, '_' not permitted )
+  - name: DR_Host_Description
+    description: Input Host Description (optional, max 64 chars)
+  - name: DR_Host_Rack
+    description: Set Rack Number (optional, max 4 chars, '_' not permitted)
+  - label: Search WWN on Storage
+    name: DR_Search_WWN
+  - delimiter: ','
+    multivalued: true
+    name: DR_Host_WWN
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/fc_initiator?range=[0-100]&nameAttr=ID&valueAttr=ID&ISFREE=true&filter=ID:${option.DR_Search_WWN.value}
+  - enforced: true
+    name: Class_2
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_3
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20DR%20host%20if%20not%20exist%20on%20storage%20"${option.DR_Storage.value}"&lungroup=2.%20Create%20new%20LUN%20group%20for%20DR%20host
+    description: Select to confirm DR host result <BR><BR><h2>DR Test Host</h2>
+  - name: Exist_DR_Test_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/host?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.DR_Search_Host.value}
+    description: Select existing DR Test host, if protection level == 3 but no existing DR Test host, will create a new one
+  - enforced: true
+    name: Class_3
+    valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_4
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20DR%20test%20host%20if%20not%20exist%20on%20storage%20"${option.DR_Storage.value}"&lungroup=2.%20Create%20LUN%20group%20for%20DR%20Test%20host
+    description: Select to confirm DR Test host result
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Country: ${option.Country}
+          OS_Type: ${option.OS_Type}
+          Host: ${option.Host}
+          Storage: ${option.Storage}
+          Storage_Room: ${option.Storage_Room}
+          Class_1: ${option.Class_1}
+          Session_Name: ${option.Session_Name}
+          Enable_HyperMetro: ${option.Enable_HyperMetro}
+          Protection_Level: ${option.Protection_Level}
+          DR_Sync_Mode: ${option.DR_Sync_Mode}
+          Check_Result_1: ${option.Check_Result_1}
+
+          Metro_Storage: ${option.Metro_Storage}
+          Metro_Storage_Room: ${option.Metro_Storage_Room}
+          Exist_Metro_Host: ${option.Exist_Metro_Host}
+          Check_Result_2: ${option.Check_Result_2}
+
+          DR_Storage: ${option.DR_Storage}
+          DR_Storage_Room: ${option.DR_Storage_Room}
+          Exist_DR_Host: ${option.Exist_DR_Host}
+          DR_Host_Name: ${option.DR_Host_Name}
+          DR_Host_Description: ${option.DR_Host_Description}
+          DR_Host_Rack: ${option.DR_Host_Rack}
+          DR_Host_WWN: ${option.DR_Host_WWN}
+          Class_2: ${option.Class_2}
+          Check_Result_3: ${option.Check_Result_3}
+
+          Exist_DR_Test_Host: ${option.Exist_DR_Test_Host}
+          Class_3: ${option.Class_3}
+          Check_Result_4: ${option.Check_Result_4}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/33_add_lun_group_to_host.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: c8b2f7ad-bdb8-41c6-a40c-0fcd3f61e8c9

@@ -1,0 +1,103 @@
+- defaultTab: monitor
+  description: Customize QoS for LUNs not in Class
+  executionEnabled: true
+  id: 4e07cdbe-abc2-4934-b3ff-20d7583f8fbd
+  loglevel: INFO
+  name: 19_set_qos
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Customize QoS for LUNs not in Class
+    description: <BR><h2>Select LUNs or Upload CSV File</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - enforced: true
+    name: Mapped
+    value: 'true'
+    values:
+      - 'false'
+      - 'true'
+  - label: Search LUN Name
+    name: LUN_Search
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Select_LUN
+    valuesUrl: http://localhost:26336/rest/data/v1/search/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"${option.Mapped.value}"}},{"logOp":"and","simple":{"name":"djTierId","operator":"is%20null"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - description: Upload the file exported by job "12_export_lun"
+    name: Upload_LUN
+    type: file
+  - enforced: true
+    name: Enable_QoS
+    value: 'Yes'
+    values:
+      - 'Yes'
+      - 'No'
+  - enforced: true
+    name: QoS_Type
+    value: 'perGB'
+    values:
+      - 'perGB'
+      - 'absolute'
+  - name: Max_IOPS
+  - name: Max_Bandwidth
+  - name: Min_IOPS
+  - name: Min_Bandwidth
+  - name: Latency
+    values:
+      - '500'
+      - '1500'
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          Select_LUN: ${option.Select_LUN}
+          Upload_LUN: ${file.Upload_LUN}
+          Enable_QoS: ${option.Enable_QoS}
+          QoS_Type: ${option.QoS_Type}
+          Max_IOPS: ${option.Max_IOPS}
+          Min_IOPS: ${option.Min_IOPS}
+          Min_Bandwidth: ${option.Min_Bandwidth}
+          Max_Bandwidth: ${option.Max_Bandwidth}
+          Latency: ${option.Latency}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/19_set_qos.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 4e07cdbe-abc2-4934-b3ff-20d7583f8fbd

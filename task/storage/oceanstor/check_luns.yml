@@ -1,0 +1,43 @@
+# Check LUN Exists or Not
+#
+# Required parameters:
+#   lunNames:                # a list of LUN Names
+#
+# Optional parameters:
+#   checkExist:              # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedLuns:             # a list of Checked LUNs
+
+- name: Set default variables
+  set_fact:
+    lunIds: []
+    checkedLuns: []
+
+- name: Query LUNs by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: LUNs
+  with_items: "{{ lunNames }}"
+
+- name: Get LUN IDs
+  vars:
+    queryId: "[? NAME=='{{item.1}}'].ID"
+    query: "[? NAME=='{{item.1}}']"
+  set_fact:
+    lunIds: "{{ lunIds + LUNs.results[item.0].json.data | default([]) | json_query(queryId) }}"
+    checkedLuns: "{{ checkedLuns + LUNs.results[item.0].json.data | default([]) | json_query(query) }}"
+  with_indexed_items: "{{ lunNames }}"
+
+- name: Check LUN Name Exist
+  debug:
+    msg:
+      lunIds: "{{ lunIds }}"
+  failed_when: (checkExist|default(True)|bool == True and lunIds|length != lunNames|length) or (checkExist|default(True)|bool == False and lunIds|length > 0)

@@ -1,0 +1,122 @@
+# Create host group
+#
+# Required parameters:
+#   hostGroupName:          # host group name
+#
+# Optional parameters:
+#   hostNames:              # a list of host names, can be replaced with addHostIds
+#   addHostIds:             # a list of host IDs
+#   desc:                   # description
+
+- block:
+    - import_tasks: check_hosts.yml
+      vars:
+        checkBelongHostGroup: no
+
+    - set_fact:
+        addHostIds: "{{ hostIds }}"
+
+  when:
+    - hostNames is defined
+    - hostNames is not none
+    - hostNames|length > 0
+
+- name: Create host groups
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup"
+    method: POST
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+    body_format: json
+    body:
+      NAME: "{{hostGroupName}}"
+      DESCRIPTION: "{{desc|default('')}}"
+  register: HOSTGROUP
+
+- name: Check Create Result
+  debug:
+    msg: "{{ HOSTGROUP.json.error }}"
+  failed_when: HOSTGROUP.json.error.code|int != 0
+
+- set_fact:
+    newHostGroupId: "{{ HOSTGROUP.json.data.ID }}"
+    add_host_failed: no
+
+- block:
+    - name: Add Host to Host Group
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup/associate"
+        method: POST
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+        body_format: json
+        body:
+          ID: "{{newHostGroupId}}"
+          ASSOCIATEOBJTYPE: 21
+          ASSOCIATEOBJID: "{{item}}"
+      register: ADD_HOSTS
+      with_items: "{{ addHostIds }}"
+
+    - name: Check Add Host Result
+      vars:
+        queryError: "[*].json.error.code"
+        queryMsg: "[*].json.error"
+      debug:
+        msg: "{{ ADD_HOSTS.results | json_query(queryMsg) }}"
+      failed_when: ADD_HOSTS.results | json_query(queryError) | difference([0]) | length > 0
+
+  rescue:
+
+    - name: Remove Hosts from Host Group
+      uri:    
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host/associate?ID={{newHostGroupId}}&ASSOCIATEOBJTYPE=21&ASSOCIATEOBJID={{item}}"
+        method: DELETE
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: REMOVE_HOSTS
+      with_items: "{{ addHostIds }}"
+
+    - name: Set Add Host Failed
+      set_fact:
+        add_host_failed: yes
+  when:
+    - addHostIds is defined
+    - addHostIds is not none
+    - addHostIds|length > 0
+
+- name: Delete host group if Add Host Failed
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostgroup/{{newHostGroupId}}"
+    method: DELETE
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DELETE_HOSTGROUP
+  when: add_host_failed|bool == True
+
+- name: Check Delete Result
+  debug:
+    msg: "{{ DELETE_HOSTGROUP.json.error }}"
+  failed_when: DELETE_HOSTGROUP.json.error.code|int != 0
+  when: add_host_failed|bool == True
+
+- name: Check Errors
+  debug:
+    msg: 
+      addHostFail: "{{add_host_failed}}"
+  failed_when: add_host_failed|bool == True

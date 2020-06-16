@@ -3,7 +3,7 @@
 - name: Show Indicators Detail
   hosts: localhost
   vars_files:
-    - ../global.yml
+    - ../../config/global.yml
   vars:
     # Required Parameters:
     #   objType:     object type name, see ../global.yml to get supported object types in INVENTORY
@@ -24,7 +24,7 @@
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: Get Indicator IDs                          # map indicator names to IDs
       set_fact:
@@ -34,13 +34,13 @@
 
     - name: Get Indicators Detail
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{URI.perfmgr}}/indicators"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.perfmgr }}/indicators"
         method: POST
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
         body_format: json
         body: "{{ indicatorIds }}"
       register: DETAILS

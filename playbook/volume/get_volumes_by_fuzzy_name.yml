@@ -15,26 +15,26 @@
 
 - name: Get Volumes by Fuzzy Name
   hosts: localhost
+  vars_files:
+    - ../../config/global.yml
   vars:
     pageNo: 1            # page number
     pageSize: 10         # page size
     pageStart: "{{ pageSize|int * (pageNo|int - 1) }}"
-  vars_files:
-    - ../global.yml
   gather_facts: no
   become: no
   tasks:
-    - import_tasks: ../user/login.yml
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     
     - name: List Volumes
       uri:
-        url: "https://{{DJ.host}}:{{DJ.port}}/rest/{{ URI.volumes }}?limit={{pageSize}}&start={{pageStart}}&name={{volumeName|urlencode}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?limit={{pageSize}}&start={{pageStart}}&name={{volumeName|urlencode}}"
         method: GET
         validate_certs: no
         headers:
           Accept: "application/json"
           Content-Type: "application/json;charset=utf8"
-          X-Auth-Token: "{{DJ.token}}"
+          X-Auth-Token: "{{djToken}}"
       register: VOLUMES
 
     - name: Show Volumes

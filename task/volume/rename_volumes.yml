@@ -1,0 +1,77 @@
+# Required Parameters:
+#   volumeNames:     a list of volume names, can be replaced with volumeIds
+#   newVolumeNames:  new volume names, can be replaced with volumePrefix & startSuffix
+#
+# Optional Parameters:
+#   volumeIds:       a list of volume IDs
+#   volumePrefix:    new volume name prefix
+#   startSuffix:     start suffix, default 0
+
+- block:
+    - set_fact:
+        volumeIds: []
+
+    - name: Query Volumes by Name
+      uri:
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{djToken}}"
+      register: VOLUMES
+      with_items: "{{ volumeNames }}"
+
+    - name: Get Volume IDs
+      vars:
+        queryVolumeId: "[? name=='{{item.1}}'].id"
+      set_fact:
+        volumeIds: "{{ volumeIds + VOLUMES.results[item.0].json.volumes | json_query(queryVolumeId) }}"
+      with_indexed_items: "{{ volumeNames }}"
+
+    - name: Check Volumes Exist
+      debug:
+        msg:
+          volumeIds: "{{ volumeIds }}"
+      failed_when: volumeIds|length < volumeNames|length
+  when: 
+    - volumeNames|default(none) is not none
+    - volumeNames|length > 0
+
+- block:
+    - set_fact:
+        newVolumeNames: []
+
+    - set_fact:
+        newVolumeNames: "{{ newVolumeNames + [newVolumeName] }}"
+      vars:
+        newVolumeName: "{{ '%s%04d' | format(volumePrefix, item.0|int + startSuffix|default(0)|int ) }}"
+      with_indexed_items: "{{ volumeIds }}"
+
+  when:
+    - volumePrefix|default(none) is not none
+
+- name: Rename Volumes
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}/{{item.1}}"
+    method: PUT
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+    status_code: 202
+    body_format: json
+    body:
+      volume:
+        name: "{{ newVolumeNames[item.0] }}"
+  register: RENAME_VOLUMES
+  with_indexed_items: "{{ volumeIds }}"
+
+- include_tasks: ../task/wait_task_complete.yml
+  vars:
+    taskId: "{{ RENAME_VOLUMES.results[i].json.task_id }}"
+  loop: "{{ range(0, volumeIds|length) | list }}"
+  loop_control:
+    loop_var: i
