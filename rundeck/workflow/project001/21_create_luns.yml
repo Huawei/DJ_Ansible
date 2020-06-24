@@ -10,7 +10,7 @@
         - name: Read LUN name from upload file
           read_csv:
             path: "{{ Upload_LUN }}"
-            delimiter: ','
+            delimiter: "{{ Delimiter | default(',') }}"
           register: UPLOAD_LUNS
 
         - set_fact:
@@ -43,7 +43,7 @@
 
         - set_fact:
             lunNum: "{{ LUN_Num|int if (LUN_Num is not none) else 0 }}"
-            lunDesc: "{{ LUN_Description|string if (LUN_Description is not none) else '' }}"
+            lunDesc: "{{Class}}_00_00_00_0000000000000000_01|{{ LUN_Description|string if (LUN_Description is not none) else '' }}"
             startSuffix: "{{ Start_Suffix if (Start_Suffix is not none) else 0 }}"
             lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
             lunNames: []

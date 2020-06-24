@@ -60,7 +60,7 @@
     name: Check_Result_1
     required: true
     valuesUrl: http://localhost:26336/rest/data/v1/echo?cluster=1.%20Create%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Name.value}_1"%20on%20storage:%20"${option.Storage.value}"&hosts=2.%20Add%20hosts%20"${option.Hosts.value}"%20to%20cluster:%20"${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Name.value}_1"
-    description: Select to confirm primary cluster result <BR><BR><h2>Protection Info</h2>
+    description: Select to confirm primary cluster result <BR><BR><h2>Protection Settings</h2>
   - name: Session_Name
     description: Input Session Name used for grouping (optional, max 16 chars, '_' not permitted, default is Primary Cluster Name)
   - enforced: true

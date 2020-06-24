@@ -1,5 +1,5 @@
 - defaultTab: monitor
-  description: Create Snapshots from a Source Host, and add to LUN Group, Protect Group, Replication CGs, HyperMetro CG of a Target Host
+  description: Create Snapshots from a Source Host, and add to LUN Group of a Target Host
   executionEnabled: true
   id: 3849708f-bd1b-4d3c-adfa-41c051e2a85a
   loglevel: INFO
@@ -7,7 +7,7 @@
   nodeFilterEditable: false
   options:
   - name: Job_Description
-    value: Create Snapshots from a Source Host, and add to LUN Group, Protect Group, Replication CGs, HyperMetro CG of a Target Host
+    value: Create Snapshots from a Source Host, and add to LUN Group of a Target Host
   - name: Username
     valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
     description: (Optional) Alternative username/password to login all storage
@@ -66,6 +66,7 @@
     values:
       - 'Yes'
       - 'No'
+  - name: Start_SCSI_ID
   - delimiter: '|'
     multivalued: true
     name: Snapshot_Description
@@ -112,6 +113,7 @@
           Storage: ${option.Storage}
           Storage_Room: ${option.Storage_Room}
           Activate: ${option.Activate}
+          Start_SCSI_ID: ${option.Start_SCSI_ID}
           Snapshot_Description: ${option.Snapshot_Description}
           Class_1: ${option.Class_1}
           Designate_Class_1: ${option.Designate_Class_1}

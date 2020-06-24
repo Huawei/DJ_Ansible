@@ -49,6 +49,7 @@
         protectLevel: 1
 
     - set_fact:
+        minScsiId: "{{ OSTYPE[osType]['min_scsi_id'] }}"                                   # See ../../config/project001.yml
         protectType: "{{ REPTYPE[metroEnable+protectLevel|string]['enum'] }}"              # See ../../config/project001.yml
         replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
 
@@ -96,9 +97,37 @@
           vars:
             hostName: "{{ targetHostName }}"
 
+        - block:
+            - set_fact:
+                currentMaxScsiId: "{{ minScsiId|int - 1 }}"
+                placeholderScsiIds: "{{ OSTYPE[osType]['placeholder_scsi_id'] }}"
+
+            - set_fact:
+                currentMaxScsiId: "{{ item|int }}"
+              when:
+                - currentMaxScsiId|int < item|int
+                - item|int not in placeholderScsiIds
+              with_items: "{{ checkedHostLunIds }}"
+
+            - set_fact:
+                nextScsiId: "{{ currentMaxScsiId|int + 1 }}"
+                lastScsiId: "{{ currentMaxScsiId|int + lunNum|int }}"
+          when: Start_SCSI_ID|default(none) is none
+
+        - block:
+            - set_fact:
+                nextScsiId: "{{ Start_SCSI_ID|int }}"
+                lastScsiId: "{{ Start_SCSI_ID|int + lunNum|int - 1 }}"
+
+            - name: Check Host SCSI IDs Conflicts
+              fail:
+                msg: "SCSI ID {{ item|int }} is occupied"
+              when: item|int >= nextScsiId|int and item|int <= lastScsiId|int
+              with_items: "{{ checkedHostLunIds }}"
+
+          when: Start_SCSI_ID|default(none) is not none
+
         - set_fact:
-            nextScsiId: "{{ checkedHostLunIdMax|int + 1 }}"
-            lastScsiId: "{{ checkedHostLunIdMax|int + lunNum|int }}"
             targetLunNames: []
 
         - set_fact:

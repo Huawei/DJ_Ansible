@@ -40,7 +40,7 @@
   - enforced: true
     name: Storage_Room
     valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"host","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Host.value}"}}]}}]
-    description: <BR><h2>Select LUNs to Expand</h2>
+    description: <BR><h2>Select Primary LUNs</h2>
   - enforced: true
     name: LUN_Group
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupName&matchAttr=mappingType&match=1&range=[0-100]&obj=host&filter=NAME::${option.Host.value}

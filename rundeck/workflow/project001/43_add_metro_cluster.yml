@@ -213,7 +213,7 @@
             primaryLunDescsNew: "{{ primaryLunDescsNew + [ primaryLunDesc1New + '|' + remark ] }}"
           vars:
             suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ primaryLunDescs[item.0].split('|')[1]  }}"
+            remark: "{{ primaryLunDescs[item.0].split('|')[1] | default('')  }}"
           with_indexed_items: "{{ primaryLunNames }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
@@ -334,7 +334,7 @@
             drLunDescsNew: "{{ drLunDescsNew + [ drLunDesc1New + '|' + remark ] }}"
           vars:
             suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ drLunDescs[item.0].split('|')[1]  }}"
+            remark: "{{ drLunDescs[item.0].split('|')[1] | default('')  }}"
           with_indexed_items: "{{ drLunNames }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
@@ -375,7 +375,7 @@
             drTestLunDescsNew: "{{ drTestLunDescsNew + [ drTestLunDesc1New + '|' + remark ] }}"
           vars:
             suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ drTestLunDescs[item.0].split('|')[1]  }}"
+            remark: "{{ drTestLunDescs[item.0].split('|')[1] | default('')  }}"
           with_indexed_items: "{{ drTestLunNames }}"
 
         # End Precheck_4

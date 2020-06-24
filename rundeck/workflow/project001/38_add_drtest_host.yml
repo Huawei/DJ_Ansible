@@ -195,7 +195,7 @@
             primaryLunDescsNew: "{{ primaryLunDescsNew + [ primaryLunDesc1New + '|' + remark ] }}"
           vars:
             suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ primaryLunDescs[item.0].split('|')[1]  }}"
+            remark: "{{ primaryLunDescs[item.0].split('|')[1] | default('')  }}"
           with_indexed_items: "{{ primaryLunNames }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
@@ -250,7 +250,7 @@
             metroLunDescsNew: "{{ metroLunDescsNew + [ metroLunDesc1New + '|' + remark ] }}"
           vars:
             suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ metroLunDescs[item.0].split('|')[1]  }}"
+            remark: "{{ metroLunDescs[item.0].split('|')[1] | default('')  }}"
           with_indexed_items: "{{ metroLunNames }}"
 
         # End Precheck_2
@@ -297,7 +297,9 @@
               drClusterName: "{{ drClusterName }}"
               drTestClusterName: "{{ drTestClusterName }}"
           failed_when: drClusterName[0:-1] != drTestClusterName[0:-1]
-          when: drHostInCluster|bool == True
+          when:
+            - drHostInCluster|bool == True
+            - drTestClusterName is not none
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id.yml"
           vars:
@@ -323,7 +325,7 @@
             drLunDescsNew: "{{ drLunDescsNew + [ drLunDesc1New + '|' + remark ] }}"
           vars:
             suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ drLunDescs[item.0].split('|')[1]  }}"
+            remark: "{{ drLunDescs[item.0].split('|')[1] | default('')  }}"
           with_indexed_items: "{{ drLunNames }}"
 
         # End Precheck_3
@@ -352,7 +354,7 @@
             drTestLunDescs: "{{ drTestLunDescs + [ drTestLunDesc1 + '|' + remark ] }}"
           vars:
             suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ drLunDescs[item.0].split('|')[1]  }}"
+            remark: "{{ drLunDescs[item.0].split('|')[1] | default('')  }}"
           with_indexed_items: "{{ drLunNames }}"
 
         # End Precheck_4

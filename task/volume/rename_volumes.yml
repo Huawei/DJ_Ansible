@@ -41,12 +41,13 @@
 
 - block:
     - set_fact:
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
         newVolumeNames: []
 
     - set_fact:
         newVolumeNames: "{{ newVolumeNames + [newVolumeName] }}"
       vars:
-        newVolumeName: "{{ '%s%04d' | format(volumePrefix, item.0|int + startSuffix|default(0)|int ) }}"
+        newVolumeName: "{{ lunNameTemplate | format(volumePrefix, item.0|int + startSuffix|default(0)|int ) }}"
       with_indexed_items: "{{ volumeIds }}"
 
   when:

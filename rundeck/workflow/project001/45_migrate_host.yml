@@ -36,6 +36,7 @@
         targetWorkload: "{{ Target_Workload }}"
 
     - set_fact:
+        minScsiId: "{{ OSTYPE[OS_Type]['min_scsi_id'] }}"        # See ../../config/project001.yml
         protectType: "{{ REPTYPE['N1']['enum'] }}"              # See ../../config/project001.yml
         replicaType: "{{ REPTYPE['N1']['type'] }}"              # See ../../config/project001.yml
         enableAlua: "{{ 1 if (OS_Type == 'SOL') else 0 }}"             # Enable ALUA for Solaris
@@ -107,7 +108,18 @@
             hostName: "{{ primaryHostName }}"
 
         - set_fact:
-            nextScsiId: "{{ checkedHostLunIdMax|int + 1 }}"
+            currentMaxScsiId: "{{ minScsiId|int - 1 }}"
+            placeholderScsiIds: "{{ OSTYPE[OS_Type]['placeholder_scsi_id'] }}"
+
+        - set_fact:
+            currentMaxScsiId: "{{ item|int }}"
+          when:
+            - currentMaxScsiId|int < item|int
+            - item|int not in placeholderScsiIds
+          with_items: "{{ checkedHostLunIds }}"
+
+        - set_fact:
+            nextScsiId: "{{ currentMaxScsiId|int + 1 }}"
             primaryLgNames: "{{ checkedLgNames }}"
             primaryLgDescs: "{{ checkedLgs | json_query('[*].DESCRIPTION') }}"
             targetLgDescs: []
@@ -134,7 +146,7 @@
           vars:
             targetLun:
               name: "{{ lunNameTemplate | format(targetLunPrefix, nextScsiId|int + item.0) }}"
-              desc: "{{ primaryLunDescs[item.0][0:1] }}_00_{{replicaType}}_00_0000000000000000_01|{{primaryLunDescs[item.0].split('|')[1]}}"
+              desc: "{{ primaryLunDescs[item.0][0:1] }}_00_{{replicaType}}_00_0000000000000000_01|{{primaryLunDescs[item.0].split('|')[1] | default('') }}"
               sector: "{{ primaryLunSectors[item.0] }}"
               lg: "{{ primaryLunLgs[item.0] }}"
               class: "{{ primaryLunDescs[item.0][0:1] }}"

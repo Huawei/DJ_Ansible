@@ -51,6 +51,7 @@
   - label: Number of LUNs
     name: LUN_Num
     required: true
+  - name: Start_SCSI_ID
   - delimiter: '|'
     multivalued: true
     name: LUN_Description
@@ -225,6 +226,7 @@
           Storage_Room: ${option.Storage_Room}
           LUN_Size: ${option.LUN_Size}
           LUN_Num: ${option.LUN_Num}
+          Start_SCSI_ID: ${option.Start_SCSI_ID}
           LUN_Description: ${option.LUN_Description}
           Pool: ${option.Pool}
           Workload: ${option.Workload}

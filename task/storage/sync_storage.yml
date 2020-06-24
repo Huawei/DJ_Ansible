@@ -46,19 +46,8 @@
   until:
     - SYNCTASK.status == 200
 
-- name: Wait Sync Start
-  uri:
-    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.storages }}/{{deviceId}}/detail"
-    method: GET
-    validate_certs: no
-    headers:
-      Accept: "application/json"
-      Content-Type: "application/json;charset=utf8"
-      X-Auth-Token: "{{djToken}}"
-  register: DETAIL
-  retries: 60
-  delay: 1
-  until: DETAIL.json.syn_status|int == 1     # 0/NotSync, 1/Syncing, 2/Synced, 3/Unknown
+- pause:
+    seconds: 5
 
 - name: Wait Sync Complete
   uri:

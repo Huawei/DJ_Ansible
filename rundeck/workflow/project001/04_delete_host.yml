@@ -1634,7 +1634,7 @@
             metroDeviceNeedSync: "{{ (Step_2_4_Completed|bool == True and Step_2_4_Rollbacked|bool == False) }}"
             drDeviceNeedSync: "{{ (Step_3_4_Completed|bool == True and Step_3_4_Rollbacked|bool == False) }}"
 
-        - name: Final_Step_1_4 - Sync Primary Device
+        - name: Final_Step_1_1 - Sync Primary Device
           debug:
             msg:
               device: "{{ primaryDeviceName }}"
@@ -1651,7 +1651,7 @@
             deviceSynced: "{{ deviceSynced + [primaryDeviceName] }}"
           when: primaryDeviceNeedSync
 
-        - name: Final_Step_1_5 - Sync Metro Device
+        - name: Final_Step_1_2 - Sync Metro Device
           debug:
             msg:
               device: "{{ metroDeviceName }}"
@@ -1675,7 +1675,7 @@
             - metroDeviceNeedSync
             - metroDeviceName not in deviceSynced
 
-        - name: Final_Step_1_2 - Sync DR Device
+        - name: Final_Step_1_3 - Sync DR Device
           debug:
             msg:
               device: "{{ drDeviceName }}"

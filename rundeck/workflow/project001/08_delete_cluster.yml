@@ -14,7 +14,7 @@
               Storage: "{{ (Storage is not none) and (Storage|string|length == 20) }}"
               Check_Result_1: "{{ ('cluster' in Check_Result_1) }}"
 
-        - name: Precheck_0_1 - Check Host Params
+        - name: Precheck_0_1 - Check Params
           debug:
             msg: "{{checked_cluster_params}}"
           failed_when: checked_cluster_params.values()|unique != [True]
@@ -27,7 +27,7 @@
               Metro_Storage: "{{ (Metro_Storage is not none and Metro_Storage != DEFAULT.noneValue) and (Metro_Storage|string|length == 20) }}"
               Check_Result_2: "{{ ('cluster' in Check_Result_2) }}"
 
-        - name: Precheck_0_2 - Check Metro Host Params
+        - name: Precheck_0_2 - Check Metro Params
           debug:
             msg: "{{checked_metro_host_params}}"
           failed_when: checked_metro_host_params.values()|unique != [True]
@@ -41,7 +41,7 @@
               DR_Storage: "{{ (DR_Storage is not none) and (DR_Storage|string|length == 20) }}"
               Check_Result_3: "{{ ('cluster' in Check_Result_3) }}"
 
-        - name: Precheck_0_3 - Check DR Host Params
+        - name: Precheck_0_3 - Check DR Params
           debug:
             msg: "{{checked_dr_cluster_params}}"
           failed_when: checked_dr_cluster_params.values()|unique != [True]

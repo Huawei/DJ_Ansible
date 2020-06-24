@@ -63,6 +63,7 @@
     required: true
     name: Select_LUN
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lun?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=NAME:${option.LUN_Search.value}%20and%20mapped::${option.Mapped.value}
+  - name: Start_SCSI_ID
   - enforced: true
     name: Class_1
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.LUN_Group.value}
@@ -227,6 +228,7 @@
           Storage_Room: ${option.Storage_Room}
           Mapped: ${option.Mapped}
           Select_LUN: ${option.Select_LUN}
+          Start_SCSI_ID: ${option.Start_SCSI_ID}
           Check_Result_1: ${option.Check_Result_1}
 
           Metro_Cluster: ${option.Metro_Cluster}

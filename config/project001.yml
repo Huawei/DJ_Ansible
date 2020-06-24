@@ -43,79 +43,105 @@ OSTYPE:
     djenum: "AIX"
     desc: "AIX"
     enable: 1
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   LNX:
     enum: 0
     djenum: "LINUX"
     desc: "Linux"
     enable: 1
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   LNP:
     enum: 0
     djenum: "LINUX"
     desc: "Linux on Power"
     enable: 1
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   ESX:
     enum: 7
     djenum: "VMWAREESX"
     desc: "VMware ESXi"
     enable: 1
-    max_scsi_id: 2047
+    min_scsi_id: 1
+    max_scsi_id: 255
+    placeholder_scsi_id: [260, 261]
   OVM:
     enum: 12
     djenum: "ORACLE"
     desc: "Oracle VM"
     enable: 1
-    max_scsi_id: 2047
+    min_scsi_id: 1
+    max_scsi_id: 255
+    placeholder_scsi_id: []
   OVS:
     enum: 13
     djenum: "ORACLE"
     desc: "Oracle VM for SPAC"
     enable: 0
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   SOL:
     enum: 2
     djenum: "SOLARIS"
     desc: "Solaris"
     enable: 1
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   WIN:
     enum: 1
     djenum: "WINDOWSSERVER2012"
     desc: "Windows"
     enable: 1
+    min_scsi_id: 1
     max_scsi_id: 255
+    placeholder_scsi_id: []
   XEN:
     enum: 15
     djenum: "XENSERVER"
     desc: "XenServer"
     enable: 1
-    max_scsi_id: 2047
+    min_scsi_id: 1
+    max_scsi_id: 255
+    placeholder_scsi_id: []
   VIO:
     enum: 4
     djenum: "AIX"
     desc: "LPAR VIO"
     enable: 1
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   HPX:
     enum: 3
     djenum: "HPUX"
     desc: "HP-UX"
     enable: 0
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   MAC:
     enum: 6
     djenum: "MACOS"
     desc: "MAC OS"
     enable: 0
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
   VMS:
     enum: 11
     djenum: "OPENVMS"
     desc: "OpenVMS"
     enable: 0
+    min_scsi_id: 1
     max_scsi_id: 2047
+    placeholder_scsi_id: []
 
 # Replica Type
 REPTYPE:

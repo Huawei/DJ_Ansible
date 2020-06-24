@@ -120,7 +120,7 @@
         standbyCgId: "{{ Standby_CG_ID }}"
 
     - set_fact:
-        maxScsiId: "{{ OSTYPE[osType]['max_scsi_id'] }}"                           # See ../../config/project001.yml
+        maxScsiId: "{{ OSTYPE[osType]['max_scsi_id'] }}"                                   # See ../../config/project001.yml
         protectType: "{{ REPTYPE[metroEnable+protectLevel|string]['enum'] }}"              # See ../../config/project001.yml
         replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
 
@@ -176,17 +176,44 @@
           vars:
             hostGroupName: "{{ primaryClusterName }}"
 
-        - set_fact:
-            nextScsiId: "{{ maxScsiId if (maxScsiId|int < checkedHostLunIdMin|int) else (checkedHostLunIdMin|int - 1)  }}"
+        - block:
+            - set_fact:
+                currentMinScsiId: "{{ maxScsiId|int + 1 }}"
+                placeholderScsiIds: "{{ OSTYPE[osType]['placeholder_scsi_id'] }}"
+
+            - set_fact:
+                currentMinScsiId: "{{ item|int }}"
+              when:
+                - currentMinScsiId|int > item|int
+                - item|int not in placeholderScsiIds
+              with_items: "{{ checkedHostLunIds }}"
+
+            - set_fact:
+                nextScsiId: "{{ currentMinScsiId|int - 1  }}"
+                lastScsiId: "{{ currentMinScsiId|int - lunNum|int  }}"
+
+          when: Start_SCSI_ID|default(none) is none
+
+        - block:
+            - set_fact:
+                lastScsiId: "{{ Start_SCSI_ID|int }}"
+                nextScsiId: "{{ Start_SCSI_ID|int + lunNum|int - 1 }}"
+
+            - name: Check Host SCSI IDs Conflicts
+              fail:
+                msg: "SCSI ID {{ item|int }} is occupied"
+              when: item|int >= lastScsiId|int and item|int <= nextScsiId|int
+              with_items: "{{ checkedHostLunIds }}"
+
+          when: Start_SCSI_ID|default(none) is not none
 
         - set_fact:
-            lastScsiId: "{{ nextScsiId|int - lunNum|int + 1  }}"
-            nextSuffix: "{{ maxScsiId|int - nextScsiId|int  }}"
+            nextSuffix: "{{ (maxScsiId|int - nextScsiId|int + 1) }}"
             primaryLunNames: []
             lunScsiIds: []
 
         - set_fact:
-            primaryLunNames: "{{ primaryLunNames + [ lunNameTemplate | format(primaryLunPrefix, ( maxScsiId|int - (nextScsiId|int - item|int) ) ) ] }}"
+            primaryLunNames: "{{ primaryLunNames + [ lunNameTemplate | format(primaryLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
             lunScsiIds: "{{ lunScsiIds + [nextScsiId|int - item|int] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
@@ -227,24 +254,17 @@
           vars:
             hostGroupName: "{{ primaryClusterName }}"
 
+        - name: Check Metro Host SCSI IDs Conflicts
+          fail:
+            msg: "SCSI ID {{ item|int }} is occupied"
+          when: item|int <= nextScsiId|int and item|int >= lastScsiId|int
+          with_items: "{{ checkedHostLunIds }}"
+
         - set_fact:
-            metroHostLunIdMax: "{{ checkedHostLunIdMax }}"
-            metroHostLunIdMin: "{{ checkedHostLunIdMin }}"
             metroLunNames: []
 
-        - name: Check Metro Cluster SCSI IDs Conflicts
-          debug:
-            msg:
-              targetScsiId:
-                end: "{{ nextScsiId }}"
-                begin: "{{ lastScsiId }}"
-              currentScsiId:
-                max: "{{ metroHostLunIdMax }}"
-                min: "{{ metroHostLunIdMin }}"
-          failed_when: ( metroHostLunIdMin|int <= nextScsiId|int ) and ( metroHostLunIdMin|int >= lastScsiId|int )
-
         - set_fact:
-            metroLunNames: "{{ metroLunNames + [ lunNameTemplate | format(metroLunPrefix, ( maxScsiId|int - (nextScsiId|int - item|int) ) ) ] }}"
+            metroLunNames: "{{ metroLunNames + [ lunNameTemplate | format(metroLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
@@ -286,24 +306,17 @@
           vars:
             hostGroupName: "{{ drClusterName }}"
 
+        - name: Check DR Host SCSI IDs Conflicts
+          fail:
+            msg: "SCSI ID {{ item|int }} is occupied"
+          when: item|int <= nextScsiId|int and item|int >= lastScsiId|int
+          with_items: "{{ checkedHostLunIds }}"
+
         - set_fact:
-            drHostLunIdMax: "{{ checkedHostLunIdMax }}"
-            drHostLunIdMin: "{{ checkedHostLunIdMin }}"
             drLunNames: []
 
-        - name: Check DR Cluster SCSI IDs Conflicts
-          debug:
-            msg:
-              targetScsiId:
-                end: "{{ nextScsiId }}"
-                begin: "{{ lastScsiId }}"
-              currentScsiId:
-                max: "{{ drHostLunIdMax }}"
-                min: "{{ drHostLunIdMin }}"
-          failed_when: ( drHostLunIdMin|int <= nextScsiId|int ) and ( drHostLunIdMin|int >= lastScsiId|int )
-
         - set_fact:
-            drLunNames: "{{ drLunNames + [ lunNameTemplate | format(drLunPrefix, ( maxScsiId|int - (nextScsiId|int - item|int) ) ) ] }}"
+            drLunNames: "{{ drLunNames + [ lunNameTemplate | format(drLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
@@ -330,28 +343,21 @@
           vars:
             hostGroupName: "{{ drTestClusterName }}"
 
+        - name: Check DR Test Host SCSI IDs Conflicts
+          fail:
+            msg: "SCSI ID {{ item|int }} is occupied"
+          when: item|int <= nextScsiId|int and item|int >= lastScsiId|int
+          with_items: "{{ checkedHostLunIds }}"
+
         - set_fact:
-            drTestHostLunIdMax: "{{ checkedHostLunIdMax }}"
-            drTestHostLunIdMin: "{{ checkedHostLunIdMin }}"
             existDrTestScsiIds: "{{ checkedLuns[drTestLgName] | json_query('[*].hostLunId') }}"
             existDrTestLuns: "{{ checkedLuns[drTestLgName] | json_query('[*].lunName') }}"
             existDrTestLunsDesc: []
             drTestLunNames: []
             drTestLunDescs: []
 
-        - name: Check DR Test Cluster SCSI IDs Conflicts
-          debug:
-            msg:
-              targetScsiId:
-                end: "{{ nextScsiId }}"
-                begin: "{{ lastScsiId }}"
-              currentScsiId:
-                max: "{{ drTestHostLunIdMax }}"
-                min: "{{ drTestHostLunIdMin }}"
-          failed_when: ( drTestHostLunIdMin|int <= nextScsiId|int ) and ( drTestHostLunIdMin|int >= lastScsiId|int )
-
         - set_fact:
-            drTestLunNames: "{{ drTestLunNames + [ lunNameTemplate | format(drTestLunPrefix, ( maxScsiId|int - (nextScsiId|int - item|int) ) ) ] }}"
+            drTestLunNames: "{{ drTestLunNames + [ lunNameTemplate | format(drTestLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
             drTestLunDescs: "{{ drTestLunDescs + [drTestLunDesc] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
@@ -2086,7 +2092,7 @@
           when: Step_1_1_Completed
 
         - block:
-            - name: Rollback_4_2 - Create Existing DR Test Snapshot CG
+            - name: Rollback_4_2 - Create DR Test Snapshot CG
               debug:
                 msg:
                   params:

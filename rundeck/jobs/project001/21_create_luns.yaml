@@ -47,6 +47,8 @@
   - description: Upload the CSV file with fields 'name', 'desc', 'size' (overwrite the following attributes)
     name: Upload_LUN
     type: file
+  - name: Delimiter
+    value: ','
   - description: Maximum 28 characters, LUN naming convension is {COUNTRY:2} _ {OS:3} _ {HOST:16} _ {CHAIN:1} _ {PROTECT:1}{TYPE:1}{Suffix:3}
     name: LUN_Prefix
   - name: Start_Suffix
@@ -79,6 +81,7 @@
           Class: ${option.Class}
           LUN_Group: ${option.LUN_Group}
           Upload_LUN: ${file.Upload_LUN}
+          Delimiter: "${option.Delimiter}"
           LUN_Prefix: ${option.LUN_Prefix}
           Start_Suffix: ${option.Start_Suffix}
           LUN_Size: ${option.LUN_Size}

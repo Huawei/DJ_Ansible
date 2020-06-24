@@ -518,7 +518,7 @@
       # Begin Rollback
 
         - block:
-            - name: Step_4_2 - Remove Hosts from DR Test Cluster
+            - name: Rollback_4_2 - Add Hosts from DR Test Cluster
               debug:
                 msg:
                   params:
@@ -544,7 +544,7 @@
           when: Step_4_2_Completed
 
         - block:
-            - name: Step_4_1 - Add Hosts to DR Test Cluster
+            - name: Rollback_4_1 - Remove Hosts to DR Test Cluster
               debug:
                 msg:
                   params:
@@ -570,7 +570,7 @@
           when: Step_4_1_Completed
 
         - block:
-            - name: Rollback_3_2 - Remove Hosts from DR Cluster
+            - name: Rollback_3_2 - Add Hosts from DR Cluster
               debug:
                 msg:
                   params:
@@ -596,7 +596,7 @@
           when: Step_3_2_Completed
 
         - block:
-            - name: Rollback_3_1 - Add Hosts to DR Cluster
+            - name: Rollback_3_1 - Remove Hosts to DR Cluster
               debug:
                 msg:
                   params:
@@ -622,7 +622,7 @@
           when: Step_3_1_Completed
 
         - block:
-            - name: Rollback_2_2 - Remove Hosts from Metro Cluster
+            - name: Rollback_2_2 - Add Hosts from Metro Cluster
               debug:
                 msg:
                   params:
@@ -648,7 +648,7 @@
           when: Step_2_2_Completed
 
         - block:
-            - name: Rollback_2_1 - Add Hosts to Metro Cluster
+            - name: Rollback_2_1 - Remove Hosts to Metro Cluster
               debug:
                 msg:
                   params:
@@ -674,7 +674,7 @@
           when: Step_2_1_Completed
 
         - block:
-            - name: Rollback_1_2 - Remove Hosts from Primary Cluster
+            - name: Rollback_1_2 - Add Hosts from Primary Cluster
               debug:
                 msg:
                   params:
@@ -700,7 +700,7 @@
           when: Step_1_2_Completed
 
         - block:
-            - name: Rollback_1_1 - Add Hosts to Primary Cluster
+            - name: Rollback_1_1 - Remove Hosts to Primary Cluster
               debug:
                 msg:
                   params:

@@ -419,7 +419,10 @@
           when: protectLevel|int == 3
 
         - set_fact:
-            drTestLunNames: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].NAME') }}"
+            drTestLunNames: "{{ drTestLunNames + SNAPSHOTS.json.data | default([]) | json_query(querySnapName) }}"
+          vars:
+            querySnapName: "[? SOURCELUNNAME == '{{item}}'].NAME"
+          with_items: "{{ drLunNames }}"
           when: protectLevel|int == 3
 
         # End Precheck_3
@@ -631,6 +634,7 @@
               Step_1_3: "[{{Step_1_3_Execute}}] Remove DR LUNs from LUN Group"
               Step_1_4: "[{{Step_1_4_Execute}}] Remove Metro LUNs from LUN Group"
               Step_1_5: "[{{Step_1_5_Execute}}] Remove Primary LUNs from LUN Group"
+              Step_2_0: "[{{Step_2_0_Execute}}] Delete DR Star"
               Step_2_1: "[{{Step_2_1_Execute}}] Disable DR Star"
               Step_2_2: "[{{Step_2_2_Execute}}] Remove Standby DR Pairs from Standby Replication CG"
               Step_2_3: "[{{Step_2_3_Execute}}] Remove DR Pairs from Replication CG"

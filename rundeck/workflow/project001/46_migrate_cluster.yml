@@ -95,7 +95,18 @@
             hostGroupName: "{{ primaryClusterName }}"
 
         - set_fact:
-            nextScsiId: "{{ maxScsiId if (maxScsiId|int < checkedHostLunIdMin|int) else (checkedHostLunIdMin|int - 1)  }}"
+            currentMinScsiId: "{{ maxScsiId|int + 1 }}"
+            placeholderScsiIds: "{{ OSTYPE[OS_Type]['placeholder_scsi_id'] }}"
+
+        - set_fact:
+            currentMinScsiId: "{{ item|int }}"
+          when:
+            - currentMinScsiId|int > item|int
+            - item|int not in placeholderScsiIds
+          with_items: "{{ checkedHostLunIds }}"
+
+        - set_fact:
+            nextScsiId: "{{ currentMinScsiId|int - 1 }}"
             primaryLgNames: "{{ checkedLgNames }}"
             primaryLgDescs: "{{ checkedLgs | json_query('[*].DESCRIPTION') }}"
             targetLgDescs: []
@@ -121,8 +132,8 @@
             targetLuns: "{{ targetLuns + [targetLun] }}"
           vars:
             targetLun:
-              name: "{{ lunNameTemplate | format( targetLunPrefix, (maxScsiId|int - (nextScsiId|int - item.0)) ) }}"
-              desc: "{{ primaryLunDescs[item.0][0:1] }}_00_{{replicaType}}_00_0000000000000000_01|{{primaryLunDescs[item.0].split('|')[1]}}"
+              name: "{{ lunNameTemplate | format( targetLunPrefix, (maxScsiId|int - (nextScsiId|int - item.0) + 1) ) }}"
+              desc: "{{ primaryLunDescs[item.0][0:1] }}_00_{{replicaType}}_00_0000000000000000_01|{{ primaryLunDescs[item.0].split('|')[1] | default('') }}"
               sector: "{{ primaryLunSectors[item.0] }}"
               lg: "{{ primaryLunLgs[item.0] }}"
               class: "{{ primaryLunDescs[item.0][0:1] }}"

@@ -18,7 +18,7 @@
               Modify_Session_Name: "{{ (Modify_Session_Name is none) or (Modify_Session_Name[0:3] == Country + '0' and Modify_Session_Name|length <= 19 and '_' not in Modify_Session_Name) }}"
               Check_Result_1: "{{ ('cluster' in Check_Result_1) }}"
 
-        - name: Precheck_0_1 - Check Host Params
+        - name: Precheck_0_1 - Check Params
           debug:
             msg: "{{checked_cluster_params}}"
           failed_when: checked_cluster_params.values()|unique != [True]
@@ -49,7 +49,7 @@
               Modify_Class_2: "{{ (Modify_Class_2 is none) or (Modify_Class_2 in ['A','B','C','D']) }}"
               Check_Result_3: "{{ ('cluster' in Check_Result_3) }}"
 
-        - name: Precheck_0_3 - Check DR Host Params
+        - name: Precheck_0_3 - Check DR Params
           debug:
             msg: "{{checked_dr_cluster_params}}"
           failed_when: checked_dr_cluster_params.values()|unique != [True]
@@ -371,24 +371,19 @@
         - set_fact:
 
             # Modify Primary LUN Class on DJ
-            Step_0_3_Execute: "{{ (class1 != class1New) and (primaryLunIds|length > 0) }}"
-            Step_0_3_Completed: False
-            Step_0_3_Rollbacked: False
+            Step_0_1_Execute: "{{ (class1 != class1New) and (primaryLunIds|length > 0) }}"
+            Step_0_1_Completed: False
+            Step_0_1_Rollbacked: False
 
             # Modify Metro LUN Class on DJ
-            Step_0_4_Execute: "{{ (metroEnable == 'Y') and (class1 != class1New) and (metroLunIds|length > 0) }}"
-            Step_0_4_Completed: False
-            Step_0_4_Rollbacked: False
+            Step_0_2_Execute: "{{ (metroEnable == 'Y') and (class1 != class1New) and (metroLunIds|length > 0) }}"
+            Step_0_2_Completed: False
+            Step_0_2_Rollbacked: False
 
             # Modify DR LUN Class on DJ
-            Step_0_5_Execute: "{{ (protectLevel|int >= 2) and (class2 != class2New) and (drLunIds|length > 0) }}"
-            Step_0_5_Completed: False
-            Step_0_5_Rollbacked: False
-
-            # Modify DR Test LUN Class on DJ
-            Step_0_6_Execute: "{{ (protectLevel|int == 3) and (class3 != class3New) and (drTestLunIds|length > 0) }}"
-            Step_0_6_Completed: False
-            Step_0_6_Rollbacked: False
+            Step_0_3_Execute: "{{ (protectLevel|int >= 2) and (class2 != class2New) and (drLunIds|length > 0) }}"
+            Step_0_3_Completed: False
+            Step_0_3_Rollbacked: False
 
             # Modify Primary Cluster
             Step_1_1_Execute: "{{ (primaryClusterName != primaryClusterNameNew) or (primaryClusterDesc != primaryClusterDescNew) }}"
@@ -494,10 +489,9 @@
         - name: Workflow - Modify Cluster Info
           debug:
             msg:
-              Step_0_3: "[{{Step_0_3_Execute}}] Modify Primary LUN Class on DJ"
-              Step_0_4: "[{{Step_0_4_Execute}}] Modify Metro LUN Class on DJ"
-              Step_0_5: "[{{Step_0_5_Execute}}] Modify DR LUN Class on DJ"
-              Step_0_6: "[{{Step_0_6_Execute}}] Modify DR Test LUN Class on DJ"
+              Step_0_1: "[{{Step_0_1_Execute}}] Modify Primary LUN Class on DJ"
+              Step_0_2: "[{{Step_0_2_Execute}}] Modify Metro LUN Class on DJ"
+              Step_0_3: "[{{Step_0_3_Execute}}] Modify DR LUN Class on DJ"
               Step_1_1: "[{{Step_1_1_Execute}}] Modify Primary Cluster"
               Step_1_2: "[{{Step_1_2_Execute}}] Modify Primary LUNs"
               Step_1_3: "[{{Step_1_3_Execute}}] Modify Primary LUN Group"
@@ -520,7 +514,7 @@
               Step_4_4: "[{{Step_4_4_Execute}}] Modify DR Test CG Name"
 
         - block:
-            - name: Step_0_3 - Modify Primary LUN Class on DJ
+            - name: Step_0_1 - Modify Primary LUN Class on DJ
               debug:
                 msg:
                   params:
@@ -535,12 +529,12 @@
                 tierName: "{{ class1New }}"
 
             - set_fact:
-                Step_0_3_Completed: True
+                Step_0_1_Completed: True
 
-          when: Step_0_3_Execute
+          when: Step_0_1_Execute
 
         - block:
-            - name: Step_0_4 - Modify Metro LUN Class on DJ
+            - name: Step_0_2 - Modify Metro LUN Class on DJ
               debug:
                 msg:
                   params:
@@ -555,12 +549,12 @@
                 tierName: "{{ class1New }}"
 
             - set_fact:
-                Step_0_4_Completed: True
+                Step_0_2_Completed: True
 
-          when: Step_0_4_Execute
+          when: Step_0_2_Execute
 
         - block:
-            - name: Step_0_5 - Modify DR LUN Class on DJ
+            - name: Step_0_3 - Modify DR LUN Class on DJ
               debug:
                 msg:
                   params:
@@ -575,29 +569,9 @@
                 tierName: "{{ class2New }}"
 
             - set_fact:
-                Step_0_5_Completed: True
+                Step_0_3_Completed: True
 
-          when: Step_0_5_Execute
-
-        - block:
-            - name: Step_0_6 - Modify DR Test LUN Class on DJ
-              debug:
-                msg:
-                  params:
-                    volumeNames: "{{ drTestLunNames }}"
-                    tierName:
-                      new: "{{ class3New }}"
-                      old: "{{ class3 }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
-              vars:
-                volumeNames: "{{ drTestLunNames }}"
-                tierName: "{{ class3New }}"
-
-            - set_fact:
-                Step_0_6_Completed: True
-
-          when: Step_0_6_Execute
+          when: Step_0_3_Execute
 
         - block:
             - name: Step_1_1 - Modify Primary Cluster
@@ -810,7 +784,7 @@
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_drstar.yml"
               vars:
-                modifyDRStarId: "{{ drStarId }}"
+                modifyDRStarId: "{{ drStarCgId }}"
                 newDRStarName: "{{ drStarCgNameNew }}"
 
             - set_fact:
@@ -1701,7 +1675,7 @@
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_drstar.yml"
               vars:
-                modifyDRStarId: "{{ drStarId }}"
+                modifyDRStarId: "{{ drStarCgId }}"
                 newDRStarName: "{{ drStarCgName }}"
 
             - set_fact:
@@ -1901,27 +1875,7 @@
           when: Step_1_1_Completed
 
         - block:
-            - name: Rollback_0_6 - Modify DR Test LUN Class on DJ
-              debug:
-                msg:
-                  params:
-                    volumeNames: "{{ drTestLunNames }}"
-                    tierName:
-                      new: "{{ class3 }}"
-                      old: "{{ class3New }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
-              vars:
-                volumeNames: "{{ drTestLunNames }}"
-                tierName: "{{ class3 }}"
-
-            - set_fact:
-                Step_0_6_Rollbacked: True
-
-          when: Step_0_6_Completed
-
-        - block:
-            - name: Rollback_0_5 - Modify DR LUN Class on DJ
+            - name: Rollback_0_3 - Modify DR LUN Class on DJ
               debug:
                 msg:
                   params:
@@ -1936,12 +1890,12 @@
                 tierName: "{{ class2 }}"
 
             - set_fact:
-                Step_0_5_Rollbacked: True
+                Step_0_3_Rollbacked: True
 
-          when: Step_0_5_Completed
+          when: Step_0_3_Completed
 
         - block:
-            - name: Rollback_0_4 - Modify Metro LUN Class on DJ
+            - name: Rollback_0_2 - Modify Metro LUN Class on DJ
               debug:
                 msg:
                   params:
@@ -1956,12 +1910,12 @@
                 tierName: "{{ class1 }}"
 
             - set_fact:
-                Step_0_4_Rollbacked: True
+                Step_0_2_Rollbacked: True
 
-          when: Step_0_4_Completed
+          when: Step_0_2_Completed
 
         - block:
-            - name: Rollback_0_3 - Modify Primary LUN Class on DJ
+            - name: Rollback_0_1 - Modify Primary LUN Class on DJ
               debug:
                 msg:
                   params:
@@ -1976,9 +1930,9 @@
                 tierName: "{{ class1 }}"
 
             - set_fact:
-                Step_0_3_Rollbacked: True
+                Step_0_1_Rollbacked: True
 
-          when: Step_0_3_Completed
+          when: Step_0_1_Completed
 
       # End Rollbacks
       always:
@@ -2063,7 +2017,7 @@
     # Begin Validate Results
     - block:
 
-        - name: Result_0_3 - Modify Primary LUN Class on DJ
+        - name: Result_0_1 - Modify Primary LUN Class on DJ
           debug:
             msg:
               params:
@@ -2072,12 +2026,12 @@
                   new: "{{ class1New }}"
                   old: "{{ class1 }}"
               result:
-                succeeded: "{{ Step_0_3_Completed }}"
-                rollbacked: "{{ Step_0_3_Rollbacked }}"
-          failed_when: Step_0_3_Completed|bool == False
-          when: Step_0_3_Execute
+                succeeded: "{{ Step_0_1_Completed }}"
+                rollbacked: "{{ Step_0_1_Rollbacked }}"
+          failed_when: Step_0_1_Completed|bool == False
+          when: Step_0_1_Execute
 
-        - name: Result_0_4 - Modify Metro LUN Class on DJ
+        - name: Result_0_2 - Modify Metro LUN Class on DJ
           debug:
             msg:
               params:
@@ -2086,12 +2040,12 @@
                   new: "{{ class1New }}"
                   old: "{{ class1 }}"
               result:
-                succeeded: "{{ Step_0_4_Completed }}"
-                rollbacked: "{{ Step_0_4_Rollbacked }}"
-          failed_when: Step_0_4_Completed|bool == False
-          when: Step_0_4_Execute
+                succeeded: "{{ Step_0_2_Completed }}"
+                rollbacked: "{{ Step_0_2_Rollbacked }}"
+          failed_when: Step_0_2_Completed|bool == False
+          when: Step_0_2_Execute
 
-        - name: Result_0_5 - Modify DR LUN Class on DJ
+        - name: Result_0_3 - Modify DR LUN Class on DJ
           debug:
             msg:
               params:
@@ -2100,24 +2054,10 @@
                   new: "{{ class2New }}"
                   old: "{{ class2 }}"
               result:
-                succeeded: "{{ Step_0_5_Completed }}"
-                rollbacked: "{{ Step_0_5_Rollbacked }}"
-          failed_when: Step_0_5_Completed|bool == False
-          when: Step_0_5_Execute
-
-        - name: Result_0_6 - Modify DR Test LUN Class on DJ
-          debug:
-            msg:
-              params:
-                volumeNames: "{{ drTestLunNames }}"
-                tierName:
-                  new: "{{ class2New }}"
-                  old: "{{ class2 }}"
-              result:
-                succeeded: "{{ Step_0_6_Completed }}"
-                rollbacked: "{{ Step_0_6_Rollbacked }}"
-          failed_when: Step_0_6_Completed|bool == False
-          when: Step_0_6_Execute
+                succeeded: "{{ Step_0_3_Completed }}"
+                rollbacked: "{{ Step_0_3_Rollbacked }}"
+          failed_when: Step_0_3_Completed|bool == False
+          when: Step_0_3_Execute
 
         - name: Result_1_1 - Modify Primary Cluster
           debug:

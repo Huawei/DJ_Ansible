@@ -39,6 +39,8 @@
     multivalued: true
     name: LUN_List
     valuesUrl: http://localhost:26336/rest/data/v1/search/volume?pageNo=${option.pageNo.value}&pageSize=${option.pageSize.value}&nameAttr=name&valueAttr=name&changedBefore=${option.Changed_Before.value}&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"${option.Mapped.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - name: Delimiter
+    value: ','
   scheduleEnabled: true
   sequence:
     commands:
@@ -55,12 +57,13 @@
             - {"k":"mapped","op":"equal","v":${option.Mapped}}
             - {"k":"dataStatus","op":"equal","v":"normal"}
           export: "/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}.csv"
+          sep: "${option.Delimiter}"
         ansible-playbook: /var/lib/rundeck/ansible/playbook/cmdb/list_instances.yml
       description: Export Hosts
       nodeStep: false
       type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
     - configuration:
-        command: echo "<a href='/project001/export/${job.name}-${job.execid}.csv'>${job.name}-${job.execid}-${job.user.name}.csv</a>"
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}-${job.user.name}.csv'>${job.name}-${job.execid}-${job.user.name}.csv</a>"
       description: Download Link
       nodeStep: true
       plugins:

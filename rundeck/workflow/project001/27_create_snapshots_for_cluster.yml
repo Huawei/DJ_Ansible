@@ -49,6 +49,7 @@
         protectLevel: 1
 
     - set_fact:
+        maxScsiId: "{{ OSTYPE[osType]['max_scsi_id'] }}"                                   # See ../../config/project001.yml
         protectType: "{{ REPTYPE[metroEnable+protectLevel|string]['enum'] }}"              # See ../../config/project001.yml
         replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
 
@@ -96,13 +97,45 @@
           vars:
             hostGroupName: "{{ targetClusterName }}"
 
-        - set_fact:
-            nextScsiId: "{{ checkedHostLunIdMax|int + 1 }}"
-            lastScsiId: "{{ checkedHostLunIdMax|int + lunNum|int }}"
-            targetLunNames: []
+        - block:
+            - set_fact:
+                currentMinScsiId: "{{ maxScsiId|int + 1 }}"
+                placeholderScsiIds: "{{ OSTYPE[osType]['placeholder_scsi_id'] }}"
+
+            - set_fact:
+                currentMinScsiId: "{{ item|int }}"
+              when:
+                - currentMinScsiId|int > item|int
+                - item|int not in placeholderScsiIds
+              with_items: "{{ checkedHostLunIds }}"
+
+            - set_fact:
+                nextScsiId: "{{ currentMinScsiId|int - 1  }}"
+                lastScsiId: "{{ currentMinScsiId|int - lunNum|int  }}"
+
+          when: Start_SCSI_ID|default(none) is none
+
+        - block:
+            - set_fact:
+                lastScsiId: "{{ Start_SCSI_ID|int }}"
+                nextScsiId: "{{ Start_SCSI_ID|int + lunNum|int - 1 }}"
+
+            - name: Check Host SCSI IDs Conflicts
+              fail:
+                msg: "SCSI ID {{ item|int }} is occupied"
+              when: item|int >= lastScsiId|int and item|int <= nextScsiId|int
+              with_items: "{{ checkedHostLunIds }}"
+
+          when: Start_SCSI_ID|default(none) is not none
 
         - set_fact:
-            targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(targetLunPrefix, nextScsiId|int + item|int) ] }}"
+            nextSuffix: "{{ (maxScsiId|int - nextScsiId|int + 1) }}"
+            targetLunNames: []
+            lunScsiIds: []
+
+        - set_fact:
+            targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(targetLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
+            lunScsiIds: "{{ lunScsiIds + [nextScsiId|int - item|int] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
@@ -204,7 +237,7 @@
               vars:
                 lgName: "{{ targetLgName }}"
                 lunNames: "{{ targetLunNames }}"
-                startScsiId: "{{ nextScsiId }}"
+                addLunScsiIds: "{{ lunScsiIds }}"
 
             - set_fact:
                 Step_1_2_Completed: True

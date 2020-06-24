@@ -5,7 +5,7 @@
 #
 # Optional parameters:
 #
-#   disableQos:             # Disable QoS or Not, default: Yes, options: Yes, No
+#   disableQoS:             # Disable QoS or Not, default: Yes, options: Yes, No
 #
 # Generated parameters (can be overwritten):
 #   volumeIds:              # a list of volume IDs
@@ -89,4 +89,4 @@
       loop_control:
         loop_var: i
 
-  when: disableQos|default(True)|bool == True
+  when: disableQoS|default(True)|bool == True

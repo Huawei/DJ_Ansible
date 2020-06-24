@@ -14,7 +14,7 @@
         - name: Read Host name from upload file
           read_csv:
             path: "{{ Upload_Host }}"
-            delimiter: '|'
+            delimiter: "{{ Delimiter | default(',') }}"
           register: UPLOAD_HOSTS
 
         - set_fact:

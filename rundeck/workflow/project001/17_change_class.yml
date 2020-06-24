@@ -14,7 +14,7 @@
         - name: Read LUN name from upload file
           read_csv:
             path: "{{ Upload_LUN }}"
-            delimiter: '|'
+            delimiter: "{{ Delimiter | default(',') }}"
           register: UPLOAD_LUNS
 
         - set_fact:

@@ -427,7 +427,10 @@
           when: protectLevel|int == 3
 
         - set_fact:
-            drTestLunNames: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].NAME') }}"
+            drTestLunNames: "{{ drTestLunNames + SNAPSHOTS.json.data | default([]) | json_query(querySnapName) }}"
+          vars:
+            querySnapName: "[? SOURCELUNNAME == '{{item}}'].NAME"
+          with_items: "{{ drLunNames }}"
           when: protectLevel|int == 3
 
         # End Precheck_3

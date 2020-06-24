@@ -31,6 +31,8 @@
   - description: Upload the CSV file with a field of 'name'
     name: Upload_Host
     type: file
+  - name: Delimiter
+    value: ','
   scheduleEnabled: true
   sequence:
     commands:
@@ -41,6 +43,7 @@
           Room: ${option.Room}
           Select_Host: ${option.Select_Host}
           Upload_Host: ${file.Upload_Host}
+          Delimiter: "${option.Delimiter}"
         ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/47_set_host_az.yml
       nodeStep: false
       type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep

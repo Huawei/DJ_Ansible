@@ -30,9 +30,11 @@
     multivalued: true
     name: Select_LUN
     valuesUrl: http://localhost:26336/rest/data/v1/join/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"${option.Mapped.value}"}},{"logOp":"and","simple":{"name":"djTierId","operator":"not%20null"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"tier","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Class.value}"}}]}}]
-  - description: Upload the file exported by job "12_export_lun"
-    name: Upload_LUN
+  - name: Upload_LUN
+    description: Upload CSV file contains a filed 'name'
     type: file
+  - name: Delimiter
+    value: ','
   scheduleEnabled: true
   sequence:
     commands:
@@ -42,6 +44,7 @@
         ansible-extra-vars: |-
           Select_LUN: ${option.Select_LUN}
           Upload_LUN: ${file.Upload_LUN}
+          Delimiter: "${option.Delimiter}"
         ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/20_update_class.yml
       nodeStep: false
       type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep

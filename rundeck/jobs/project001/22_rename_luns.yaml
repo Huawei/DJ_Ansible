@@ -16,13 +16,15 @@
     multivalued: true
     name: Select_LUN
     valuesUrl: http://localhost:26336/rest/data/v1/search/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
-  - description: Upload the CSV file with a field of 'name' <BR>If the file contains a field of 'newName', will ignore LUN_Prefix
-    name: Upload_LUN
-    type: file
   - name: LUN_Prefix
     description: Maximum 28 characters, LUN naming convension is {COUNTRY:2} _ {OS:3} _ {HOST:16} _ {CHAIN:1} _ {PROTECT:1}{TYPE:1}{Suffix:3}
   - name: Start_Suffix
     value: 0
+  - description: Upload the CSV file with a field of 'name' <BR>If the file contains a field of 'newName', will ignore LUN_Prefix
+    name: Upload_LUN
+    type: file
+  - name: Delimiter
+    value: ','
   scheduleEnabled: true
   sequence:
     commands:
@@ -32,6 +34,7 @@
         ansible-extra-vars: |-
           Select_LUN: ${option.Select_LUN}
           Upload_LUN: ${file.Upload_LUN}
+          Delimiter: "${option.Delimiter}"
           LUN_Prefix: ${option.LUN_Prefix}
           Start_Suffix: ${option.Start_Suffix}
         ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/22_rename_luns.yml

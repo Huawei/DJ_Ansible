@@ -1,5 +1,5 @@
 - defaultTab: monitor
-  description: Create Snapshots from a Source Cluster, and add to LUN Group, Protect Group, Replication CGs, HyperMetro CG of a Target Cluster
+  description: Create Snapshots from a Source Cluster, and add to LUN Group of a Target Cluster
   executionEnabled: true
   id: 086d5268-3fd8-4884-9172-567c417717ee
   loglevel: INFO
@@ -7,7 +7,7 @@
   nodeFilterEditable: false
   options:
   - name: Job_Description
-    value: Create Snapshots from a Source Cluster, and add to LUN Group, Protect Group, Replication CGs, HyperMetro CG of a Target Cluster
+    value: Create Snapshots from a Source Cluster, and add to LUN Group of a Target Cluster
   - name: Username
     valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
     description: (Optional) Alternative username/password to login all storage
@@ -72,13 +72,14 @@
     values:
       - 'Yes'
       - 'No'
+  - name: Start_SCSI_ID
   - delimiter: '|'
     multivalued: true
     name: Snapshot_Description
     description: Add Snapshot Description (optional, max 200 chars for all items, '|' and '_' not permitted)
   - enforced: true
     name: Class_1
-    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.LUN_Group.value}
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.Target_LUN_Group.value}
   - name: Designate_Class_1
     valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
   - delimiter: ','
@@ -118,6 +119,7 @@
           Storage: ${option.Storage}
           Storage_Room: ${option.Storage_Room}
           Activate: ${option.Activate}
+          Start_SCSI_ID: ${option.Start_SCSI_ID}
           Snapshot_Description: ${option.Snapshot_Description}
           Class_1: ${option.Class_1}
           Designate_Class_1: ${option.Designate_Class_1}

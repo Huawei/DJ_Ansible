@@ -40,8 +40,10 @@
     name: Select_LUN
     valuesUrl: http://localhost:26336/rest/data/v1/search/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&changedBefore=${option.Changed_Before.value}&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"false"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
   - name: Upload_LUN
-    description: Upload the file exported by job "12_export_lun"
+    description: Upload CSV file contains a filed 'name'
     type: file
+  - name: Delimiter
+    value: ','
   - enforced: true
     name: Delete_Clone_Target
     value: 'Yes'
@@ -62,6 +64,7 @@
           TICKET_NUMBER: ${option.TICKET_NUMBER}
           Select_LUN: ${option.Select_LUN}
           Upload_LUN: ${file.Upload_LUN}
+          Delimiter: "${option.Delimiter}"
           Delete_Clone_Target: ${option.Delete_Clone_Target}
         ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/16_delete_lun.yml
       nodeStep: false

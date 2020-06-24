@@ -691,7 +691,7 @@
           failed_when: Step_2_6_Completed|bool == False
           when: Step_2_6_Execute
 
-        - name: Step_3_1 - Update DR Test LUNs to KPI table
+        - name: Result_3_1 - Update DR Test LUNs to KPI table
           debug:
             msg:
               params:
@@ -701,7 +701,7 @@
           failed_when: Step_3_1_Completed|bool == False
           when: Step_3_1_Execute
 
-        - name: Step_3_2 - Update Orphan DR LUNs to KPI table
+        - name: Result_3_2 - Update Orphan DR LUNs to KPI table
           debug:
             msg:
               params:

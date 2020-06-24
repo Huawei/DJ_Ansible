@@ -160,13 +160,6 @@
         - modifyHostIds|default(none) is not none
         - modifyHostIds|length > 0
 
-    - name: Show Modify Host SCSI Id Request Info
-      debug:
-        msg:
-          modifyHostGroupIds: "{{ modifyHostGroupIds|default(none) }}"
-          addLunIds: "{{ addLunIds|default(none) }}"
-          newScsiIds: "{{ newScsiIds|default(none) }}"
-
     - name: Modify Host Group SCSI ID
       uri:
         url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/hostLunInfo"

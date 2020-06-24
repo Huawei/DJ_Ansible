@@ -416,11 +416,6 @@
             Step_0_5_Completed: False
             Step_0_5_Rollbacked: False
 
-            # Modify DR Test LUN Class on DJ
-            Step_0_6_Execute: "{{ (protectLevel|int == 3) and (class3 != class3New) and (drTestLunIds|length > 0) }}"
-            Step_0_6_Completed: False
-            Step_0_6_Rollbacked: False
-
             # Modify Primary Host
             Step_1_1_Execute: "{{ (primaryHostName != primaryHostNameNew) or (primaryHostDesc != primaryHostDescNew) }}"
             Step_1_1_Completed: False
@@ -529,7 +524,6 @@
               Step_0_3: "[{{Step_0_3_Execute}}] Modify Primary LUN Class on DJ"
               Step_0_4: "[{{Step_0_4_Execute}}] Modify Metro LUN Class on DJ"
               Step_0_5: "[{{Step_0_5_Execute}}] Modify DR LUN Class on DJ"
-              Step_0_6: "[{{Step_0_6_Execute}}] Modify DR Test LUN Class on DJ"
               Step_1_1: "[{{Step_1_1_Execute}}] Modify Primary Host"
               Step_1_2: "[{{Step_1_2_Execute}}] Modify Primary LUNs"
               Step_1_3: "[{{Step_1_3_Execute}}] Modify Primary LUN Group"
@@ -652,26 +646,6 @@
                 Step_0_5_Completed: True
 
           when: Step_0_5_Execute
-
-        - block:
-            - name: Step_0_6 - Modify DR Test LUN Class on DJ
-              debug:
-                msg:
-                  params:
-                    volumeNames: "{{ drTestLunNames }}"
-                    tierName:
-                      new: "{{ class3New }}"
-                      old: "{{ class3 }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
-              vars:
-                volumeNames: "{{ drTestLunNames }}"
-                tierName: "{{ class3New }}"
-
-            - set_fact:
-                Step_0_6_Completed: True
-
-          when: Step_0_6_Execute
 
         - block:
             - name: Step_1_1 - Modify Primary Host
@@ -1975,26 +1949,6 @@
           when: Step_1_1_Completed
 
         - block:
-            - name: Rollback_0_6 - Modify DR Test LUN Class on DJ
-              debug:
-                msg:
-                  params:
-                    volumeNames: "{{ drTestLunNames }}"
-                    tierName:
-                      new: "{{ class3 }}"
-                      old: "{{ class3New }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/change_volumes_to_tier.yml"
-              vars:
-                volumeNames: "{{ drTestLunNames }}"
-                tierName: "{{ class3 }}"
-
-            - set_fact:
-                Step_0_6_Rollbacked: True
-
-          when: Step_0_6_Completed
-
-        - block:
             - name: Rollback_0_5 - Modify DR LUN Class on DJ
               debug:
                 msg:
@@ -2247,20 +2201,6 @@
                 rollbacked: "{{ Step_0_5_Rollbacked }}"
           failed_when: Step_0_5_Completed|bool == False
           when: Step_0_5_Execute
-
-        - name: Result_0_6 - Modify DR Test LUN Class on DJ
-          debug:
-            msg:
-              params:
-                volumeNames: "{{ drTestLunNames }}"
-                tierName:
-                  new: "{{ class2New }}"
-                  old: "{{ class2 }}"
-              result:
-                succeeded: "{{ Step_0_6_Completed }}"
-                rollbacked: "{{ Step_0_6_Rollbacked }}"
-          failed_when: Step_0_6_Completed|bool == False
-          when: Step_0_6_Execute
 
         - name: Result_1_1 - Modify Primary Host
           debug:
