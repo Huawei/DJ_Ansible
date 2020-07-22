@@ -134,14 +134,14 @@
         drLunIds: []
         drLunNames: []
         drLunNamesNew: []
-        drLunPrefixNew: "{{drHostName}}_{{protectType}}N"
+        drLunPrefixNew: "{{DR_Host}}_{{protectType}}N"
         drLunDescsNew: []
         drLunDesc1New: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2"
         drTestCgNameNew: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
         drTestLunIds: []
         drTestLunNames: []
         drTestLunNamesNew: []
-        drTestLunPrefixNew: "{{drTestHostName}}_{{protectType}}N"
+        drTestLunPrefixNew: "{{DR_Test_Host}}_{{protectType}}N"
         drTestLunDescsNew: []
         drTestLunDesc1New: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3"
 

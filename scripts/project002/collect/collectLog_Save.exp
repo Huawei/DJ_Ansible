@@ -1,0 +1,27 @@
+#!/usr/bin/expect
+############################################################################################
+#Program name:          collectLog.sh     
+#function:              Collect Brocade Switch Logs using supportsave
+#time:                  2020-03-17
+############################################################################################
+if {$argc < 3} {
+    send_user "Usage: expect collectLog_Save.exp switchIP switch_user switch_pwd.\n"
+    exit
+}
+
+set switch_IP [lindex $argv 0]
+set switch_user [lindex $argv 1]
+set switch_pwd [lindex $argv 2]
+set ftp_path [lindex $argv 3]
+
+set ftp_user
+set ftp_pwd
+set ftp_ip
+
+set timeout -1;
+spawn ssh -o StrictHostKeyChecking=no ${switch_user}@${switch_IP}
+expect "*assword:" {send "${switch_pwd}\r"}
+expect "*${switch_user}>"
+send "supportsave -n -u ${ftp_user} -p ${ftp_pwd} -h ${ftp_ip} -d ${ftp_path} -l sftp\r"
+expect "*${switch_user}>" {send "exit\r"}
+exit 0

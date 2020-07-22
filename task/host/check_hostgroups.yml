@@ -45,9 +45,9 @@
       hostGroupIds: "{{ hostGroupIds }}"
   failed_when: (checkExist|default(True)|bool == True and hostGroupIds|length != hostGroupNames|length) or (checkExist|default(True)|bool == False and hostGroupIds|length > 0)
 
-- name: Query Hosts In Cluster by Id
+- name: Query Hosts In Cluster
   uri:
-    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{hostGroupIds[0]}}/hosts/list"
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{item}}/hosts/list"
     method: POST
     validate_certs: no
     headers:
@@ -55,8 +55,7 @@
       Content-Type: "application/json;charset=utf8"
       X-Auth-Token: "{{djToken}}"
     body_format: json
-    body:
-      name: "{{item}}"
+    body: {}
   register: HOSTINCLUSTER
   with_items: "{{ hostGroupIds }}"
 
@@ -64,3 +63,7 @@
   set_fact:
     hostsInHostGroups: "{{ hostsInHostGroups + HOSTINCLUSTER.results[item.0].json.hosts | default([]) }}"
   with_indexed_items: "{{ hostGroupIds }}"
+
+- debug:
+    msg:
+      hostsInHostGroups: "{{ hostsInHostGroups }}"

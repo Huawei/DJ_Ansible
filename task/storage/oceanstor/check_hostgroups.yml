@@ -38,29 +38,19 @@
     checkedHostGroups: "{{ checkedHostGroups + HOSTGROUPS.results[item.0].json.data | default([]) | json_query(queryHostGroups) }}"
   with_indexed_items: "{{ hostGroupNames }}"
 
-- name: Check Host Group Belong to a specific Mapping
-  uri:
-    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mappingview/associate?ASSOCIATEOBJTYPE=14&ASSOCIATEOBJID={{item.0|urlencode}}&range=[0-100]"
-    method: GET
-    validate_certs: no
-    headers:
-      Accept: "application/json"
-      Content-Type: "application/json;charset=utf8"
-      iBaseToken: "{{ deviceToken }}"
-      Cookie: "session={{ deviceSession }}"
-  register: MAPPINGS
-  with_items: "{{ hostGroupIds }}"
-
-- name: Get Mapping IDs
-  set_fact:
-    mappingIds: "{{ mappingIds + MAPPINGS.results[item.0].json.data | default([]) }}"
-  with_indexed_items: "{{ hostGroupIds }}"
-  when:
-    - checkMapped|default(True)|bool == True and MAPPINGS|length > 0
-
 - name: Check Host Group Name Exist
   debug:
     msg:
       hostGroupIds: "{{ hostGroupIds }}"
   failed_when: (checkExist|default(True)|bool == True and hostGroupIds|length != hostGroupNames|length) or (checkExist|default(True)|bool == False and hostGroupIds|length > 0)
 
+- name: Check Host Group Mapping
+  debug:
+    msg:
+      hostGroup: "{{ checkedHostGroups[item.0].NAME }}"
+      mappedLuns: "{{ checkedHostGroups[item.0].mappingLunNumber }}"
+  failed_when: (checkMapped|bool == True and checkedHostGroups[item.0].mappingLunNumber|int == 0) or (checkMapped|bool == False and checkedHostGroups[item.0].mappingLunNumber|int > 0)
+  with_indexed_items: "{{ hostGroupIds }}"
+  when: 
+    - checkExist|default(True)|bool == True
+    - checkMapped|default(none) is not none

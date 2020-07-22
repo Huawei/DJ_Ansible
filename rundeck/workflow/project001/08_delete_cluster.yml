@@ -1295,6 +1295,7 @@
           set_fact:
             primaryClusterNeedDelete: "{{ (Step_1_4_Completed|bool == True and Step_1_4_Rollbacked|bool == False) }}"
             drClusterNeedDelete: "{{ (Step_3_3_Completed|bool == True and Step_3_3_Rollbacked|bool == False) }}"
+            drTestClusterNeedDelete: "{{ (Step_4_2_Completed|bool == True and Step_4_2_Rollbacked|bool == False) }}"
 
         - block:
             - name: Final_Step_2_1 - Delete Primary Cluster on DJ
@@ -1323,16 +1324,40 @@
               set_fact:
                 primaryClusterDjIds: "{{ PRIMARY_CLUSTER.json.hostgroups | json_query(query) }}"
 
-            - name: Delete Primary Cluster on DJ
-              uri:
-                url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{item}}?sync_to_storage=false"
-                method: DELETE
-                validate_certs: no
-                headers:
-                  Accept: "application/json"
-                  Content-Type: "application/json;charset=utf8"
-                  X-Auth-Token: "{{djToken}}"
-              with_items: "{{ primaryClusterDjIds }}"
+            - block:
+                - name: Query Hosts In Primary Cluster
+                  uri:
+                    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{primaryClusterDjIds[0]}}/hosts/list"
+                    method: POST
+                    validate_certs: no
+                    headers:
+                      Accept: "application/json"
+                      Content-Type: "application/json;charset=utf8"
+                      X-Auth-Token: "{{djToken}}"
+                    body_format: json
+                    body: {}
+                  register: PRIMARY_HOSTS
+
+                - name: Get Hosts In Primary Cluster
+                  set_fact:
+                    primaryHostDjIds: "{{ PRIMARY_HOSTS.json.hosts | default([]) | json_query('[*].id') }}"
+
+                - name: Remove Hosts from Primary Cluster
+                  uri:
+                    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{primaryClusterDjIds[0]}}/hosts/remove"
+                    method: PUT
+                    validate_certs: no
+                    headers:
+                      Accept: "application/json"
+                      Content-Type: "application/json;charset=utf8"
+                      X-Auth-Token: "{{djToken}}"
+                    body_format: json
+                    body:
+                      host_ids: "{{ primaryHostDjIds }}"
+                      sync_to_storage: False
+                  register: RMRESULT
+                  when: primaryHostDjIds|length > 0
+
               when: primaryClusterDjIds|length > 0
 
           when: primaryClusterNeedDelete
@@ -1364,19 +1389,108 @@
               set_fact:
                 drClusterDjIds: "{{ DR_CLUSTER.json.hostgroups | json_query(query) }}"
 
-            - name: Delete Primary Cluster on DJ
+            - block:
+                - name: Query Hosts In DR Cluster
+                  uri:
+                    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{drClusterDjIds[0]}}/hosts/list"
+                    method: POST
+                    validate_certs: no
+                    headers:
+                      Accept: "application/json"
+                      Content-Type: "application/json;charset=utf8"
+                      X-Auth-Token: "{{djToken}}"
+                    body_format: json
+                    body: {}
+                  register: DR_HOSTS
+
+                - name: Get Hosts In DR Cluster
+                  set_fact:
+                    drHostDjIds: "{{ DR_HOSTS.json.hosts | default([]) | json_query('[*].id') }}"
+
+                - name: Remove Hosts from DR Cluster
+                  uri:
+                    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{drClusterDjIds[0]}}/hosts/remove"
+                    method: PUT
+                    validate_certs: no
+                    headers:
+                      Accept: "application/json"
+                      Content-Type: "application/json;charset=utf8"
+                      X-Auth-Token: "{{djToken}}"
+                    body_format: json
+                    body:
+                      host_ids: "{{ drHostDjIds }}"
+                      sync_to_storage: False
+                  register: RMRESULT
+                  when: drHostDjIds|length > 0
+                      
+              when: drClusterDjIds|length > 0
+
+          when: drClusterNeedDelete
+
+        - block:
+            - name: Final_Step_2_3 - Delete DR Test Cluster on DJ
+              debug:
+                msg:
+                  params:
+                    hostGroup: "{{ drTestClusterName }}"
+
+            - name: Check DR Test Cluster Exists on DJ
               uri:
-                url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{item}}?sync_to_storage=false"
-                method: DELETE
+                url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/summary"
+                method: POST
                 validate_certs: no
                 headers:
                   Accept: "application/json"
                   Content-Type: "application/json;charset=utf8"
                   X-Auth-Token: "{{djToken}}"
-              with_items: "{{ drClusterDjIds }}"
-              when: drClusterDjIds|length > 0
+                body_format: json
+                body:
+                  name: "{{drTestClusterName}}"
+              register: DR_TEST_CLUSTER
 
-          when: drClusterNeedDelete
+            - name: Get DR Test Cluster ID on DJ
+              vars:
+                query: "[?name=='{{ drTestClusterName }}'].id"
+              set_fact:
+                drTestClusterDjIds: "{{ DR_TEST_CLUSTER.json.hostgroups | json_query(query) }}"
+
+            - block:
+                - name: Query Hosts In DR Test Cluster
+                  uri:
+                    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{drTestClusterDjIds[0]}}/hosts/list"
+                    method: POST
+                    validate_certs: no
+                    headers:
+                      Accept: "application/json"
+                      Content-Type: "application/json;charset=utf8"
+                      X-Auth-Token: "{{djToken}}"
+                    body_format: json
+                    body: {}
+                  register: DR_TEST_HOSTS
+
+                - name: Get Hosts In DR Test Cluster
+                  set_fact:
+                    drTestHostDjIds: "{{ DR_TEST_HOSTS.json.hosts | default([]) | json_query('[*].id') }}"
+
+                - name: Remove Hosts from DR Test Cluster
+                  uri:
+                    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.hostgroups }}/{{drTestClusterDjIds[0]}}/hosts/remove"
+                    method: PUT
+                    validate_certs: no
+                    headers:
+                      Accept: "application/json"
+                      Content-Type: "application/json;charset=utf8"
+                      X-Auth-Token: "{{djToken}}"
+                    body_format: json
+                    body:
+                      host_ids: "{{ drTestHostDjIds }}"
+                      sync_to_storage: False
+                  register: RMRESULT
+                  when: drTestHostDjIds|length > 0
+
+              when: drTestClusterDjIds|length > 0
+
+          when: drTestClusterNeedDelete
 
       # End Final Steps
 
