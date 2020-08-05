@@ -1,0 +1,22 @@
+#!/usr/bin/expect
+############################################################################################
+#Program name:          createPath.exp     
+#function:              Create path for logs
+#time:                  2020-03-17
+############################################################################################
+if {$argc < 4} {
+    send_user "Usage: expect createPath.exp sftp_IP sftp_User sftp_Pass logs_path.\n"
+    exit
+}
+
+set sftp_IP [lindex $argv 0]
+set sftp_User [lindex $argv 1]
+set sftp_Pass [lindex $argv 2]
+set log_Path [lindex $argv 3]
+
+set timeout -1;
+spawn sftp -o StrictHostKeyChecking=no ${sftp_User}@${sftp_IP}
+expect "*assword:" {send "${sftp_Pass}\r"}
+expect "*sftp>" {send "mkdir ${log_Path}\r"}
+expect "*sftp>" {send "bye\r"}
+exit 0

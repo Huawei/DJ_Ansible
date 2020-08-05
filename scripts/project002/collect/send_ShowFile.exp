@@ -1,0 +1,26 @@
+#!/usr/bin/expect
+############################################################################################
+#Program name:          send_ShowFile.exp
+#function:              Send supportshow file to sftp
+#time:                  2020-03-17
+############################################################################################
+if {$argc < 6} {
+    send_user "Usage: expect send_ShowFile.exp sftp_IP sftp_User sftp_Pass local_Path sftp_Path log_File.\n"
+    exit
+}
+
+set sftp_IP [lindex $argv 0]
+set sftp_User [lindex $argv 1]
+set sftp_Pass [lindex $argv 2]
+set local_Path [lindex $argv 3]
+set sftp_Path [lindex $argv 4]
+set log_File [lindex $argv 5]
+
+set timeout -1;
+spawn sftp -o StrictHostKeyChecking=no ${sftp_User}@${sftp_IP}
+expect "*assword:" {send "${sftp_Pass}\r"}
+expect "*sftp>" {send "cd ${sftp_Path}\r"}
+expect "*sftp>" {send "lcd ${local_Path}\r"}
+expect "*sftp>" {send "put ${log_File}\r"}
+expect "*sftp>" {send "bye\r"}
+exit 0

@@ -4,6 +4,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import ssl
+import time
 
 
 class TodoExecutor:
@@ -84,13 +85,41 @@ class TodoExecutor:
 
     def _execute_todo_group(self, group):
         status = str(group.get("status"))
+        group_id = group.get("id")
         if status == '0':
-            self._todo_group_action(group.get("id"), "confirm")
-        elif status in ('1', '3'):
-            self._todo_group_action(group.get("id"), "execute")
+            self._todo_group_action(group_id, "confirm")
+            print("Timed task group confirm success.")
+        elif status == '1':
+            self._todo_group_action(group_id, "execute")
+            self._check_result(group_id)
         else:
-            print("Todo group status could not be run.")
+            print("Todo group status could not be executed.")
             raise Exception
+
+    def _check_result(self, group_id):
+        print("Wait task group finish...")
+        sec = 0
+        while True:
+            print("Wait task group finish...%ss" % sec)
+            try:
+                group = self._get_group_by_key("group_id", group_id)
+                status = str(group.get("status"))
+                if status == '3':
+                    print("Task group execute finished.")
+                    break
+            except Exception:
+                print("Query task group failed, continue...")
+
+            time.sleep(10)
+            sec += 10
+
+        for item in group.get("items", []):
+            if item.get(status) != 3:
+                print("Some sub task execution failed, please access "
+                      "DME Storage website for more information.")
+                raise Exception("Sub task not success.")
+
+        print("Task group was successfully executed.")
 
     def execute_todo_group_by_name(self, group_name):
         group = self._get_group_by_key("name", group_name)

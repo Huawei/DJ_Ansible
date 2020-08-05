@@ -4,19 +4,18 @@
 #function:              Collect Brocade Switch Logs using supportsave
 #time:                  2020-03-17
 ############################################################################################
-if {$argc < 3} {
-    send_user "Usage: expect collectLog_Save.exp switchIP switch_user switch_pwd.\n"
+if {$argc < 7} {
+    send_user "Usage: expect collectLog_Save.exp switch_user switch_pwd switchIP ftp_user ftp_pwd ftp_ip ftp_path.\n"
     exit
 }
 
-set switch_IP [lindex $argv 0]
-set switch_user [lindex $argv 1]
-set switch_pwd [lindex $argv 2]
-set ftp_path [lindex $argv 3]
-
-set ftp_user
-set ftp_pwd
-set ftp_ip
+set switch_user [lindex $argv 0]
+set switch_pwd [lindex $argv 1]
+set switch_IP [lindex $argv 2]
+set ftp_user [lindex $argv 3]
+set ftp_pwd [lindex $argv 4]
+set ftp_ip [lindex $argv 5]
+set ftp_path [lindex $argv 6]
 
 set timeout -1;
 spawn ssh -o StrictHostKeyChecking=no ${switch_user}@${switch_IP}
