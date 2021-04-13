@@ -42,14 +42,7 @@
         drTestCgName: "{{ DR_Test_CG }}"
         drTestCgId: "{{ DR_Test_CG_ID }}"
         class3: "{{ Class_3 }}"
-
-    - set_fact:
-        protectType: "{{ REPTYPE['N3']['enum'] }}"              # See ../../config/project001.yml
-        replicaType: "{{ REPTYPE['N3']['type'] }}"              # See ../../config/project001.yml
-
-    - set_fact:
-        targetLunPrefix: "{{drTestHostName}}_{{protectType}}N"
-        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+        lunNameTemplate: "%s_%s_%s_%s_%s_%s_%s_%s"    # Example: IT_AIX_HOST1MV_3, TN0000, A, 00, H3, MV, IT0DJGSS01, T1
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
@@ -118,14 +111,14 @@
 
     - set_fact:
         existDrLunNames: "{{ checkedLuns[drLgName] | json_query('[*].NAME') }}"
-        existDrLunDescs: "{{ checkedLuns[drLgName] | json_query('[*].DESCRIPTION') }}"
+        targetLunDescs: "{{ checkedLuns[drLgName] | json_query('[*].DESCRIPTION') }}"
         targetLunNames: []
-        targetLunDescs: []
 
     - set_fact:
-        targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(targetLunPrefix, item.1[-3:]|int) ] }}"
-        targetLunDescs: "{{ targetLunDescs + [ class3 + existDrLunDescs[item.0][1:] ]  }}"
-      with_indexed_items: "{{ existDrLunNames }}"
+        targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(drTestHostName, dr[4], class3, dr[6], dr[7], dr[8], dr[9], dr[10] ) ] }}"
+      vars:
+        dr: "{{ item.split('_') }}"
+      with_items: "{{ existDrLunNames }}"
 
     - name: Query Snapshots in CG
       uri:
@@ -355,11 +348,6 @@
                   params:
                     cgName: "{{ drTestCgName }}"
                     device: "{{ deviceName }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/sync_replication_cg.yml"
-              vars:
-                cgName: "{{ drCgName }}"
-                waitSync: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
               vars:

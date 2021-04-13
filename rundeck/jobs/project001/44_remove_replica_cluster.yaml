@@ -193,6 +193,8 @@
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
           Country: ${option.Country}
+          Job_User: ${job.user.name}
+
           OS_Type: ${option.OS_Type}
           Cluster: ${option.Cluster}
           Storage: ${option.Storage}

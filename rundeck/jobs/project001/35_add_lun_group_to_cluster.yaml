@@ -43,7 +43,7 @@
     name: Class_1
     required: true
     valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
-  - description: Input Session Name used for CGs (max 16 chars, '_' not permitted)
+  - description: Input Session Name used for CGs (max 13 chars, '_' not permitted)
     name: Session_Name
     required: true
   - enforced: true

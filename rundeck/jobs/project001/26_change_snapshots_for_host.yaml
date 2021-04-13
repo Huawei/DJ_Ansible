@@ -107,6 +107,8 @@
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
           Country: ${option.Country}
+          Job_User: ${job.user.name}
+
           Target_Host: ${option.Target_Host}
           Target_LUN_Group: ${option.Target_LUN_Group}
           Storage: ${option.Storage}

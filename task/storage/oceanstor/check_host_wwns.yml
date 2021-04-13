@@ -1,0 +1,66 @@
+# Check wwns exists on hosts
+#
+# Required parameters:
+#   hostNames:              # a list of host names
+#
+# Optional parameters:
+#   checkExist:             # check exist or not exist, default: true, options: true/false
+# 
+# Generated variables:
+#   checkedHosts:           # a list of hosts on storage device
+#   checkedWwns:            # a map of wwns in hosts
+
+- name: Set default variables
+  set_fact:
+    hostIds: []
+    checkedHosts: []
+    checkedWwns: {}
+
+- name: Query Hosts by Name
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?range=%5B0-100%5D&filter=NAME%3A%3A{{item|urlencode}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: HOSTS
+  with_items: "{{ hostNames }}"
+
+- name: Get Host IDs
+  set_fact:
+    hostIds: "{{ HOSTS.results | json_query('[*].json.data[*].ID') | flatten(levels=1) }}"
+    checkedHosts: "{{ HOSTS.results | json_query('[*].json.data[*]') | flatten(levels=1)  }}"
+
+- name: Check Host Name Exist
+  debug:
+    msg:
+      hostIds: "{{ hostIds }}"
+  failed_when: (hostIds|length != hostNames|length)
+
+- name: Get WWNs
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/fc_initiator?filter=PARENTID%3A%3A{{item}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: WWNs
+  failed_when: (WWNs.json.error.code|int != 0)
+  with_items: "{{ hostIds }}"
+
+- set_fact:
+    checkedWwns: "{{ checkedWwns | combine( { item.1: WWNs.results[item.0].json.data | default([]) | json_query('[*].ID') } ) }}"
+  with_indexed_items: "{{ hostNames }}"
+
+- name: Check WWNs Exist in Hosts
+  debug:
+    msg:
+      WWNs: "{{ item }}"
+  failed_when: (checkExist|default(True)|bool == True and item.value|length == 0) or (checkExist|default(True)|bool == False and item.value|length > 0)
+  loop: "{{ lookup('dict', checkedWwns, wantlist=True) }}"

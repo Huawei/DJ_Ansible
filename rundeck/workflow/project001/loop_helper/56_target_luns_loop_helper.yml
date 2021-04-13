@@ -1,0 +1,40 @@
+# Build dr test lun parameter classified by lun group, cooperator with nested loop
+#
+# Required parameters:
+#   luns:                     # Lun Info
+#   hostLuns:                 # Host Lun Info
+#   pgName:                   # Protection Group Name
+#   cgName:                   # Snapshot Consistence Group Name
+#   lgName:                   # Lun Group Name
+#   className:                # Service Level Name
+#
+# Generated variables:
+#   targetLunsAll:           # Target Dr Test Lun Parameter Info, need clean before used.
+
+- set_fact:
+    existDrLunNames: "{{ luns | json_query('[*].NAME') }}"
+    lunScsiIds: "{{ hostLuns | json_query('[*].hostLunId') }}"
+    targetLunNames: []
+    targetLunDescs: "{{ luns | json_query('[*].DESCRIPTION') }}"
+
+- set_fact:
+    targetLunNames: "{{ targetLunNames + [ targetLunName ] }}"
+  vars:
+    targetLunName: "{% set field = item.split('_') %}{% set output = field[:3] + ['3', field[4], className, '00', '00'] + field[8:-1] + [ field[-1][0] + '3' ] %}{{'_'.join(output)}}"
+  with_items:
+    - "{{ existDrLunNames }}"
+
+- set_fact:
+    targetLuns:
+      lunNames: "{{ targetLunNames }}"
+      lunDescs: "{{ targetLunDescs }}"
+      lunScsiIds: "{{ lunScsiIds }}"
+      pgName: "{{ pgName }}"
+      cgName: "{{ cgName }}"
+      hostName: "{{ hostName }}"
+      lgName: "{{ lgName }}"
+
+- set_fact:
+    targetLunsAll: "{{ targetLunsAll + [targetLuns] }}"
+
+

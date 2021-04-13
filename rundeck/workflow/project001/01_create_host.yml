@@ -30,7 +30,7 @@
               Host_WWN: "{{ checked_host_wwns|unique == [True] }}"
               Class_1: "{{ Class_1 in ['A','B','C','D'] }}"
               Cluster_Name: "{{ (Cluster_Name is none) or (Cluster_Name[0:2] == Country and Cluster_Name[3:6] == OS_Type and Cluster_Name[-1:] == '1' ) }}"
-              Session_Name: "{{ (Session_Name is none) or (Session_Name|length <= 16 and '_' not in Session_Name) }}"
+              Session_Name: "{{ (Session_Name is none) or (Session_Name|length <= 13 and '_' not in Session_Name) }}"
               Enable_HyperMetro: "{{ Enable_HyperMetro in ['Y','N'] }}"
               Protection_Level: "{{ Protection_Level|int in [1,2,3] }}"
               Check_Result_1: "{{ ('host' in Check_Result_1) and ('wwn' in Check_Result_1) and ('cluster' in Check_Result_1 if Cluster_Name is not none else True) }}"

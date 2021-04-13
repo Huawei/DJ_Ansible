@@ -1,0 +1,12 @@
+# Required parameters:
+#   csv:    CSV file to read in
+#   xml:    XML file to export to
+#
+# Optional parameters:
+#   sep:    separator, default ','
+#   keys:   keys to export, default '' (all)
+#   root:   root node name, default 'rows'
+#   item:   item node name, default 'row'
+
+- name: Export to {{file}}
+  local_action: command python "{{GLOBAL.baseDir}}"/task/util/csv2xml.py -c "{{csv}}" -x "{{xml}}" -s "{{ sep | default('|') }}" -k "{{keys | default('')}}" -r "{{root | default('rows')}} -i "{{item | default('row')}}"

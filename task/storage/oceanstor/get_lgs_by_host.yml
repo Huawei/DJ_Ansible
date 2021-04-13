@@ -1,0 +1,52 @@
+# Get LUN Groups by Host
+#
+# Required parameters:
+#   hostName:                 # Host Name, can be replaced with hostId
+#
+# Optional parameters:
+#   hostId:                   # Host ID
+# 
+# Generated variables:
+#   checkedLgs:               # Checked LUN groups associate with host
+
+- set_fact:
+    checkedLgs: "{{ none }}"
+
+- block:
+    - name: Query Host by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?range=%5B0-100%5D&filter=NAME%3A%3A{{hostName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: HOST
+
+    - name: Get Host ID
+      vars:
+        host: "{{ HOST.json.data[0] }} "
+      set_fact:
+        hostId: "{{ host.ID }}"
+      failed_when: ('data' not in HOST.json) or (HOST.json.data|length != 1)
+
+  when: hostName|default(none) is not none
+
+
+- name: Get LUN Groups by Host ID
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/mapping/associate?ASSOCIATEOBJTYPE=21&ASSOCIATEOBJID={{hostId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: DETAIL
+  failed_when: (DETAIL.json.error.code != 0) or ('data' not in DETAIL.json )
+
+- set_fact:
+    checkedLgs: "{{ DETAIL.json.data }}"

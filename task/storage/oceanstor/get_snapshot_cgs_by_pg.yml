@@ -1,0 +1,58 @@
+# Get LUNs by Protection Group
+#
+# Required parameters:
+#   pgName:                    # Protection Group Name, can be replaced with pgId
+#
+# Optional parameters:
+#   pgId:                      # Protection Group ID
+#   ignoreEmpty:               # Ignore error when got empty snapshot cgs.
+#
+# Generated variables:
+#   checkedSnapCgs:            # Checked Snapshot CGs associate with protection group
+
+- set_fact:
+    checkedSnapCgs: []
+    cgIds: []
+
+- block:
+    - name: Query PG by Name
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup?filter=protectGroupName%3A%3A{{pgName|urlencode}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: PG
+
+    - name: Get PG ID
+      vars:
+        queryPgIds: "[? protectGroupName=='{{pgName}}'].protectGroupId"
+        pgIds: "{{ PG.json.data | default([]) | json_query(queryPgIds) }}"
+      set_fact:
+        pgId: "{{ pgIds | first }}"
+      failed_when: pgIds | length != 1
+
+  when: pgName|default(none) is not none
+
+- name: Query Snapshot CGs Associate with Protection Group
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot_consistency_group/associate?ASSOCIATEOBJTYPE=57846&ASSOCIATEOBJID={{pgId}}"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SCGs
+  failed_when: (SCGs.json.error.code != 0) or (not ignoreEmpty|default(false) and 'data' not in SCGs.json )
+
+
+- name: Get Snapshot CG IDs
+  set_fact:
+    cgIds: "{{ SCGs.json.data | json_query('[*].ID') }}"
+    checkedSnapCgs: "{{ SCGs.json.data }}"
+  when: ( 'data' in SCGs.json )

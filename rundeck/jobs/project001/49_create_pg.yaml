@@ -1,0 +1,157 @@
+- defaultTab: monitor
+  description: Create Protection Group with Replication CG, and HyperMetro CG
+  executionEnabled: true
+  id: 34533a0b-9a0b-4229-852e-4c5f57971024
+  loglevel: INFO
+  name: 49_create_pg
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Create Protection Group with Replication CG, and HyperMetro CG
+    description: Create Protection Group
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Country, OS Type and Location</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - enforced: true
+    name: OS_Type
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - enforced: true
+    name: Site
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/DC?nameAttr=desc&valueAttr=key
+    description: <BR><h2>Protection Settings</h2>
+  - name: Session_Name
+    description: Input Session Name used for CGs (optional, max 13 chars, '_' not permitted)
+    required: true
+  - enforced: true
+    name: Enable_HyperMetro
+    value: 'N'
+    required: true
+    values:
+      - 'N'
+      - 'Y'
+  - enforced: true
+    name: Protection_Level
+    value: '1'
+    required: true
+    values:
+      - '1'
+      - '2'
+      - '3'
+  - enforced: true
+    name: DR_Sync_Mode
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/REPMODE?nameAttr=desc&valueAttr=enum
+    description: <BR><h2>Primary Protection Group</h2>
+  - enforced: true
+    name: Primary_Storage_Room
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/AZ?nameAttr=desc&valueAttr=key&filter={"dc":"${option.Site.value}"}
+  - enforced: true
+    name: Primary_Storage
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Primary_Storage_Room.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?pg=1.%20Create%20primary%20protect%20group:%20"${option.Country.value}0${option.Session_Name.value}_1"%20on%20storage:%20"${option.Primary_Storage.value}"
+    description: Select to confirm primary Protection group result<BR><BR><h2>Metro Protection Group</h2>
+  - name: Metro_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Primary_Storage.value}/data/v1/search/HyperMetroDomain?range=[0-100]&nameAttr=REMOTEDEVICES:11&nameSplit=%22&valueAttr=REMOTEDEVICES:7&valueSplit=%22
+  - enforced: true
+    name: Metro_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.Metro_Storage.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_2
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?pg=1.%20Create%20Metro%20protect%20group:%20"${option.Country.value}0${option.Session_Name.value}_1"%20on%20storage:%20"${option.Metro_Storage.value}"
+    description: Select to confirm metro Protection group result <BR><BR><h2>DR Protection Group</h2>
+  - name: DR_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Primary_Storage.value}/data/v1/search/remote_device?nameAttr=NAME&valueAttr=SN&filter=ARRAYTYPE!!2
+  - enforced: true
+    name: DR_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&relations=[{"obj":"storage","condition":{"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.DR_Storage.value}"}}]}}]
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_3
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?pg=1.%20Create%20DR%20protect%20group:%20"${option.Country.value}0${option.Session_Name.value}_2"%20on%20storage:%20"${option.DR_Storage.value}"
+    description: Select to confirm the DR Protection group result
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          Country: ${option.Country}
+          OS_Type: ${option.OS_Type}
+          Site: ${option.Site}
+
+
+          Session_Name: ${option.Session_Name}
+          Enable_HyperMetro: ${option.Enable_HyperMetro}
+          Protection_Level: ${option.Protection_Level}
+          DR_Sync_Mode: ${option.DR_Sync_Mode}
+
+          Primary_Storage_Room: ${option.Primary_Storage_Room}
+          Primary_Storage: ${option.Primary_Storage}
+
+          Metro_Storage: ${option.Metro_Storage}
+          Metro_Storage_Room: ${option.Metro_Storage_Room}
+
+          DR_Storage: ${option.DR_Storage}
+          DR_Storage_Room: ${option.DR_Storage_Room}
+          Check_Result_1: ${option.Check_Result_1}
+          Check_Result_2: ${option.Check_Result_2}
+          Check_Result_3: ${option.Check_Result_3}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/49_create_pg.yml
+      description: Create Host
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 34533a0b-9a0b-4229-852e-4c5f57971024

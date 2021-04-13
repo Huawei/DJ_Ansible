@@ -8,7 +8,7 @@
 
 - name: Set default variables
   set_fact:
-    statusMap: { '1': 'Not Start', '2': 'Running', '3': 'Succeeded', '4': 'Partially Succeeded', '5': 'Failed', '6': 'Timeout'}
+    statusMap: { '1': 'Not Start', '2': 'Running', '3': 'Succeeded', '4': 'Partially Succeeded', '5': 'Failed', '6': 'Timeout', '7': 'Warning'}
 
 - name: Wait Task Complete
   uri:
@@ -34,7 +34,7 @@
       name: "{{task.name_en}}"
       sequence: "{{task.seq_no}}"
       progress: "{{task.progress}}"
-      status: "{{statusMap[task.status|string]}}"
+      status: "{{statusMap[task.status|string]|default('Unknown')}}"
   with_sequence: start=0 count="{{TASKS.json|length}}"
 
 - name: Task Result
@@ -43,14 +43,14 @@
     status: "{{ TASKS.json | json_query(queryStatus) | first }}"
   debug:
     msg:
-      Result: "{{statusMap[status]}}"
+      Result: "{{statusMap[status]|default('Unknown')}}"
 
 - name: Check Task Success
   vars:
     query: "[?id=='{{ taskId }}'].status"
     status: "{{ TASKS.json | json_query(query) | first }}"
   debug:
-    msg: 
-      Result: "{{statusMap[status]}}"
-  failed_when: status|int != 3
+    msg:
+      Result: "{{statusMap[status]|default('Unknown')}}"
+  failed_when: status|int != 3 and status|int != 7
   when: checkSuccess|default(True)|bool == True

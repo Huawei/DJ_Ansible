@@ -49,7 +49,7 @@
     type: file
   - name: Delimiter
     value: ','
-  - description: Maximum 28 characters, LUN naming convension is {COUNTRY:2} _ {OS:3} _ {HOST:16} _ {CHAIN:1} _ {PROTECT:1}{TYPE:1}{Suffix:3}
+  - description: Maximum 28 characters, LUN naming convension is {COUNTRY:2} _ {OS:3} _ {HOST:16} _ {CHAIN:1} _ {PROTECT:1}{TYPE:1}{Suffix:4}
     name: LUN_Prefix
   - name: Start_Suffix
     value: 0
@@ -60,7 +60,7 @@
   - delimiter: '|'
     multivalued: true
     name: LUN_Description
-    description: Add LUN Description (optional, max 200 chars for all items, '|' and '_' not permitted)
+    description: Add LUN Description (optional, max 255 chars for all items, '|' and '_' not permitted)
   scheduleEnabled: true
   sequence:
     commands:
@@ -73,6 +73,8 @@
 
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Job_User: ${job.user.name}
+
           Site: ${option.Site}
           Room: ${option.Room}
           Storage: ${option.Storage}

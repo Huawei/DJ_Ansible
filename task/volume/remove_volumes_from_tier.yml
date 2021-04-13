@@ -37,6 +37,7 @@
       debug:
         msg:
           volumeIds: "{{ volumeIds }}"
+          volumeNames: "{{ volumeNames }}"
       failed_when: volumeIds|length < volumeNames|length
   when: 
     - volumeNames is defined

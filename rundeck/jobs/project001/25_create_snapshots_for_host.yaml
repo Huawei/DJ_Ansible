@@ -70,7 +70,7 @@
   - delimiter: '|'
     multivalued: true
     name: Snapshot_Description
-    description: Add Snapshot Description (optional, max 200 chars for all items, '|' and '_' not permitted)
+    description: Add Snapshot Description (optional, max 255 chars for all items, '|' and '_' not permitted)
   - enforced: true
     name: Class_1
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.Target_LUN_Group.value}
@@ -106,6 +106,8 @@
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
           Country: ${option.Country}
+          Job_User: ${job.user.name}
+
           Target_Host: ${option.Target_Host}
           Target_LUN_Group: ${option.Target_LUN_Group}
           Target_HyperMetro: ${option.Target_HyperMetro}

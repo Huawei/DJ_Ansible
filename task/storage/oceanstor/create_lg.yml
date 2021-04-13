@@ -11,7 +11,7 @@
 #   mapHostNames:           Map LUN Group to a list of Hosts
 #   mapHostGroupNames:      Map LUN Group to a list of Host Groups
 #   pgName:                 Create Protection Group for LUN Group
-#   pgId:                   Specify Protection Grup ID
+#   pgId:                   Specify Protection Group ID
 #
 # Generated Parameters:
 #   newLgId:           New LG ID

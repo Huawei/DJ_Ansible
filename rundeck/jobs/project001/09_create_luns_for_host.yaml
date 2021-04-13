@@ -55,7 +55,7 @@
   - delimiter: '|'
     multivalued: true
     name: LUN_Description
-    description: Add LUN Description (optional, max 200 chars for all items, '|' and '_' not permitted)
+    description: Add LUN Description (optional, max 255 chars for all items, '|' and '_' not permitted)
   - enforced: true
     name: Pool
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/storagepool?nameAttr=NAME&valueAttr=ID
@@ -221,6 +221,8 @@
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
           Country: ${option.Country}
+          Job_User: ${job.user.name}
+
           Host: ${option.Host}
           Storage: ${option.Storage}
           Storage_Room: ${option.Storage_Room}

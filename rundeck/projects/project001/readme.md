@@ -316,3 +316,74 @@
         </tr>
     </tbody>
 </table>
+
+### Protection Group
+
+<table>
+    <tbody>
+        <tr>
+            <th>49 - Create PG</th>
+            <th>50 - Add LUNs to PG</th>
+            <th>51 - Remove LUNs from PG</th>
+            <th>52 - Delete PG</th>
+        </tr>
+        <tr>
+            <td>
+                <a href="/project/project001/job/execute/34533a0b-9a0b-4229-852e-4c5f57971024"><img src="/project001/images/49_create_pg.png"></a>
+            </td>
+            <td>
+                <a href="/project/project001/job/execute/22916134-7113-4969-8d11-786574075a11"><img src="/project001/images/50_add_luns_to_pg.png"></a>
+            </td>
+            <td>
+                <a href="/project/project001/job/execute/85eef634-f4c3-4848-b621-5d92a348ee7e"><img src="/project001/images/51_remove_luns_from_pg.png"></a>
+            </td>
+            <td>
+                <a href="/project/project001/job/execute/5d57bbca-2442-4868-90e1-1372bc24bed0"><img src="/project001/images/52_delete_pg.png"></a>
+            </td>            
+        </tr>
+    </tbody>
+</table>
+
+<table>
+    <tbody>
+        <tr>
+            <th>53 - DR Test for PG</th>
+            <th>54 - DR Test Clean for PG</th>
+        </tr>
+        <tr>
+            <td>
+                <a href="/project/project001/job/execute/bf3196d6-5602-49eb-8158-39e69a875d01"><img src="/project001/images/53_dr_test_for_pg.png"></a>
+            </td>
+            <td>
+                <a href="/project/project001/job/execute/bbd5a12a-87e9-4ad1-9e45-49e5a7d10148"><img src="/project001/images/54_dr_test_clean_for_pg.png"></a>
+            </td>         
+        </tr>
+    </tbody>
+</table>
+
+### Multi Host DR Test
+
+<table>
+    <tbody>
+        <tr>
+            <th>55 - Multi Host DR Test</th>
+            <th>56 - Multi Host DR Test Clean</th>
+            <th>57 - Multi Cluster DR Test</th>
+            <th>58 - Multi Cluster DR Test Clean</th>
+        </tr>
+        <tr>
+            <td>
+                <a href="/project/project001/job/execute/30173e49-6fc7-4079-80c0-39a5dd4820d9"><img src="/project001/images/55_dr_test_for_multi_host.png"></a>
+            </td>
+            <td>
+                <a href="/project/project001/job/execute/3d843ddc-6c18-4f73-ad9a-e67cda198aab"><img src="/project001/images/56_dr_test_clean_for_multi_host.png"></a>
+            </td>
+            <td>
+                <a href="/project/project001/job/execute/bbd23f67-65f8-432b-8d5c-2c31d40fd383"><img src="/project001/images/57_dr_test_for_multi_cluster.png"></a>
+            </td>
+            <td>
+                <a href="/project/project001/job/execute/9654a965-0129-497e-b386-408c9cc2fdcf"><img src="/project001/images/58_dr_test_clean_for_multi_cluster.png"></a>
+            </td>            
+        </tr>
+    </tbody>
+</table>

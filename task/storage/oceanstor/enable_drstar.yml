@@ -39,3 +39,7 @@
   debug:
     msg: "{{ ENABLE_DRSTAR.json.error }}"
   failed_when: (ENABLE_DRSTAR.json.error.code|int !=0)
+
+- name: Wait a replication cycle
+  pause:
+    seconds: "{{GLOBAL.replication.interval}}"

@@ -1,0 +1,16 @@
+# Get Snapshot CGs by Protection Group Loop Helper, cooperator with nested loop
+#
+# Required parameters:
+#   pgName:                    # Protection Group Name, can be replaced with pgId
+#
+# Optional parameters:
+#   pgId:                      # Protection Group ID
+#   ignoreEmpty:               # Ignore error when got empty snapshot cgs.
+#
+# Generated variables:
+#   checkedPgSnapCgs:           # Checked Snapshot CGs associate with protection groups, need clean before used.
+
+- import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_snapshot_cgs_by_pg.yml"
+- set_fact:
+    checkedPgSnapCgs: "{{ checkedPgSnapCgs + [checkedSnapCgs] }}"
+  when: (checkedSnapCgs|length > 0)

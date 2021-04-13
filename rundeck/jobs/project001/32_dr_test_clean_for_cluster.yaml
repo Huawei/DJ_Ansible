@@ -83,7 +83,7 @@
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/protectgroup?nameAttr=protectGroupName&valueAttr=protectGroupName&range=[0-100]&filter=lunGroupId::${option.DR_LUN_Group_ID.value}
   - enforced: true
     name: DR_CG
-    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=localPgName::${option.DR_Protection_Group.value}%20and%20RUNNINGSTATUS::1
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=NAME&valueAttr=NAME&range=[0-100]&filter=localPgName::${option.DR_Protection_Group.value}
   - enforced: true
     name: DR_Test_CG_ID
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/snapshot_consistency_group?nameAttr=ID&valueAttr=ID&filter=NAME::${option.DR_Test_CG.value}
@@ -105,6 +105,9 @@
 
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Country: ${option.Country}
+          Job_User: ${job.user.name}
+
           DR_Cluster: ${option.DR_Cluster}
           DR_Test_Cluster: ${option.DR_Test_Cluster}
           DR_Storage: ${option.DR_Storage}

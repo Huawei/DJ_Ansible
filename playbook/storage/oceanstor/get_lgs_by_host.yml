@@ -1,0 +1,9 @@
+- name: Delete LUN Group
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+  gather_facts: no
+  become: no
+  tasks:
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_lgs_by_host.yml"

@@ -1,0 +1,921 @@
+- name: DR Test Clean for Hosts
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+
+    # Check Params
+    - block:
+        - set_fact:
+            checked_params:
+              Select_DR_Test_Cluster: "{% set clusters = [] %}{% set Select_DR_Test_Cluster = Select_DR_Test_Cluster|string %}{% for cluster in Select_DR_Test_Cluster.split(',') if cluster.endswith('_3') %}{{ clusters.append(cluster) }}{% endfor %}{{ (clusters | length >= 1) and (clusters | length == Select_DR_Test_Cluster.split(',') | length) }}"
+              DR_Storage: "{{ (DR_Storage is not none and DR_Storage != DEFAULT.noneValue) and (DR_Storage|string|length == 20) }}"
+              Check_Result_1: "{{ ('cluster' in Check_Result_1) }}"
+
+        - name: Precheck_0_1 - Check Params
+          debug:
+            msg: "{{checked_params}}"
+          failed_when: checked_params.values()|unique != [True]
+
+    - set_fact:
+        WBE_CODE: "{{ WBE_CODE }}"
+        TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+        osType: "{{ OS_Type }}"
+        deviceSn: "{{ DR_Storage|string }}"
+        room: "{{ DR_Storage_Room }}"
+        site: "{{ AZ[DR_Storage_Room]['dc'] }}"
+        drTestClusterNames: "{{ (Select_DR_Test_Cluster|string).split(',') }}"
+        drClusterNames: []
+
+    - set_fact:
+        drClusterNames: "{{ drClusterNames + [ item[:-1] + '2' ] }}"
+      with_items: "{{ drTestClusterNames }}"
+
+    - set_fact:
+        protectType: "{{ REPTYPE['N3']['enum'] }}"              # N3 is same as Y3 enum, use one of them to stand all cases, See ../../config/project001.yml
+
+    - set_fact:
+        lunNameTemplate: "%s_{{protectType}}N%0{{DEFAULT.suffixDigits}}d"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+    - name: Precheck_1 - Check Clusters, WWNs, Replication CG & Snapshots
+      debug:
+        msg:
+          drClusterNames: "{{drClusterNames}}"
+          drTestClusterNames: "{{drTestClusterNames}}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+      vars:
+        hostGroupNames: "{{ drClusterNames }}"
+    - set_fact:
+        drClusterIds: "{{ hostGroupIds }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+      vars:
+        hostGroupNames: "{{ drTestClusterNames }}"
+    - set_fact:
+        drTestClusterIds: "{{ hostGroupIds }}"
+
+    - name: Get DR Hosts
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host/associate?ASSOCIATEOBJTYPE=14&ASSOCIATEOBJID={{item}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DR_HOSTS
+      failed_when: (DR_HOSTS.json.error.code|int != 0) or ('data' not in DR_HOSTS.json) or (DR_HOSTS.json.data|length == 0)
+      with_items: "{{ drClusterIds }}"
+
+    - set_fact:
+        drHostNames: "{{ DR_HOSTS.results | json_query('[*].json.data[*].NAME') | flatten(levels=1) }}"
+        drHostIds: "{{ DR_HOSTS.results | json_query('[*].json.data[*].ID') | flatten(levels=1) }}"
+        drHostWwns: {}
+
+    - name: Get DR Test Hosts
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host/associate?ASSOCIATEOBJTYPE=14&ASSOCIATEOBJID={{item}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: DR_TEST_HOSTS
+      failed_when: (DR_TEST_HOSTS.json.error.code|int != 0) or ('data' not in DR_TEST_HOSTS.json) or (DR_TEST_HOSTS.json.data|length == 0)
+      with_items: "{{ drTestClusterIds }}"
+
+    - set_fact:
+        drTestHostNames: "{{ DR_TEST_HOSTS.results | json_query('[*].json.data[*].NAME') | flatten(levels=1) }}"
+        drTestHostIds: "{{ DR_TEST_HOSTS.results | json_query('[*].json.data[*].ID') | flatten(levels=1) }}"
+        drTestHostWwns: {}
+
+    - debug:
+        msg:
+          drHostNames: "{{ drHostNames }}"
+          drHostIds: "{{ drHostIds }}"
+          drTestHostNames: "{{ drTestHostNames }}"
+          drTestHostIds: "{{ drTestHostIds }}"
+      failed_when: drHostNames|length != drTestHostNames|length or drHostNames == 0
+
+    # check wwns
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_wwns.yml"
+      vars:
+        hostNames: "{{ drHostNames }}"
+        checkExist: False
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_wwns.yml"
+      vars:
+        hostNames: "{{ drTestHostNames }}"
+
+    - set_fact:
+        drTestHostWwns: "{{ checkedWwns }}"
+        drHostWwns: {}
+
+    - set_fact:
+        drHostWwns: "{{ drHostWwns | combine( { item.0: drTestHostWwns[item.1] } ) }}"
+      with_together:
+        - "{{ drHostNames }}"
+        - "{{ drTestHostNames }}"
+
+    # check host lun
+    - set_fact:
+        checkedHostLuns: []
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id_loop_helper.yml"
+      vars:
+        hostName: "{{ drHostName }}"
+      loop: "{{ drHostNames }}"
+      loop_control:
+        loop_var: drHostName
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id_loop_helper.yml"
+      vars:
+        hostGroupName: "{{ drClusterName }}"
+      loop: "{{ drClusterNames }}"
+      loop_control:
+        loop_var: drClusterName
+
+    - set_fact:
+        checkedDrHostLuns: {}
+
+    - set_fact:
+        checkedDrHostLuns: "{{ checkedDrHostLuns | combine({item.key:item.value}) }}"
+      with_dict: "{{ checkedHostLuns }}"
+      when:
+        - item.value|length > 0
+
+    - name: Check Host Luns Number in LGs
+      debug:
+        msg:
+          drTestLun: "{{ checkedDrHostLuns }}"
+      failed_when: checkedDrHostLuns|length == 0
+
+    - set_fact:
+        drLgNames: "{{ checkedDrHostLuns.keys() }}"
+        drTestLgNames: []
+        drPgNames: []
+
+    - set_fact:
+        drPgNames: "{{ drPgNames + [ item[:-6] + '2_PG' + item[-2:] ] }}"
+        drTestLgNames: "{{ drTestLgNames + [ item[:-6] + '3_LG' + item[-2:] ] }}"
+      with_items: "{{ drLgNames }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
+      vars:
+        pgNames: "{{ drPgNames }}"
+
+    - set_fact:
+        drPgIds: "{{ pgIds }}"
+        checkedPgSnapCgs: []
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_snapshot_cgs_by_pg_loop_helper.yml"
+      vars:
+        pgId: "{{ drPgId }}"
+        ignoreEmpty: true
+      loop: "{{ drPgIds }}"
+      loop_control:
+        loop_var: drPgId
+
+    - name: Check Snapshot CGs Number and Status
+      debug:
+        msg:
+          SnapshotCgs: "{{ item }}"
+          status: "{{ item[0].RUNNINGSTATUS }}"
+      failed_when: (item|length|int != 1) or (item|length|int == 1 and item[0].RUNNINGSTATUS|int != SNAPCG.activated.enum)
+      loop: "{{ checkedPgSnapCgs }}"
+
+    - set_fact:
+        drTestCgNames: []
+        drTestCgIds: []
+
+    - set_fact:
+        drTestCgNames: "{{ drTestCgNames + [ item[0].NAME ] }}"
+        drTestCgIds: "{{ drTestCgIds + [ item[0].ID ] }}"
+      loop: "{{ checkedPgSnapCgs }}"
+
+    - set_fact:
+        checkedPgRepCgs: []
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_replication_cgs_by_pg_loop_helper.yml"
+      vars:
+        pgId: "{{ drPgId }}"
+      loop: "{{ drPgIds }}"
+      loop_control:
+        loop_var: drPgId
+
+    - debug:
+        msg:
+          checkedPgRepCgs: "{{ checkedPgRepCgs }}"
+          drHostNames: "{{ drPgNames }}"
+      failed_when: item|length|int != 1
+      loop: "{{ checkedPgRepCgs }}"
+
+    - set_fact:
+        drCgNames: []
+
+    - set_fact:
+        drCgNames: "{{ drCgNames + [ item[0].NAME ] }}"
+      loop: "{{ checkedPgRepCgs }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+      vars:
+        lgNames: "{{ drLgNames }}"
+
+    - set_fact:
+        targetLunsAll: []
+        targetLunNamesAll: []
+
+    - debug:
+        msg:
+          drLgNames: "{{ drLgNames }}"
+          drPgNames: "{{ drPgNames }}"
+          drTestCgNames: "{{ drTestCgNames }}"
+          drTestLgNames: "{{ drTestLgNames }}"
+          drTestHostNames: "{{ drTestHostNames }}"
+
+    - include_tasks: "{{GLOBAL.baseDir}}/rundeck/workflow/project001/loop_helper/56_target_luns_loop_helper.yml"
+      vars:
+        luns: "{{ checkedLuns[drLgName] }}"
+        hostLuns: "{{ checkedDrHostLuns[drLgName] }}"
+        pgName: "{{ drPgNames[index] }}"
+        cgName: "{{ drTestCgNames[index] }}"
+        lgName: "{{ drTestLgNames[index] }}"
+        hostName: "{{ drTestHostNames[index] }}"
+        className: "{{ checkedLgs[index].DESCRIPTION[4:5] }}"
+      loop: "{{ drLgNames }}"
+      loop_control:
+        index_var: index
+        loop_var: drLgName
+
+    - debug:
+        msg:
+          targetLunsAll: "{{ targetLunsAll }}"
+
+    - set_fact:
+        targetLunNamesAll: "{{ targetLunNamesAll + item.lunNames }}"
+      loop: "{{ targetLunsAll }}"
+
+    - set_fact:
+        existDrLunNamesAll: []
+
+    - set_fact:
+        existDrLunNamesAll: "{{ existDrLunNames + [checkedLuns[item] | json_query('[*].NAME')] }}"
+      loop: "{{ drLgNames }}"
+
+    - name: Query Snapshots in CG
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{item}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: SNAPSHOTS
+      with_items: "{{ drTestCgIds }}"
+
+    - set_fact:
+        sourceDrLunNames: []
+
+    - name: Get AZ IDs
+      set_fact:
+        sourceDrLunNames: "{{ sourceDrLunNames + SNAPSHOTS.json.data | default([]) | json_query('[*].SOURCELUNNAME') }}"
+      with_indexed_items: "{{ drTestCgIds }}"
+
+    - set_fact:
+        orphanDrLunNames: "{{ sourceDrLunNames | difference(existDrLunNamesAll) }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+      vars:
+        lunNames: "{{ orphanDrLunNames }}"
+      when: orphanDrLunNames|length > 0
+
+    - set_fact:
+        orphanDrLunIds: "{{ checkedLuns | json_query('[*].ID') }}"
+        orphanDrLunSectors: "{{ checkedLuns | json_query('[*].CAPACITY') }}"
+      when: orphanDrLunNames|length > 0
+
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
+      vars:
+        lgNames: "{{ drTestLgNames }}"
+
+    - set_fact:
+        checkedDrLgLuns: "{{ checkedLuns }}"
+        drTestLunNames: []
+        drTestLunIds: []
+        drTestLunSectors: []
+
+    - set_fact:
+        drTestLunNames: "{{ drTestLunNames + item.value | json_query('[*].NAME') }}"
+        drTestLunIds: "{{ drTestLunIds + item.value | json_query('[*].ID') }}"
+        drTestLunSectors: "{{ drTestLunSectors + item.value | json_query('[*].CAPACITY') }}"
+      with_dict: "{{ checkedLuns }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+      vars:
+        volumeNames: "{{ drTestLunNames }}"
+
+    - set_fact:
+        drTestLunClass: []
+        drTestLunsInTier: {}
+        tierNames: "{{ checkedVolumes | json_query('[*].service_level_name') | unique }}"
+
+    - set_fact:
+        drTestLunClass: "{{ drTestLunClass + [ checkedVolumes[item.0].service_level_name ] }}"
+      with_indexed_items: "{{ drTestLunNames }}"
+
+    - set_fact:
+        drTestLunsInTier: "{{ drTestLunsInTier | combine( { item: checkedVolumes | json_query(queryVolumesInTier)  } ) }}"
+      vars:
+        queryVolumesInTier: "[? service_level_name == '{{ item }}' ].id"
+      with_items: "{{ tierNames }}"
+
+    - debug:
+        msg:
+          drHostWwns: "{{ drHostWwns }}"
+          drCgNames: "{{ drCgNames }}"
+          drTestLunNames: "{{ drTestLunNames }}"
+          drTestCgNames: "{{ drTestCgNames }}"
+          targetLunsAll: "{{ targetLunsAll }}"
+      failed_when: drHostWwns|length == 0 or drTestLunNames|length == 0
+
+    - block:
+
+        # Begin Workflow Steps
+
+        - set_fact:
+
+            # Remove WWNs from DR Test Hosts
+            Step_1_1_Execute: True
+            Step_1_1_Completed: False
+            Step_1_1_Rollbacked: False
+
+            # Add WWNs to DR Hosts
+            Step_1_2_Execute: True
+            Step_1_2_Completed: False
+            Step_1_2_Rollbacked: False
+
+            # Remove DR Test LUNs from Class
+            Step_2_1_Execute: True
+            Step_2_1_Completed: False
+            Step_2_1_Rollbacked: False
+
+            # Remove DR Test LUNs from LUN Group
+            Step_2_2_Execute: True
+            Step_2_2_Completed: False
+            Step_2_2_Rollbacked: False
+
+            # Delete DR Test Snapshot CGs
+            Step_2_3_Execute: True
+            Step_2_3_Completed: False
+            Step_2_3_Rollbacked: False
+
+            # Re-Create DR Test Snapshot CGs
+            Step_2_4_Execute: "{{ targetLunNames|length > 0 }}"
+            Step_2_4_Completed: False
+            Step_2_4_Rollbacked: False
+
+            # Add DR Test LUNs to LUN Group
+            Step_2_5_Execute: "{{ targetLunNames|length > 0 }}"
+            Step_2_5_Completed: False
+            Step_2_5_Rollbacked: False
+
+            # Delete Orphan DR LUNs
+            Step_2_6_Execute: "{{ orphanDrLunNames|length > 0 }}"
+            Step_2_6_Completed: False
+            Step_2_6_Rollbacked: False
+
+            # Update DR Test LUNs to KPI table
+            Step_3_1_Execute: True
+            Step_3_1_Completed: False
+            Step_3_1_Rollbacked: False
+
+            # Update Orphan DR LUNs to KPI table
+            Step_3_2_Execute: "{{ orphanDrLunNames|length > 0 }}"
+            Step_3_2_Completed: False
+            Step_3_2_Rollbacked: False
+
+        - name: Workflow - DR Test Clean for Multi-Host
+          debug:
+            msg:
+              Step_1_1: "[{{Step_1_1_Execute}}] Remove WWNs from DR Test Hosts"
+              Step_1_2: "[{{Step_1_2_Execute}}] Add WWNs to DR Hosts"
+              Step_2_1: "[{{Step_2_1_Execute}}] Remove DR Test LUNs from Class"
+              Step_2_2: "[{{Step_2_2_Execute}}] Remove DR Test LUNs from LUN Group"
+              Step_2_3: "[{{Step_2_3_Execute}}] Delete DR Test Snapshot CGs"
+              Step_2_4: "[{{Step_2_4_Execute}}] Re-Create DR Test Snapshot CGs"
+              Step_2_5: "[{{Step_2_5_Execute}}] Add DR Test LUNs to LUN Group"
+              Step_2_6: "[{{Step_2_6_Execute}}] Delete Orphan DR LUNs"
+              Step_3_1: "[{{Step_3_1_Execute}}] Update DR Test LUNs to KPI table"
+              Step_3_2: "[{{Step_3_2_Execute}}] Update Orphan DR LUNs to KPI table"
+
+        - block:
+            - name: Step_1_1 - Remove WWNs from DR Test Hosts
+              debug:
+                msg:
+                  params:
+                    wwns: "{{ drTestHostWwns }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+              vars:
+                wwns: "{{ drTestHostWwnsItem.value }}"
+                hostName: "{{ drTestHostWwnsItem.key }}"
+              loop: "{{ lookup('dict', drTestHostWwns, wantlist=True) }}"
+              loop_control:
+                loop_var: drTestHostWwnsItem
+
+            - set_fact:
+                Step_1_1_Completed: True
+
+            # End Step_1_1
+
+          # End block
+          when: Step_1_1_Execute
+
+        - block:
+            - name: Step_1_2 - Add WWNs to DR Hosts
+              debug:
+                msg:
+                  params:
+                    wwns: "{{ drHostWwns }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+              vars:
+                wwns: "{{ drHostWwnsItem.value }}"
+                hostName: "{{ drHostWwnsItem.key }}"
+              loop: "{{ lookup('dict', drHostWwns, wantlist=True) }}"
+              loop_control:
+                loop_var: drHostWwnsItem
+
+            - set_fact:
+                Step_1_2_Completed: True
+
+            # End Step_1_2
+
+          # End block
+          when: Step_1_2_Execute
+
+        - block:
+            - name: Step_2_1 - Remove DR Test LUNs from Class
+              debug:
+                msg:
+                  params:
+                    drTestLunsInTier: "{{ drTestLunsInTier }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+              vars:
+                volumeIds: "{{ drTestLunsInTierItem.value }}"
+              loop: "{{ lookup('dict', drTestLunsInTier, wantlist=True) }}"
+              loop_control:
+                loop_var: drTestLunsInTierItem
+
+            - set_fact:
+                Step_2_1_Completed: True
+
+            # End Step_2_1
+
+          # End block
+          when: Step_2_1_Execute
+
+        - block:
+            - name: Step_2_2 - Remove DR Test LUNs from LUN Group
+              debug:
+                msg:
+                  params:
+                    lunNames: "{{ drTestLunNames }}"
+                    lgName: "{{ drTestLgNames }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_luns_from_lg.yml"
+              vars:
+                lgName: "{{ checkedDrLgLunsItem.key }}"
+                lunNames: "{{ checkedDrLgLunsItem.value | json_query('[*].NAME') }}"
+              loop: "{{ lookup('dict', checkedDrLgLuns, wantlist=True) }}"
+              loop_control:
+                loop_var: checkedDrLgLunsItem
+
+            - set_fact:
+                Step_2_2_Completed: True
+
+            # End Step_2_2
+
+          # End block
+          when: Step_2_2_Execute
+
+        - block:
+            - name: Step_2_3 - Delete DR Test Snapshot CGs
+              debug:
+                msg:
+                  params:
+                    cgNames: "{{ drTestCgNames }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_snapshot_cg.yml"
+              vars:
+                cgName: "{{ drTestCgName }}"
+              loop: "{{ drTestCgNames }}"
+              loop_control:
+                loop_var: drTestCgName
+
+            - set_fact:
+                Step_2_3_Completed: True
+
+            # End Step_2_3
+
+          # End block
+          when: Step_2_3_Execute
+
+        - block:
+            - name: Step_2_4 - Re-Create DR Test Snapshot CGs
+              debug:
+                msg:
+                  params:
+                    cgNames: "{{ drTestCgNames }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
+              vars:
+                pgName: "{{ targetLuns.pgName }}"
+                cgName: "{{ targetLuns.cgName }}"
+                snapNames: "{{ targetLuns.lunNames }}"
+                activate: False
+                snapDescs: "{{ targetLuns.lunDescs }}"
+              loop: "{{ targetLunsAll }}"
+              loop_control:
+                loop_var: targetLuns
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+              vars:
+                lunNames: "{{ targetLunNamesAll }}"
+
+            - set_fact:
+                targetLunIdsAll: "{{ checkedLuns | json_query('[*].ID') }}"
+                targetLunSectorsAll: "{{ checkedLuns | json_query('[*].CAPACITY') }}"
+
+            - set_fact:
+                Step_2_4_Completed: True
+
+            # End Step_2_4
+
+          # End block
+          when: Step_2_4_Execute
+
+        - block:
+            - name: Step_2_5 - Add DR Test LUNs to LUN Group
+              debug:
+                msg:
+                  params:
+                    luns: "{{ targetLunsAll }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_luns_to_lg.yml"
+              vars:
+                lunNames: "{{ targetLuns.lunNames }}"
+                lgName: "{{ targetLuns.lgName }}"
+                addLunScsiIds: "{{ targetLuns.lunScsiIds }}"
+              loop: "{{ targetLunsAll }}"
+              loop_control:
+                loop_var: targetLuns
+
+            - set_fact:
+                Step_2_5_Completed: True
+
+            # End Step_2_5
+
+          # End block
+          when: Step_2_5_Execute
+
+        - block:
+            - name: Step_2_6 - Delete Orphan DR LUNs
+              debug:
+                msg:
+                  params:
+                    lunNames: "{{ orphanDrLunNames }}"
+                    device: "{{ deviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_luns.yml"
+              vars:
+                lunNames: "{{ orphanDrLunNames }}"
+
+            - set_fact:
+                Step_2_6_Completed: True
+
+            # End Step_2_6
+
+          # End block
+          when: Step_2_6_Execute
+
+        - block:
+            - name: Step_3_1 - Update DR Test LUNs to KPI table
+              debug:
+                msg:
+                  params:
+                    lunIds: "{{ drTestLunIds }}"
+                    lunNames: "{{ drTestLunNames }}"
+
+            - include_tasks: update_lun_kpi_table.yml
+              vars:
+                TYPE_OF_OPERATION: "delete"
+                WBE_CODE: "{{ WBE_CODE }}"
+                TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+                SYSTEM_NAME: "{{ '_'.join(drTestLunNames[index].split('_')[:4]) }}"
+                SITE: "{{ site }}"
+                ENVIRONMENT: "{{ osType }}"
+                STORAGE_CLASS: "{{ drTestLunClass[index] }}"
+                CAPACITY_GB: "-{{ (drTestLunSectors[index]|int / 1024 / 1024 / 2)|int }}"
+                STORAGE: "{{ deviceName }}"
+                VDISK_UID: "{{ lunId }}"
+              loop: "{{ drTestLunIds }}"
+              loop_control:
+                index_var: index
+                loop_var: lunId
+
+            - include_tasks: update_lun_kpi_table.yml
+              vars:
+                TYPE_OF_OPERATION: "create"
+                WBE_CODE: "{{ WBE_CODE }}"
+                TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+                SYSTEM_NAME: "{{ '_'.join(targetLunNamesAll[index].split('_')[:4]) }}"
+                SITE: "{{ site }}"
+                ENVIRONMENT: "{{ osType }}"
+                STORAGE_CLASS: ""
+                CAPACITY_GB: "{{ (targetLunSectorsAll[index]|int / 1024 / 1024 / 2)|int }}"
+                STORAGE: "{{ deviceName }}"
+                VDISK_UID: "{{ lunId }}"
+              loop: "{{ targetLunIdsAll }}"
+              loop_control:
+                index_var: index
+                loop_var: lunId
+              when: targetLunIdsAll|default([])|length > 0
+
+            - set_fact:
+                Step_3_1_Completed: True
+
+            # End Step_3_1
+
+          # End block
+          when: Step_3_1_Execute
+
+        - block:
+            - name: Step_3_2 - Update Orphan DR LUNs to KPI table
+              debug:
+                msg:
+                  params:
+                    lunIds: "{{ orphanDrLunIds }}"
+
+            - include_tasks: update_lun_kpi_table.yml
+              vars:
+                TYPE_OF_OPERATION: "delete"
+                WBE_CODE: "{{ WBE_CODE }}"
+                TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+                SYSTEM_NAME: "{{ '_'.join(orphanDrLunNames[index].split('_')[:4]) }}"
+                SITE: "{{ site }}"
+                ENVIRONMENT: "{{ osType }}"
+                STORAGE_CLASS: ""
+                CAPACITY_GB: "-{{ (orphanDrLunSectors[index]|int / 1024 / 1024 / 2)|int }}"
+                STORAGE: "{{ deviceName }}"
+                VDISK_UID: "{{ lunId }}"
+              with_indexed_items: "{{ orphanDrLunIds }}"
+              loop: "{{ orphanDrLunIds }}"
+              loop_control:
+                index_var: index
+                loop_var: lunId
+
+            - set_fact:
+                Step_3_2_Completed: True
+
+            # End Step_3_2
+
+          # End block
+          when: Step_3_2_Execute
+
+      # End Steps
+      rescue:
+
+        # Unable to rollback DR Test CGs, need to manually rollback
+
+        - block:
+            - name: Rollback_2_4 - Reactivated DR Test Snapshot CG
+              debug:
+                msg:
+                  params:
+                    cgNames: "{{ drTestCgNames }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/activate_snapshot_cg.yml"
+              vars:
+                cgName: "{{ drTestCgName }}"
+              loop: "{{ drTestCgNames }}"
+              loop_control:
+                loop_var: drTestCgName
+
+            - set_fact:
+                Step_2_3_Rollbacked: True
+                Step_2_4_Rollbacked: True
+
+            # End Rollback_2_4
+
+          # End block
+          when: Step_2_4_Completed
+
+        - block:
+            - name: Rollback_1_2 - Remove WWNs from DR Hosts
+              debug:
+                msg:
+                  params:
+                    wwns: "{{ drHostWwns }}"
+                    hostNames: "{{ drHostNames }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_ports_from_host.yml"
+              vars:
+                wwns: "{{ drHostWwnsItem.value }}"
+                hostName: "{{ drHostWwnsItem.key }}"
+              loop: "{{ lookup('dict', drHostWwns, wantlist=True) }}"
+              loop_control:
+                loop_var: drHostWwnsItem
+
+            - set_fact:
+                Step_1_2_Rollbacked: True
+
+            # End Rollback_1_2
+
+          # End block
+          when: Step_1_2_Completed
+
+        - block:
+            - name: Rollback_1_1 - Add WWNs to DR Test Hosts
+              debug:
+                msg:
+                  params:
+                    wwns: "{{ drTestHostWwns }}"
+                    hostNames: "{{ drTestHostNames }}"
+                    device: "{{ deviceName }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_ports_to_host.yml"
+              vars:
+                wwns: "{{ drTestHostWwnsItem.value }}"
+                hostName: "{{ drTestHostWwnsItem.key }}"
+              loop: "{{ lookup('dict', drTestHostWwns, wantlist=True) }}"
+              loop_control:
+                loop_var: drTestHostWwnsItem
+
+            - set_fact:
+                Step_1_1_Rollbacked: True
+
+            # End Rollback_1_1
+
+          # End block
+          when: Step_1_1_Completed
+
+        # End Rollbacks
+      always:
+
+        - name: Final_Step_1 - Sync DR Device
+          debug:
+            msg:
+              device: "{{ deviceName }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+      # End Final Steps
+
+    # End Workflow
+
+
+    - block:
+
+        # Begin Validate Results
+
+        - name: Result_1_1 - Remove WWNs from DR Test Hosts
+          debug:
+            msg:
+              params:
+                wwns: "{{ drHostWwns }}"
+                hostNames: "{{ drTestHostNames }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_1_1_Completed }}"
+                rollbacked: "{{ Step_1_1_Rollbacked }}"
+          failed_when: Step_1_1_Completed|bool == False
+          when: Step_1_1_Execute
+
+        - name: Result_1_2 - Add WWNs to DR Hosts
+          debug:
+            msg:
+              params:
+                wwns: "{{ drHostWwns }}"
+                hostNames: "{{ drHostNames }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_1_2_Completed }}"
+                rollbacked: "{{ Step_1_2_Rollbacked }}"
+          failed_when: Step_1_2_Completed|bool == False
+          when: Step_1_2_Execute
+
+        - name: Result_2_1 - Remove DR Test LUNs from Class
+          debug:
+            msg:
+              params:
+                drTestLunsInTier: "{{ drTestLunsInTier }}"
+              result:
+                succeeded: "{{ Step_2_1_Completed }}"
+                rollbacked: "{{ Step_2_1_Rollbacked }}"
+          failed_when: Step_2_1_Completed|bool == False
+          when: Step_2_1_Execute
+
+        - name: Result_2_2 - Remove DR Test LUNs from LUN Group
+          debug:
+            msg:
+              params:
+                lunNames: "{{ drTestLunNames }}"
+                lgNames: "{{ drTestLgNames }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_2_2_Completed }}"
+                rollbacked: "{{ Step_2_2_Rollbacked }}"
+          failed_when: Step_2_2_Completed|bool == False
+          when: Step_2_2_Execute
+
+        - name: Result_2_3 - Delete DR Test Snapshot CG
+          debug:
+            msg:
+              params:
+                cgNames: "{{ drTestCgNames }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_2_3_Completed }}"
+                rollbacked: "{{ Step_2_3_Rollbacked }}"
+          failed_when: Step_2_3_Completed|bool == False
+          when: Step_2_3_Execute
+
+        - name: Result_2_4 - Re-Create DR Test Snapshots
+          debug:
+            msg:
+              params:
+                cgNames: "{{ drTestCgNames }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_2_4_Completed }}"
+                rollbacked: "{{ Step_2_4_Rollbacked }}"
+          failed_when: Step_2_4_Completed|bool == False
+          when: Step_2_4_Execute
+
+        - name: Result_2_5 - Add DR Test LUNs to LUN Group
+          debug:
+            msg:
+              params:
+                luns: "{{ targetLunsAll }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_2_5_Completed }}"
+                rollbacked: "{{ Step_2_5_Rollbacked }}"
+          failed_when: Step_2_5_Completed|bool == False
+          when: Step_2_5_Execute
+
+        - name: Result_2_6 - Delete Orphan DR LUNs
+          debug:
+            msg:
+              params:
+                lunNames: "{{ orphanDrLunNames }}"
+                device: "{{ deviceName }}"
+              result:
+                succeeded: "{{ Step_2_6_Completed }}"
+                rollbacked: "{{ Step_2_6_Rollbacked }}"
+          failed_when: Step_2_6_Completed|bool == False
+          when: Step_2_6_Execute
+
+        - name: Result_3_1 - Update DR Test LUNs to KPI table
+          debug:
+            msg:
+              params:
+                lunIds: "{{ drTestLunIds }}"
+              result:
+                succeeded: "{{ Step_3_1_Completed }}"
+          failed_when: Step_3_1_Completed|bool == False
+          when: Step_3_1_Execute
+
+        - name: Result_3_2 - Update Orphan DR LUNs to KPI table
+          debug:
+            msg:
+              params:
+                lunIds: "{{ orphanDrLunIds }}"
+              result:
+                succeeded: "{{ Step_3_2_Completed }}"
+          failed_when: Step_3_2_Completed|bool == False
+          when: Step_3_2_Execute
+

@@ -41,7 +41,7 @@
         replicaType: "{{ REPTYPE['N1']['type'] }}"              # See ../../config/project001.yml
         enableAlua: "{{ 1 if (OS_Type == 'SOL') else 0 }}"             # Enable ALUA for Solaris
         enableMetroAlua: "{{ 1 if (OS_Type == 'SOL') else 0 }}"
-        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s_%s_%s_%s"
 
     - set_fact:
         primaryLunNames: []
@@ -145,11 +145,11 @@
             targetLuns: "{{ targetLuns + [targetLun] }}"
           vars:
             targetLun:
-              name: "{{ lunNameTemplate | format(targetLunPrefix, nextScsiId|int + item.0) }}"
-              desc: "{{ primaryLunDescs[item.0][0:1] }}_00_{{replicaType}}_00_0000000000000000_01|{{primaryLunDescs[item.0].split('|')[1] | default('') }}"
+              name: "{{ lunNameTemplate | format(targetLunPrefix, (nextScsiId|int + item.0), item.1.split('_')[5], '00', replicaType, '00_0000000000000000_01' ) }}"
+              desc: "{{ primaryLunDescs[item.0] }}"
               sector: "{{ primaryLunSectors[item.0] }}"
               lg: "{{ primaryLunLgs[item.0] }}"
-              class: "{{ primaryLunDescs[item.0][0:1] }}"
+              class: "{{ item.1.split('_')[5] }}"
               scsiId: "{{ nextScsiId|int + item.0 }}"
           with_indexed_items: "{{ primaryLunNames }}"
 

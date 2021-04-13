@@ -56,8 +56,8 @@
     - set_fact:
         sourceCgName: "{{targetLgName}}_SNAP_{{timestamp}}"
         targetLunPrefix: "{{targetClusterName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
-        targetLunDesc: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else site}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1|{{snapRemarks}}"
-        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+        targetLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else site}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s"
 
     - set_fact:
         Precheck_1_Execute: True
@@ -129,12 +129,12 @@
           when: Start_SCSI_ID|default(none) is not none
 
         - set_fact:
-            nextSuffix: "{{ (maxScsiId|int - nextScsiId|int + 1) }}"
+            nextLunNo: "{{ (maxScsiId|int - nextScsiId|int + 1) }}"
             targetLunNames: []
             lunScsiIds: []
 
         - set_fact:
-            targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(targetLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
+            targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(targetLunPrefix, (nextLunNo|int + item|int), targetLunSuffix ) ] }}"
             lunScsiIds: "{{ lunScsiIds + [nextScsiId|int - item|int] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
@@ -192,7 +192,7 @@
                       cgName: "{{ sourceCgName }}"
                       snapNames: "{{ targetLunNames }}"
                       activate: "{{ snapActivate }}"
-                      snapDesc: "{{ targetLunDesc }}"
+                      snapDesc: "{{ snapRemarks }}"
                     device: "{{ deviceName }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
@@ -201,7 +201,7 @@
                 cgName: "{{ sourceCgName }}"
                 snapNames: "{{ targetLunNames }}"
                 activate: "{{ snapActivate }}"
-                snapDesc: "{{ targetLunDesc }}"
+                snapDesc: "{{ snapRemarks }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
 
@@ -400,7 +400,7 @@
                   cgName: "{{ sourceCgName }}"
                   snapNames: "{{ targetLunNames }}"
                   activate: True
-                  snapDesc: "{{ targetLunDesc }}"
+                  snapDesc: "{{ snapRemarks }}"
               result:
                 succeeded: "{{ Step_1_1_Completed }}"
                 rollbacked: "{{ Step_1_1_Rollbacked }}"

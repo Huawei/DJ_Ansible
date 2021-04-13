@@ -1,0 +1,119 @@
+- defaultTab: monitor
+  description: Move WWNs from DR Test Hosts to DR Hosts, Re-Create Snapshot CG
+  executionEnabled: true
+  id: 3d843ddc-6c18-4f73-ad9a-e67cda198aab
+  loglevel: INFO
+  name: 56_dr_test_clean_for_multi_host
+  nodeFilterEditable: false
+  options:
+  - name: Job_Description
+    value: Move WWNs from DR Test Hosts to DR Hosts, Re-Create Snapshot CG
+  - name: Username
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${job.user.name}=${job.user.name}
+    description: (Optional) Alternative username/password to login all storage
+  - name: Password
+    secure: true
+    valueExposed: true
+    description: <BR><h2>Ticket</h2>
+  - required: true
+    name: WBE_CODE
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+  - required: true
+    name: TICKET_NUMBER
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?${DATE:YYYYMMddHHmmss}=timestamp
+    description: <BR><h2>Select DR Host</h2>
+  - enforced: true
+    name: Country
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/search/project?pageNo=1&pageSize=100&valueAttr=name
+  - name: OS_Type
+    valuesUrl: http://localhost:26336/rest/data/v1/enum/OSTYPE?nameAttr=desc&valueAttr=key&filter={"enable":1}
+  - enforced: true
+    name: DR_Storage_Room
+    valuesUrl: http://localhost:26336/rest/data/v1/join/az?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name
+  - enforced: true
+    name: DR_Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.DR_Storage_Room.value}"}}]}}]
+  - label: Search Host Name
+    name: Host_Search
+  - delimiter: ','
+    enforced: true
+    label: DR Hosts
+    multivalued: true
+    name: Select_DR_Host
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_2"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+  - delimiter: ','
+    enforced: true
+    multivalued: true
+    name: Check_Result_1
+    required: true
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?host=Move%20WWNs%20from%20DR%20Hosts%20"${option.Select_DR_Host.value}"%20to%20DR%20Test%20Hosts%20"${option.Select_DR_Host.value}"
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - configuration:
+        ansible-become: 'false'
+        ansible-disable-limit: 'false'
+        ansible-extra-vars: |-
+          username: ${option.Username}
+          password: ${option.Password}
+
+          WBE_CODE: ${option.WBE_CODE}
+          TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Country: ${option.Country}
+          Job_User: ${job.user.name}
+
+          OS_Type: ${option.OS_Type}
+          DR_Storage: ${option.DR_Storage}
+          DR_Storage_Room: ${option.DR_Storage_Room}
+          Select_DR_Host: ${option.Select_DR_Host}
+          Check_Result_1: ${option.Check_Result_1}
+        ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/56_dr_test_clean_for_multi_host.yml
+      nodeStep: false
+      type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep
+    - configuration:
+        command: /bin/psql automation -c "\copy (select * from activity where WBE_CODE = '${option.WBE_CODE}' and TICKET_NUMBER = '${option.TICKET_NUMBER}') TO '/var/lib/rundeck/exp/webapp/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv' CSV HEADER"
+      description: Export Changes
+      nodeStep: true
+      type: localexec
+    - configuration:
+        command: echo "<a href='/project001/export/${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv'>${job.name}-${job.execid}-${job.user.name}-${option.TICKET_NUMBER}.csv</a>"
+      description: Download Link
+      nodeStep: true
+      plugins:
+        LogFilter:
+          - config:
+              datatype: text/html
+            type: render-datatype
+      type: localexec
+    keepgoing: false
+    pluginConfig:
+      LogFilter:
+      - config:
+          bgcolor: green
+          regex: TASK.*Step_.*
+        type: highlight-output
+      - config:
+          bgcolor: red
+          regex: TASK.*Rollback_.*
+        type: highlight-output
+      - config:
+          bgcolor: blue
+          regex: TASK.*Precheck_.*
+        type: highlight-output
+      - config:
+          bgcolor: cyan
+          regex: TASK.*Result_.*
+        type: highlight-output
+      - config:
+          fgcolor: green
+          mode: bold
+          regex: ok=[1-9][0-9]*
+        type: highlight-output
+      - config:
+          fgcolor: red
+          mode: bold
+          regex: failed=[1-9][0-9]*
+        type: highlight-output
+    strategy: node-first
+  uuid: 3d843ddc-6c18-4f73-ad9a-e67cda198aab

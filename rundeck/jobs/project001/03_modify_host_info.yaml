@@ -67,7 +67,7 @@
     name: Session_Name
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:1&nameSplit=_&valueAttr=DESCRIPTION:1&valueSplit=_&filter=NAME::${option.LUN_Group.value}
   - name: Modify_Session_Name
-    description: Input New Session Name (start with {Country}0, max 19 chars, '_' not permitted) <BR><BR><h2>Performance Class</h2>
+    description: Input New Session Name (start with {Country}0, max 16 chars, '_' not permitted) <BR><BR><h2>Performance Class</h2>
   - enforced: true
     name: Class_1
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.LUN_Group.value}

@@ -1,0 +1,14 @@
+# Get Host LUN ID Loop Helper, cooperator with nested loop
+#
+# Required parameters:
+#   hostName:               Host Name
+#   hostGroupName:          Host Group Name
+#
+# Generated parameters:
+#   checkedHostLuns         Checked Host LUNs Info, Need Clean Before Used.
+
+
+- import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id.yml"
+- set_fact:
+    checkedHostLuns: "{{ checkedHostLuns + [checkedLuns] }}"
+

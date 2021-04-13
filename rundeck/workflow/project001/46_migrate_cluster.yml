@@ -51,7 +51,7 @@
         protectType: "{{ REPTYPE['N1']['enum'] }}"              # See ../../config/project001.yml
         replicaType: "{{ REPTYPE['N1']['type'] }}"              # See ../../config/project001.yml
         maxScsiId: "{{ OSTYPE[OS_Type]['max_scsi_id'] }}"       # See ../../config/project001.yml
-        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s_%s_%s_%s"
 
     - set_fact:
         primaryLunNames: []
@@ -132,11 +132,11 @@
             targetLuns: "{{ targetLuns + [targetLun] }}"
           vars:
             targetLun:
-              name: "{{ lunNameTemplate | format( targetLunPrefix, (maxScsiId|int - (nextScsiId|int - item.0) + 1) ) }}"
-              desc: "{{ primaryLunDescs[item.0][0:1] }}_00_{{replicaType}}_00_0000000000000000_01|{{ primaryLunDescs[item.0].split('|')[1] | default('') }}"
+              name: "{{ lunNameTemplate | format(targetLunPrefix, (maxScsiId|int - (nextScsiId|int - item.0) + 1), item.1.split('_')[5], '00', replicaType, '00_0000000000000000_01' ) }}"
+              desc: "{{ primaryLunDescs[item.0] }}"
               sector: "{{ primaryLunSectors[item.0] }}"
               lg: "{{ primaryLunLgs[item.0] }}"
-              class: "{{ primaryLunDescs[item.0][0:1] }}"
+              class: "{{ item.1.split('_')[5] }}"
               scsiId: "{{ nextScsiId|int - item.0 }}"
           with_indexed_items: "{{ primaryLunNames }}"
 
