@@ -1,0 +1,814 @@
+- name: Create Protection Group
+  hosts: localhost
+  vars_files:
+    - ../../../config/global.yml
+    - ../../../config/project001.yml
+  gather_facts: no
+  become: no
+  tasks:
+
+    # Check Protection Group Params
+    - block:
+        - set_fact:
+            checked_pg_params:
+              Country: "{{ (Country is not none and Country != DEFAULT.noneValue) and Country|length == 2 }}"
+              OS_Type: "{{ (OS_Type is not none and OS_Type != DEFAULT.noneValue) and OS_Type in OSTYPE }}"
+              Site: "{{ (Site is not none and Site != DEFAULT.noneValue) and Site in DC }}"
+              Primary_Storage_Room: "{{ (Primary_Storage_Room is not none and Primary_Storage_Room != DEFAULT.noneValue) and Primary_Storage_Room in AZ }}"
+              Primary_Storage: "{{ (Primary_Storage is not none and Primary_Storage != DEFAULT.noneValue) and (Primary_Storage|string|length == 20) }}"
+              Session_Name: "{{ Session_Name|length <= 13 and '_' not in Session_Name }}"
+              Enable_HyperMetro: "{{ Enable_HyperMetro in ['Y','N'] }}"
+              Protection_Level: "{{ Protection_Level|int in [1,2,3] }}"
+              Check_Result_1: "{{ ('pg' in Check_Result_1) }}"
+
+        - name: Precheck_0_1 - Check Protection Group Params
+          debug:
+            msg: "{{checked_pg_params}}"
+          failed_when: checked_pg_params.values()|unique != [True]
+
+    # Check Metro Protection Group Params
+    - block:
+        - set_fact:
+            checked_metro_pg_params:
+              Metro_Storage: "{{ (Metro_Storage is not none and Metro_Storage != DEFAULT.noneValue) and (Metro_Storage|string|length == 20) }}"
+              Metro_Storage_Room: "{{ (Metro_Storage_Room is not none and Metro_Storage_Room != DEFAULT.noneValue) and Metro_Storage_Room in AZ }}"
+              Check_Result_2: "{{ ('pg' in Check_Result_1) }}"
+
+        - name: Precheck_0_2 - Check Metro Protection Group Params
+          debug:
+            msg: "{{checked_metro_pg_params}}"
+          failed_when: checked_metro_pg_params.values()|unique != [True]
+
+      when: Enable_HyperMetro == 'Y'
+
+
+    # Check DR Protection Group Params
+    - block:
+        - set_fact:
+            checked_dr_pg_params:
+              DR_Storage: "{{ (DR_Storage is not none and DR_Storage != DEFAULT.noneValue) and (DR_Storage|string|length == 20) }}"
+              DR_Storage_Room: "{{ (DR_Storage_Room is not none and DR_Storage_Room != DEFAULT.noneValue) and DR_Storage_Room in AZ }}"
+              Check_Result_3: "{{ ('pg' in Check_Result_1) }}"
+
+        - name: Precheck_0_3 - Check DR Protection Group Params
+          debug:
+            msg: "{{checked_dr_pg_params}}"
+          failed_when: checked_dr_pg_params.values()|unique != [True]
+
+      when: Protection_Level|int >= 2
+
+    # Set Params
+
+    - set_fact:
+        sessionName: "{{Country}}0{{ Session_Name}}"
+        protectType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['enum'] }}"              # See ../../config/project001.yml
+        replicaType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['type'] }}"              # See ../../config/project001.yml
+
+    - set_fact:
+        primaryDeviceSn: "{{ Primary_Storage|string }}"
+        primaryPgName: "{{ sessionName }}_1"
+        primaryPgDesc: "{{ Enable_HyperMetro }}{{ Protection_Level }}"
+
+    - set_fact:
+        metroDeviceSn: "{{ Metro_Storage|string if (Metro_Storage is not none) else none }}"
+        metroCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}1"
+      when:
+        - Enable_HyperMetro == 'Y'
+
+    - set_fact:
+        drDeviceSn: "{{ DR_Storage|string if (DR_Storage is not none) else none }}"
+        drCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}2"
+        drSyncMode: "{{ DR_Sync_Mode }}"
+      when:
+        - Protection_Level|int >= 2
+
+    - set_fact:
+        drPgName: "{{ sessionName }}_2"
+      when:
+        - Protection_Level|int >= 2
+
+    - set_fact:
+        standbyCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}4"
+      when:
+        - Enable_HyperMetro == 'Y'
+        - Protection_Level|int >= 2
+
+    - set_fact:
+        drTestCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}3"
+      when:
+        - Protection_Level|int == 3
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+    - block:
+        - name: Precheck_1 - Check Primary Protection Group
+          debug:
+            msg:
+              protectGroup: "{{ primaryPgName }}"
+              device: "{{ primaryDeviceSn }}"
+
+        - name: Login to Primary Device
+          set_fact:
+            deviceSn: "{{ primaryDeviceSn }}"
+        
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            primaryDeviceName: "{{ deviceName }}"
+            primaryDeviceHost: "{{ deviceHost }}"
+            primaryDevicePort: "{{ devicePort }}"
+            primaryDeviceToken: "{{ deviceToken }}"
+            primaryDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
+          vars:
+            pgNames: ["{{ primaryPgName }}"]
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hypermetro_cgs.yml"
+          vars:
+            cgNames: ["{{ metroCgName }}"]
+            checkExist: False
+          when:
+            - Enable_HyperMetro == 'Y'
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_replication_cgs.yml"
+          vars:
+            cgNames: [ "{{ drCgName }}" ]
+            checkExist: False
+          when:
+            - Protection_Level|int>= 2
+
+        # End Precheck_1
+      # End Block
+
+    - block:
+        - name: Precheck_2 - Check Metro Protection Group
+          debug:
+            msg:
+              protectGroup: "{{ primaryPgName }}"
+              device: "{{ metroDeviceSn }}"
+
+        - name: Login to Metro Device
+          set_fact:
+            deviceSn: "{{ metroDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            metroDeviceName: "{{ deviceName }}"
+            metroDeviceHost: "{{ deviceHost }}"
+            metroDevicePort: "{{ devicePort }}"
+            metroDeviceToken: "{{ deviceToken }}"
+            metroDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
+          vars:
+            pgNames: ["{{ primaryPgName }}"]
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hypermetro_cgs.yml"
+          vars:
+            cgNames: ["{{ metroCgName }}"]
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_replication_cgs.yml"
+          vars:
+            cgNames: [ "{{ standbyCgName }}" ]
+            checkExist: False
+          when:
+            - Protection_Level|int>= 2
+
+        # End Precheck_2
+
+      # End Block
+      when:
+        - Enable_HyperMetro == 'Y'
+
+    - block:
+        - name: Precheck_3 - Check DR Protection Group
+          debug:
+            msg:
+              drProtectGroup: "{{ drPgName }}"
+              device: "{{ drDeviceSn }}"
+
+        - name: Login to DR Device
+          set_fact:
+            deviceSn: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            drDeviceName: "{{ deviceName }}"
+            drDeviceHost: "{{ deviceHost }}"
+            drDevicePort: "{{ devicePort }}"
+            drDeviceToken: "{{ deviceToken }}"
+            drDeviceSession: "{{ deviceSession }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
+          vars:
+            pgNames: ["{{ drPgName }}"]
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_replication_cgs.yml"
+          vars:
+            cgNames: [ "{{ drCgName }}" ]
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_replication_cgs.yml"
+          vars:
+            cgNames: [ "{{ standbyCgName }}" ]
+            checkExist: False
+          when:
+            - Enable_HyperMetro == 'Y'
+
+        # End Precheck_3
+
+      # End Block
+      when:
+        - Protection_Level|int >= 2
+
+    - block:
+        - name: Precheck_4 - Check DR Test Cgs
+          debug:
+            msg:
+              drProtectGroup: "{{ drPgName }}"
+              device: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_snapshot_cgs.yml"
+          vars:
+            cgNames: ["{{ drTestCgName }}"]
+            checkExist: False
+
+        # End Precheck_4
+
+      # End Block
+      when:
+        - Protection_Level|int == 3
+
+
+    - block:
+
+        # Begin Workflow Steps
+        
+        - set_fact:
+            # Create Primary Protection Group
+            Step_1_3_Execute: "{{ True }}"
+            Step_1_3_Completed: False
+            Step_1_3_Rollbacked: False
+
+            # Create Metro Protection Group
+            Step_2_3_Execute: "{{ Enable_HyperMetro == 'Y' }}"
+            Step_2_3_Completed: False
+            Step_2_3_Rollbacked: False
+
+            # Create HyperMetro CG
+            Step_2_4_Execute: "{{ Enable_HyperMetro == 'Y' }}"
+            Step_2_4_Completed: False
+            Step_2_4_Rollbacked: False
+
+            # Create DR Protection Group
+            Step_3_3_Execute: "{{ Protection_Level|int >= 2 }}"
+            Step_3_3_Completed: False
+            Step_3_3_Rollbacked: False
+
+            # Create Replication CG
+            Step_3_4_Execute: "{{ Protection_Level|int >= 2 }}"
+            Step_3_4_Completed: False
+            Step_3_4_Rollbacked: False
+
+            # Create Standby Replication CG
+            Step_3_5_Execute: "{{ Protection_Level|int >= 2 and Enable_HyperMetro == 'Y' }}"
+            Step_3_5_Completed: False
+            Step_3_5_Rollbacked: False
+
+        - name: Workflow - Create Protection Group
+          debug:
+            msg:
+              Step_1_3: "[{{Step_1_3_Execute}}] Create Primary Protection Group"
+              Step_2_3: "[{{Step_2_3_Execute}}] Create Metro Protection Group"
+              Step_2_4: "[{{Step_2_4_Execute}}] Create Metro CG"
+              Step_3_3: "[{{Step_3_3_Execute}}] Create DR Protection Group"
+              Step_3_4: "[{{Step_3_4_Execute}}] Create Replication CG"
+              Step_3_5: "[{{Step_3_5_Execute}}] Create Standby Replication CG"
+
+        - block:
+            - name: Step_1_3 - Create Primary Protection Group
+              debug:
+                msg:
+                  params:
+                    pg: "{{ primaryPgName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_pg.yml"
+              vars:
+                pgName: "{{ primaryPgName }}"
+                desc: "{{ primaryPgDesc }}"
+
+            - set_fact:
+                primaryPgId: "{{ newPgId }}"
+                Step_1_3_Completed: True
+          when: Step_1_3_Execute
+
+        - block:
+            - name: Step_2_3 - Create Metro Protection Group
+              debug:
+                msg:
+                  params:
+                    pg: "{{ primaryPgName }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_pg.yml"
+              vars:
+                pgName: "{{ primaryPgName }}"
+                desc: "{{ primaryPgDesc }}"
+
+            - set_fact:
+                metroPgId: "{{ newPgId }}"
+                Step_2_3_Completed: True
+          when: Step_2_3_Execute
+
+        - block:
+            - name: Step_2_4 - Create Metro CG
+              debug:
+                msg:
+                  params:
+                    device: "{{ primaryDeviceName }}"
+                    remote: "{{ metroDeviceName }}"
+                    cg: "{{ metroCgName }}"
+                    pg:
+                      local:
+                        name: "{{ primaryPgName }}"
+                        id: "{{ primaryPgId }}"
+                      remote:
+                        name: "{{ primaryPgName }}"
+                        id: "{{ metroPgId }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_hypermetro_cg.yml"
+              vars:
+                cgName: "{{ metroCgName }}"
+                remoteSn: "{{ metroDeviceSn }}"
+                localPgId: "{{ primaryPgId }}"
+                remotePgId: "{{ metroPgId }}"
+
+            - set_fact:
+                Step_2_4_Completed: True
+          when: Step_2_4_Execute
+
+        - block:
+            - name: Step_3_3 - Create DR Protection Group
+              debug:
+                msg:
+                  params:
+                    pg: "{{ drPgName }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_pg.yml"
+              vars:
+                pgName: "{{ drPgName }}"
+                desc: "{{ primaryPgDesc }}"
+
+            - set_fact:
+                drPgId: "{{ newPgId }}"
+                Step_3_3_Completed: True
+          when: Step_3_3_Execute
+
+        - block:
+            - name: Step_3_4 - Create Replication CG
+              debug:
+                msg:
+                  params:
+                    device: "{{ primaryDeviceName }}"
+                    remote: "{{ drDeviceName }}"
+                    cg: "{{ drCgName }}"
+                    pg:
+                      local:
+                        name: "{{ primaryPgName }}"
+                        id: "{{ primaryPgId }}"
+                      remote:
+                        name: "{{ drPgName }}"
+                        id: "{{ drPgId }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_replication_cg.yml"
+              vars:
+                cgName: "{{ drCgName }}"
+                remoteSn: "{{ drDeviceSn }}"
+                mode: "{{ drSyncMode }}"
+                localPgId: "{{ primaryPgId }}"
+                remotePgId: "{{ drPgId }}"
+
+            - set_fact:
+                Step_3_4_Completed: True
+          when: Step_3_4_Execute
+
+        - block:
+            - name: Step_3_5 - Create Standby Replication CG
+              debug:
+                msg:
+                  params:
+                    device: "{{ metroDeviceName }}"
+                    remote: "{{ drDeviceName }}"
+                    cg: "{{ standbyCgName }}"
+                    pg:
+                      local:
+                        name: "{{ primaryPgName }}"
+                        id: "{{ metroPgId }}"
+                      remote:
+                        name: "{{ drPgName }}"
+                        id: "{{ drPgId }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_replication_cg.yml"
+              vars:
+                cgName: "{{ standbyCgName }}"
+                remoteSn: "{{ drDeviceSn }}"
+                mode: "{{ GLOBAL.replication.syncMode.async }}"
+                localPgId: "{{ metroPgId }}"
+                remotePgId: "{{ drPgId }}"
+
+            - set_fact:
+                Step_3_5_Completed: True
+          when: Step_3_5_Execute
+
+        # End Workflow Steps
+
+      # End Block
+      
+      rescue:
+        
+        # Begin Workflow Rollbacks
+
+        - block:
+            - name: Rollback_3_5 - Delete Standby Replication CG
+              debug:
+                msg:
+                  params:
+                    device: "{{ metroDeviceName }}"
+                    cg: "{{ standbyCgName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_replication_cg.yml"
+              vars:
+                cgName: "{{ standbyCgName }}"
+
+            - set_fact:
+                Step_3_5_Rollbacked: True
+          when: Step_3_5_Completed
+
+        - block:
+            - name: Rollback_3_4 - Delete Replication CG
+              debug:
+                msg:
+                  params:
+                    device: "{{ primaryDeviceName }}"
+                    cg: "{{ drCgName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_replication_cg.yml"
+              vars:
+                cgName: "{{ drCgName }}"
+
+            - set_fact:
+                Step_3_4_Rollbacked: True
+          when: Step_3_4_Completed
+
+        - block:
+            - name: Rollback_3_3 - Delete DR Protection Group
+              debug:
+                msg:
+                  params:
+                    pg: "{{ drPgName }}"
+                    device: "{{ drDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ drDeviceHost }}"
+                devicePort: "{{ drDevicePort }}"
+                deviceSn: "{{ drDeviceSn }}"
+                deviceToken: "{{ drDeviceToken }}"
+                deviceSession: "{{ drDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_pg.yml"
+              vars:
+                pgName: "{{ drPgName }}"
+
+            - set_fact:
+                Step_3_3_Rollbacked: True
+          when: Step_3_3_Completed
+
+        - block:
+            - name: Rollback_2_4 - Delete HyperMetro CG
+              debug:
+                msg:
+                  params:
+                    device: "{{ primaryDeviceName }}"
+                    cg: "{{ metroCgName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_hypermetro_cg.yml"
+              vars:
+                cgName: "{{ metroCgName }}"
+
+            - set_fact:
+                Step_2_4_Rollbacked: True
+          when: Step_2_4_Completed
+
+        - block:
+            - name: Rollback_2_3 - Delete for Metro Protection Group
+              debug:
+                msg:
+                  params:
+                    pgName: "{{ primaryPgName }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_pg.yml"
+              vars:
+                pgName: "{{ primaryPgName }}"
+
+            - set_fact:
+                Step_2_3_Rollbacked: True
+          when: Step_2_3_Completed
+
+        - block:
+            - name: Rollback_1_3 - Delete Primary Protection Group
+              debug:
+                msg:
+                  params:
+                    pgName: "{{ primaryPgName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_pg.yml"
+              vars:
+                pgName: "{{ primaryPgName }}"
+
+            - set_fact:
+                Step_1_3_Rollbacked: True
+          when: Step_1_3_Completed
+
+        # End Workflow Rollbacks
+
+      # End Rescure
+      always:
+
+        # Begin Final Steps
+
+        - name: Final_Step_1 - Sync Devices
+          set_fact:
+            deviceSynced: []
+            primaryDeviceNeedSync: "{{ (Step_1_3_Completed|bool == True and Step_1_3_Rollbacked|bool == False) }}"
+            metroDeviceNeedSync: "{{ (Step_2_3_Completed|bool == True and Step_2_3_Rollbacked|bool == False) }}"
+            remoteDeviceNeedSync: "{{ (Step_3_3_Completed|bool == True and Step_3_3_Rollbacked|bool == False) }}"
+
+        - name: Final_Step_1_1 - Sync Primary Device
+          debug:
+            msg:
+              device: "{{ primaryDeviceName }}"
+          when: primaryDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ primaryDeviceName }}"
+          when: primaryDeviceNeedSync
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when: primaryDeviceNeedSync
+
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [primaryDeviceName] }}"
+          when: primaryDeviceNeedSync
+
+        - name: Final_Step_1_2 - Sync Metro Device
+          debug:
+            msg:
+              device: "{{ metroDeviceName }}"
+          when:
+            - metroDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ metroDeviceName }}"
+          when:
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when:
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [metroDeviceName] }}"
+          when:
+            - metroDeviceNeedSync
+            - metroDeviceName not in deviceSynced
+
+        - name: Final_Step_1_3 - Sync DR Device
+          debug:
+            msg:
+              device: "{{ drDeviceName }}"
+          when:
+            - remoteDeviceNeedSync
+
+        - set_fact:
+            deviceName: "{{ drDeviceName }}"
+          when:
+            - remoteDeviceNeedSync
+            - drDeviceName not in deviceSynced
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when:
+            - remoteDeviceNeedSync
+            - drDeviceName not in deviceSynced
+
+        - set_fact:
+            deviceSynced: "{{ deviceSynced + [drDeviceName] }}"
+          when:
+            - remoteDeviceNeedSync
+            - drDeviceName not in deviceSynced
+
+        # End Final Steps
+
+      # End Always Block
+
+    # End Workflow
+
+    - block:
+
+        # Begin Validate Results
+
+        - name: Result_1_3 - Create Primary Protection Group
+          debug:
+            msg:
+              params:
+                pg: "{{ primaryPgName }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_3_Completed }}"
+                rollbacked: "{{ Step_1_3_Rollbacked }}"
+          failed_when: Step_1_3_Completed|bool == False
+          when: Step_1_3_Execute
+
+        - name: Result_2_3 - Create Metro Protection Group
+          debug:
+            msg:
+              params:
+                pg: "{{ primaryPgName }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_3_Completed }}"
+                rollbacked: "{{ Step_2_3_Rollbacked }}"
+          failed_when: Step_2_3_Completed|bool == False
+          when: Step_2_3_Execute
+
+        - name: Result_2_4 - Create HyperMetro CG
+          debug:
+            msg:
+              params:
+                device: "{{ primaryDeviceName }}"
+                remote: "{{ metroDeviceName }}"
+                cg: "{{ metroCgName }}"
+                pg:
+                  local:
+                    name: "{{ primaryPgName }}"
+                    id: "{{ primaryPgId }}"
+                  remote:
+                    name: "{{ primaryPgName }}"
+                    id: "{{ metroPgId }}"
+              result:
+                succeeded: "{{ Step_2_4_Completed }}"
+                rollbacked: "{{ Step_2_4_Rollbacked }}"
+          failed_when: Step_2_4_Completed|bool == False
+          when: Step_2_4_Execute
+
+        - name: Result_3_3 - Create DR Protection Group
+          debug:
+            msg:
+              params:
+                pg: "{{ drPgName }}"
+              result:
+                succeeded: "{{ Step_3_3_Completed }}"
+                rollbacked: "{{ Step_3_3_Rollbacked }}"
+          failed_when: Step_3_3_Completed|bool == False
+          when: Step_3_3_Execute
+
+        - name: Result_3_4 - Create Replication CG
+          debug:
+            msg:
+              params:
+                device: "{{ primaryDeviceName }}"
+                remote: "{{ drDeviceName }}"
+                cg: "{{ drCgName }}"
+                pg:
+                  local:
+                    name: "{{ primaryPgName }}"
+                    id: "{{ primaryPgId }}"
+                  remote:
+                    name: "{{ drPgName }}"
+                    id: "{{ drPgId }}"
+              result:
+                succeeded: "{{ Step_3_4_Completed }}"
+                rollbacked: "{{ Step_3_4_Rollbacked }}"
+          failed_when: Step_3_4_Completed|bool == False
+          when: Step_3_4_Execute
+
+        - name: Result_3_5 - Create Standby Replication CG
+          debug:
+            msg:
+              params:
+                device: "{{ metroDeviceName }}"
+                remote: "{{ drDeviceName }}"
+                cg: "{{ standbyCgName }}"
+                pg:
+                  local:
+                    name: "{{ primaryPgName }}"
+                    id: "{{ metroPgId }}"
+                  remote:
+                    name: "{{ drPgName }}"
+                    id: "{{ drPgId }}"
+              result:
+                succeeded: "{{ Step_3_5_Completed }}"
+                rollbacked: "{{ Step_3_5_Rollbacked }}"
+          failed_when: Step_3_5_Completed|bool == False
+          when: Step_3_5_Execute
+
+        - name: Synced Device
+          debug:
+            msg:
+              synced: "{{ deviceSynced }}"
+        # End Validate Results
+      
+      # End Block
+
+  # End Tasks
+
+# End Playbook

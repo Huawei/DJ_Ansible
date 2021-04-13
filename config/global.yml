@@ -27,7 +27,7 @@ GLOBAL:
     recoveryPolicy: 1     # 1/automatic, 2/manual
     syncSpeed: 2          # 1/low, 2/medium, 3/high, 4/highest
     syncType: 3           # 1/manual, 2/wait after last sync begin, 3/wait after last sync ends
-    interval: 60          # synchronize interval in seconds (10 ~ 86400)
+    interval: 30          # synchronize interval in seconds (10 ~ 86400)
     compress: False       # enable compress for async replication: true, false
     timeout: 10           # synchronize remote I/O timeout threshold in seconds, default: 10, options: 10~30, or set to 255 to disable timeout
     syncRetries: 3600     # 5 hours
@@ -83,19 +83,13 @@ DMDATASERVICE:                         # DeviceManager Data service configuratio
 DEFAULT:
   noneName: "NONE"
   noneValue: "__NONE__"
-  suffixDigits: 3
+  suffixDigits: 4
 
 LOGGING:
-  format:  '[%(asctime)s] %(levelname)-5s - %(message)s'
+  format:  '%(asctime)s - %(levelname)s - %(filename)s[:%(lineno)d] - %(message)s'
   datefmt: '%Y-%m-%d %H:%M:%S'
   level:   'DEBUG'
-  levelno:
-    CRITICAL: 50
-    ERROR: 40
-    WARNING: 30
-    INFO: 20
-    DEBUG: 10
-    NOTSET: 0
+  path: "/var/lib/rundeck/logs/data_service"
 
 DJSERVICE:
   API:

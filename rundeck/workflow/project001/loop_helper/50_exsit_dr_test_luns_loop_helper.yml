@@ -1,0 +1,34 @@
+# Build dr test lun parameter, cooperator with nested loop
+#
+# Required parameters:
+#   drTestLun:                 # Lun Info
+#   checkedHostLuns:           # Host Lun info
+#
+# Generated variables:
+#   existDrTestLuns:           # Exist Dr Test Lun Parameter Info, need clean before used.
+- set_fact:
+    filteredHostLun: "{{ item.value | json_query(queryLun) | first }}"
+    filteredLgName: "{{ item.key }}"
+  vars:
+    queryLun: "[? lunName == '{{drTestLun.NAME}}']"
+  with_dict: "{{ checkedHostLuns }}"
+  when:
+    - item.value|length > 0
+    - item.value|json_query(queryLun)|length > 0
+
+- name: Check Filtered Host Lun
+  debug:
+    msg: "{{checkedHostLuns}}"
+  failed_when: filteredHostLun|default(none) is none
+
+- set_fact:
+    existDrTestLun:
+      lunName: "{{ drTestLun.NAME }}"
+      lunDesc: "{{ drTestLun.DESCRIPTION }}"
+      lunScsiId: "{{ filteredHostLun.hostLunId }}"
+      lunSector: "{{ drTestLun.USERCAPACITY }}"
+      lgName: "{{ filteredLgName }}"
+
+- set_fact:
+    existDrTestLuns: "{{ existDrTestLuns + [existDrTestLun] }}"
+

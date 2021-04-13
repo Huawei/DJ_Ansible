@@ -33,7 +33,7 @@
             checked_params:
               LUN_Size: "{{ (LUN_Size is not none) and (LUN_Size|int >= 1) }}"
               LUN_Num: "{{ (LUN_Num is not none) and (LUN_Num|int >= 1) }}"
-              LUN_Description: "{{ (LUN_Description is none) or (LUN_Description|string|length <= 200) }}"
+              LUN_Description: "{{ (LUN_Description is none) or (LUN_Description|string|length <= 255) }}"
               LUN_Prefix: "{{ (LUN_Prefix is not none) and (LUN_Prefix|string|length <= 28) }}"
               Start_Suffix: "{{ (Start_Suffix is none) or (Start_Suffix|int >= 0 and (Start_Suffix|int + LUN_Num|int) < 1000 ) }}"
 
@@ -43,9 +43,9 @@
 
         - set_fact:
             lunNum: "{{ LUN_Num|int if (LUN_Num is not none) else 0 }}"
-            lunDesc: "{{Class}}_00_00_00_0000000000000000_01|{{ LUN_Description|string if (LUN_Description is not none) else '' }}"
+            lunDesc: "{{ LUN_Description|string if (LUN_Description is not none) else '' }}"
             startSuffix: "{{ Start_Suffix if (Start_Suffix is not none) else 0 }}"
-            lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+            lunNameTemplate: "%s_NN%0{{DEFAULT.suffixDigits}}d_{{Class}}_00_00_00_0000000000000000_01"
             lunNames: []
             lunDescs: []
             lunSizes: []

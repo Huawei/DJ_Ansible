@@ -1,0 +1,14 @@
+# Get Replication CGs by Protection Group Loop Helper, cooperator with nested loop
+#
+# Required parameters:
+#   pgName:                    # Protection Group Name, can be replaced with pgId
+#
+# Optional parameters:
+#   pgId:                      # Protection Group ID
+#
+# Generated variables:
+#   checkedPgRepCgs:           # Checked Replication CGs associate with protection groups, need clean before used.
+
+- import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_replication_cgs_by_pg.yml"
+- set_fact:
+    checkedPgRepCgs: "{{ checkedPgRepCgs + [checkedRepCgs] }}"

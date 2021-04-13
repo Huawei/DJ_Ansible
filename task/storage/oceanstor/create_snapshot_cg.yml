@@ -59,10 +59,29 @@
 - set_fact:
     newCgId: "{{ NEW_CG.json.data.ID }}"
 
+- name: Unset snapIds
+  debug:
+  when: snapIds|default(None) != None
+
+- name: Wait create Complete
+  uri:
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=%5B0-100%5D"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      iBaseToken: "{{ deviceToken }}"
+      Cookie: "session={{ deviceSession }}"
+  register: SNAPSHOTS
+  retries: "20"
+  delay: "5"
+  until: SNAPSHOTS.json.data|default([])|length != 0
+
 - block:
     - name: Query Snapshots
       uri:
-        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=[0-4096]"
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=%5B0-100%5D"
         method: GET
         validate_certs: no
         headers:

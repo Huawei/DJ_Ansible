@@ -14,7 +14,7 @@
               Storage: "{{ (Storage is not none and Storage != DEFAULT.noneValue) and (Storage|string|length == 20) }}"
               LUN_Size: "{{ (LUN_Size is not none) and (LUN_Size|int >= 1) }}"
               LUN_Num: "{{ (LUN_Num is not none) and (LUN_Num|int >= 1) }}"
-              LUN_Description: "{{ (LUN_Description is none) or (LUN_Description|string|length <= 200) }}"
+              LUN_Description: "{{ (LUN_Description is none) or (LUN_Description|string|length <= 255) }}"
               Class_1: "{{ Class_1 in ['A','B','C','D'] }}"
               Designate_Class_1: "{{ (Designate_Class_1 is none) or (Designate_Class_1 in ['A','B','C','D']) }}"
               Check_Result_1: "{{ ('lun' in Check_Result_1) }}"
@@ -125,14 +125,14 @@
         replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
 
     - set_fact:
-        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s"
         primaryLunPrefix: "{{primaryClusterName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
-        primaryLunDesc: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1|{{lunRemarks}}"
+        primaryLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
         metroLunPrefix: "{{metroClusterName}}_{{protectType}}M"
         drLunPrefix: "{{drClusterName}}_{{protectType}}N"
-        drLunDesc: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2|{{lunRemarks}}"
+        drLunSuffix: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2"
         drTestLunPrefix: "{{drTestClusterName}}_{{protectType}}N"
-        drTestLunDesc: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3|{{lunRemarks}}"
+        drTestLunSuffix: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3"
         drTestCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
         drStarCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}0"
 
@@ -208,12 +208,12 @@
           when: Start_SCSI_ID|default(none) is not none
 
         - set_fact:
-            nextSuffix: "{{ (maxScsiId|int - nextScsiId|int + 1) }}"
+            nextLunNo: "{{ (maxScsiId|int - nextScsiId|int + 1) }}"
             primaryLunNames: []
             lunScsiIds: []
 
         - set_fact:
-            primaryLunNames: "{{ primaryLunNames + [ lunNameTemplate | format(primaryLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
+            primaryLunNames: "{{ primaryLunNames + [ lunNameTemplate | format(primaryLunPrefix, (nextLunNo|int + item|int), primaryLunSuffix ) ] }}"
             lunScsiIds: "{{ lunScsiIds + [nextScsiId|int - item|int] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
@@ -264,7 +264,7 @@
             metroLunNames: []
 
         - set_fact:
-            metroLunNames: "{{ metroLunNames + [ lunNameTemplate | format(metroLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
+            metroLunNames: "{{ metroLunNames + [ lunNameTemplate | format(metroLunPrefix, (nextLunNo|int + item|int), primaryLunSuffix ) ] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
@@ -316,7 +316,7 @@
             drLunNames: []
 
         - set_fact:
-            drLunNames: "{{ drLunNames + [ lunNameTemplate | format(drLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
+            drLunNames: "{{ drLunNames + [ lunNameTemplate | format(drLunPrefix, (nextLunNo|int + item|int), drLunSuffix ) ] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
@@ -357,8 +357,8 @@
             drTestLunDescs: []
 
         - set_fact:
-            drTestLunNames: "{{ drTestLunNames + [ lunNameTemplate | format(drTestLunPrefix, ( nextSuffix|int + item|int ) ) ] }}"
-            drTestLunDescs: "{{ drTestLunDescs + [drTestLunDesc] }}"
+            drTestLunNames: "{{ drTestLunNames + [ lunNameTemplate | format(drTestLunPrefix, (nextLunNo|int + item|int), drTestLunSuffix ) ] }}"
+            drTestLunDescs: "{{ drTestLunDescs + [lunRemarks] }}"
           with_sequence: start=0 count="{{lunNum}}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
@@ -556,12 +556,11 @@
                 msg:
                   params:
                     luns:
-                      lunNamePrefix: "{{ primaryLunPrefix }}"
-                      startSuffix: "{{ nextSuffix }}"
+                      newLunNames: "{{ primaryLunNames }}"
                       addLunScsiIds: "{{ lunScsiIds }}"
                       poolId: "{{ primaryPoolId }}"
                       workload: "{{ primaryWorkload }}"
-                      desc: "{{ primaryLunDesc }}"
+                      desc: "{{ lunRemarks }}"
                       addLgName: "{{ primaryLgName }}"
                     device: "{{ primaryDeviceName }}"
 
@@ -574,17 +573,15 @@
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_luns.yml"
               vars:
-                lunNamePrefix: "{{ primaryLunPrefix }}"
-                startSuffix: "{{ nextSuffix }}"
+                newLunNames: "{{ primaryLunNames }}"
                 addLunScsiIds: "{{ lunScsiIds }}"
                 poolId: "{{ primaryPoolId }}"
                 workload: "{{ primaryWorkload }}"
-                desc: "{{ primaryLunDesc }}"
+                desc: "{{ lunRemarks }}"
                 addLgName: "{{ primaryLgName }}"
 
             - set_fact:
                 primaryLunIds: "{{ newLunIds }}"
-                primaryLunNames: "{{ newLunNames }}"
                 Step_1_1_Completed: True
 
             # End Step_1_1
@@ -625,11 +622,10 @@
                 msg:
                   params:
                     luns:
-                      lunNamePrefix: "{{ metroLunPrefix }}"
-                      startSuffix: "{{ nextSuffix }}"
+                      newLunNames: "{{ metroLunNames }}"
                       poolId: "{{ metroPoolId }}"
                       workload: "{{ metroWorkload }}"
-                      desc: "{{ primaryLunDesc }}"
+                      desc: "{{ lunRemarks }}"
                     device: "{{ metroDeviceName }}"
 
             - set_fact:
@@ -641,15 +637,13 @@
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_luns.yml"
               vars:
-                lunNamePrefix: "{{ metroLunPrefix }}"
-                startSuffix: "{{ nextSuffix }}"
+                newLunNames: "{{ metroLunNames }}"
                 poolId: "{{ metroPoolId }}"
                 workload: "{{ metroWorkload }}"
-                desc: "{{ primaryLunDesc }}"
+                desc: "{{ lunRemarks }}"
 
             - set_fact:
                 metroLunIds: "{{ newLunIds }}"
-                metroLunNames: "{{ newLunNames }}"
                 Step_2_1_Completed: True
 
             # End Step_2_1
@@ -759,11 +753,10 @@
                 msg:
                   params:
                     luns:
-                      lunNamePrefix: "{{ drLunPrefix }}"
-                      startSuffix: "{{ nextSuffix }}"
+                      newLunNames: "{{ drLunNames }}"
                       poolId: "{{ drPoolId }}"
                       workload: "{{ drWorkload }}"
-                      desc: "{{ drLunDesc }}"
+                      desc: "{{ lunRemarks }}"
                     device: "{{ drDeviceName }}"
 
             - set_fact:
@@ -775,15 +768,13 @@
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_luns.yml"
               vars:
-                lunNamePrefix: "{{ drLunPrefix }}"
-                startSuffix: "{{ nextSuffix }}"
+                newLunNames: "{{ drLunNames }}"
                 poolId: "{{ drPoolId }}"
                 workload: "{{ drWorkload }}"
-                desc: "{{ drLunDesc }}"
+                desc: "{{ lunRemarks }}"
 
             - set_fact:
                 drLunIds: "{{ newLunIds }}"
-                drLunNames: "{{ newLunNames }}"
                 Step_3_1_Completed: True
 
             # End Step_3_1
@@ -1097,11 +1088,6 @@
                 deviceSn: "{{ drDeviceSn }}"
                 deviceToken: "{{ drDeviceToken }}"
                 deviceSession: "{{ drDeviceSession }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/sync_replication_cg.yml"
-              vars:
-                cgName: "{{ drCgName }}"
-                waitSync: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
               vars:
@@ -2111,11 +2097,6 @@
                 deviceToken: "{{ drDeviceToken }}"
                 deviceSession: "{{ drDeviceSession }}"
 
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/sync_replication_cg.yml"
-              vars:
-                cgName: "{{ drCgName }}"
-                waitSync: True
-
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
               vars:
                 pgName: "{{ drPgName }}"
@@ -2189,12 +2170,11 @@
             msg:
               params:
                 luns:
-                  lunNamePrefix: "{{ primaryLunPrefix }}"
-                  startSuffix: "{{ nextSuffix }}"
+                  newLunNames: "{{ primaryLunNames }}"
                   addLunScsiIds: "{{ lunScsiIds }}"
                   poolId: "{{ primaryPoolId }}"
                   workload: "{{ primaryWorkload }}"
-                  desc: "{{ primaryLunDesc }}"
+                  desc: "{{ lunRemarks }}"
                   addLgName: "{{ primaryLgName }}"
                 device: "{{ primaryDeviceName }}"
               result:
@@ -2220,11 +2200,10 @@
             msg:
               params:
                 luns:
-                  lunNamePrefix: "{{ metroLunPrefix }}"
-                  startSuffix: "{{ nextSuffix }}"
+                  newLunNames: "{{ metroLunNames }}"
                   poolId: "{{ metroPoolId }}"
                   workload: "{{ metroWorkload }}"
-                  desc: "{{ primaryLunDesc }}"
+                  desc: "{{ lunRemarks }}"
                 device: "{{ metroDeviceName }}"
               result:
                 succeeded: "{{ Step_2_1_Completed }}"
@@ -2281,11 +2260,10 @@
             msg:
               params:
                 luns:
-                  lunNamePrefix: "{{ drLunPrefix }}"
-                  startSuffix: "{{ nextSuffix }}"
+                  newLunNames: "{{ drLunNames }}"
                   poolId: "{{ drPoolId }}"
                   workload: "{{ drWorkload }}"
-                  desc: "{{ drLunDesc }}"
+                  desc: "{{ lunRemarks }}"
                 device: "{{ drDeviceName }}"
               result:
                 succeeded: "{{ Step_3_1_Completed }}"

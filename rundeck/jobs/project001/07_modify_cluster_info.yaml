@@ -70,7 +70,7 @@
     name: Session_Name
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:1&nameSplit=_&valueAttr=DESCRIPTION:1&valueSplit=_&filter=NAME::${option.LUN_Group.value}
   - name: Modify_Session_Name
-    description: Input New Session Name (start with {Country}0, max 19 chars, '_' not permitted) <BR><BR><h2>Performance Class</h2>
+    description: Input New Session Name (start with {Country}0, max 16 chars, '_' not permitted) <BR><BR><h2>Performance Class</h2>
   - enforced: true
     name: Class_1
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:2:3&valueAttr=DESCRIPTION:0:2:3&filter=NAME::${option.LUN_Group.value}
@@ -225,12 +225,12 @@
           Modify_DR_Cluster_Description: ${option.Modify_DR_Cluster_Description}
           Class_2: ${option.Class_2}
           Modify_Class_2: ${option.Modify_Class_2}
-          Check_Result_3: ${option.Check_Result_2}
+          Check_Result_3: ${option.Check_Result_3}
 
           DR_Test_Cluster: ${option.DR_Test_Cluster}
           Class_3: ${option.Class_3}
           Modify_Class_3: ${option.Modify_Class_3}
-          Check_Result_4: ${option.Check_Result_3}
+          Check_Result_4: ${option.Check_Result_4}
 
           Protection_Group: ${option.Protection_Group}
           Metro_CG: ${option.Metro_CG}

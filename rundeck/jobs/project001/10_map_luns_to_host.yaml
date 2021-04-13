@@ -220,6 +220,8 @@
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
           Country: ${option.Country}
+          Job_User: ${job.user.name}
+
           Host: ${option.Host}
           Storage: ${option.Storage}
           Storage_Room: ${option.Storage_Room}

@@ -107,12 +107,12 @@
 
     - set_fact:
         lgSuffix: "{{ LUN_Group[-2:] }}"
-        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d"
+        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s"
         primaryLgName: "{{ LUN_Group }}"
         primaryLgDescNew: "{{ metroEnable }}{{ protectLevel }}{{class1}}{{class2}}{{class3}}_{{ sessionName }}"
         primaryPgName: "{{ Protection_Group }}"
         primaryLunPrefixNew: "{{primaryHostName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
-        primaryLunDesc1New: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
+        primaryLunSuffixNew: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
 
     - set_fact:
         metroDeviceSn: "{{ Metro_Storage|string }}"
@@ -145,7 +145,7 @@
         drLgDesc: "N{{ protectLevel }}{{ class1 }}{{class2}}{{class3}}_{{ sessionName }}"
         drPgName: "{{ drHostName }}_PG{{ lgSuffix }}"
         drLunPrefix: "{{drHostName}}_{{protectType}}N"
-        drLunDesc1: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2"
+        drLunSuffix: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2"
       when: protectLevel|int >= 2
 
     - set_fact:
@@ -157,7 +157,7 @@
     - set_fact:
         drTestLgName: "{{ drTestHostName }}_LG{{ lgSuffix }}"
         drTestLunPrefix: "{{drTestHostName}}_{{protectType}}N"
-        drTestLunDesc1: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3"
+        drTestLunSuffix: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3"
       when: protectLevel|int == 3
 
     - set_fact:
@@ -242,15 +242,12 @@
             primaryLunSectors: "{{ checkedLuns[primaryLgName] | json_query('[*].CAPACITY') }}"
             primaryLunDescs: "{{ checkedLuns[primaryLgName] | json_query('[*].DESCRIPTION') }}"
             primaryLunNamesNew: []
-            primaryLunDescsNew: []
 
         - set_fact:
-            primaryLunNamesNew: "{{ primaryLunNamesNew + [ lunNameTemplate | format(primaryLunPrefixNew, suffix|int) ] }}"
-            primaryLunDescsNew: "{{ primaryLunDescsNew + [ primaryLunDesc1New + '|' + remark ] }}"
+            primaryLunNamesNew: "{{ primaryLunNamesNew + [ lunNameTemplate | format(primaryLunPrefixNew, lunNo|int, primaryLunSuffixNew) ] }}"
           vars:
-            suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ primaryLunDescs[item.0].split('|')[1] | default('')  }}"
-          with_indexed_items: "{{ primaryLunNames }}"
+            lunNo: "{{ item.split('_')[4][2:] }}"
+          with_items: "{{ primaryLunNames }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_pgs.yml"
           vars:
@@ -303,9 +300,9 @@
             metroLunNamesNew: []
 
         - set_fact:
-            metroLunNamesNew: "{{ metroLunNamesNew + [ lunNameTemplate | format(metroLunPrefixNew, suffix|int) ] }}"
+            metroLunNamesNew: "{{ metroLunNamesNew + [ lunNameTemplate | format(metroLunPrefixNew, lunNo|int, primaryLunSuffixNew) ] }}"
           vars:
-            suffix: "{{ item.split('_')[4][2:] }}"
+            lunNo: "{{ item.split('_')[4][2:] }}"
           with_items: "{{ primaryLunNames }}"
 
         - block:
@@ -445,15 +442,12 @@
 
         - set_fact:
             drLunNames: []
-            drLunDescs: []
 
         - set_fact:
-            drLunNames: "{{ drLunNames + [ lunNameTemplate | format(drLunPrefix, suffix|int) ] }}"
-            drLunDescs: "{{ drLunDescs + [ drLunDesc1 + '|' + remark ] }}"
+            drLunNames: "{{ drLunNames + [ lunNameTemplate | format(drLunPrefix, lunNo|int, drLunSuffix) ] }}"
           vars:
-            suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ primaryLunDescs[item.0].split('|')[1] | default('')  }}"
-          with_indexed_items: "{{ primaryLunNames }}"
+            lunNo: "{{ item.split('_')[4][2:] }}"
+          with_items: "{{ primaryLunNames }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
           vars:
@@ -499,15 +493,12 @@
 
         - set_fact:
             drTestLunNames: []
-            drTestLunDescs: []
 
         - set_fact:
-            drTestLunNames: "{{ drTestLunNames + [ lunNameTemplate | format(drTestLunPrefix, suffix|int) ] }}"
-            drTestLunDescs: "{{ drTestLunDescs + [ drTestLunDesc1 + '|' + remark ] }}"
+            drTestLunNames: "{{ drTestLunNames + [ lunNameTemplate | format(drTestLunPrefix, lunNo|int, drTestLunSuffix) ] }}"
           vars:
-            suffix: "{{ item.1.split('_')[4][2:] }}"
-            remark: "{{ primaryLunDescs[item.0].split('|')[1] | default('')  }}"
-          with_indexed_items: "{{ primaryLunNames }}"
+            lunNo: "{{ item.split('_')[4][2:] }}"
+          with_items: "{{ primaryLunNames }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
           vars:
@@ -1180,7 +1171,7 @@
                   params:
                     luns:
                       lunNames: "{{ metroLunNamesNew }}"
-                      lunDescs: "{{ primaryLunDescsNew }}"
+                      lunDescs: "{{ primaryLunDescs }}"
                       poolId: "{{ metroPoolId }}"
                       workload: "{{ metroWorkload }}"
                     device: "{{ metroDeviceName }}"
@@ -1198,7 +1189,7 @@
                 lunSector: "{{ primaryLunSectors[i] }}"
                 poolId:  "{{ metroPoolId }}"
                 workload: "{{ metroWorkload }}"
-                desc: "{{ primaryLunDescsNew[i] }}"
+                desc: "{{ primaryLunDescs[i] }}"
               loop: "{{ range(0, metroLunNamesNew|length) | list }}"
               loop_control:
                 loop_var: i
@@ -1320,7 +1311,7 @@
                   params:
                     luns:
                       lunNames: "{{ drLunNames }}"
-                      lunDescs: "{{ drLunDescs }}"
+                      lunDescs: "{{ primaryLunDescs }}"
                       poolId: "{{ drPoolId }}"
                       workload: "{{ drWorkload }}"
                     device: "{{ drDeviceName }}"
@@ -1338,7 +1329,7 @@
                 lunSector: "{{ primaryLunSectors[i] }}"
                 poolId:  "{{ drPoolId }}"
                 workload: "{{ drWorkload }}"
-                desc: "{{ drLunDescs[i] }}"
+                desc: "{{ primaryLunDescs[i] }}"
               loop: "{{ range(0, drLunNames|length) | list }}"
               loop_control:
                 loop_var: i
@@ -1572,7 +1563,7 @@
                       cgName: "{{ drTestCgName }}"
                       snapNames: "{{ drTestLunNames }}"
                       activate: False
-                      snapDescs: "{{ drTestLunDescs }}"
+                      snapDescs: "{{ primaryLunDescs }}"
                     device: "{{ drDeviceName }}"
 
             - set_fact:
@@ -1582,18 +1573,13 @@
                 deviceToken: "{{ drDeviceToken }}"
                 deviceSession: "{{ drDeviceSession }}"
 
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/sync_replication_cg.yml"
-              vars:
-                cgName: "{{ drCgName }}"
-                waitSync: True
-
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
               vars:
                 pgName: "{{ drPgName }}"
                 cgName: "{{ drTestCgName }}"
                 snapNames: "{{ drTestLunNames }}"
                 activate: False
-                snapDescs: "{{ drTestLunDescs }}"
+                snapDescs: "{{ primaryLunDescs }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
               vars:
@@ -1708,30 +1694,12 @@
                       name:
                         old: "{{ primaryLunNames }}"
                         new: "{{ primaryLunNamesNew }}"
-                      desc:
-                        old: "{{ primaryLunDescs }}"
-                        new: "{{ primaryLunDescsNew }}"
                     device: "{{ primaryDeviceName }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
                 newVolumeNames: "{{ primaryLunNamesNew }}"
-
-            - set_fact:
-                deviceHost: "{{ primaryDeviceHost }}"
-                devicePort: "{{ primaryDevicePort }}"
-                deviceSn: "{{ primaryDeviceSn }}"
-                deviceToken: "{{ primaryDeviceToken }}"
-                deviceSession: "{{ primaryDeviceSession }}"
-
-            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
-              vars:
-                modifyLunId: "{{ primaryLunIds[i] }}"
-                desc: "{{ primaryLunDescsNew[i] }}"
-              loop: "{{ range(0, primaryLunIds|length) | list }}"
-              loop_control:
-                loop_var: i
 
             - set_fact:
                 Step_7_3_Completed: True
@@ -1833,30 +1801,12 @@
                       name:
                         old: "{{ metroLunNames }}"
                         new: "{{ metroLunNamesNew }}"
-                      desc:
-                        old: "{{ primaryLunDescs }}"
-                        new: "{{ primaryLunDescsNew }}"
                     device: "{{ metroDeviceName }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
                 newVolumeNames: "{{ metroLunNamesNew }}"
-
-            - set_fact:
-                deviceHost: "{{ metroDeviceHost }}"
-                devicePort: "{{ metroDevicePort }}"
-                deviceSn: "{{ metroDeviceSn }}"
-                deviceToken: "{{ metroDeviceToken }}"
-                deviceSession: "{{ metroDeviceSession }}"
-
-            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
-              vars:
-                modifyLunId: "{{ metroLunIds[i] }}"
-                desc: "{{ primaryLunDescsNew[i] }}"
-              loop: "{{ range(0, metroLunIds|length) | list }}"
-              loop_control:
-                loop_var: i
 
             - set_fact:
                 Step_8_4_Completed: True
@@ -2121,30 +2071,12 @@
                       name:
                         old: "{{ metroLunNamesNew }}"
                         new: "{{ metroLunNames }}"
-                      desc:
-                        old: "{{ primaryLunDescsNew }}"
-                        new: "{{ primaryLunDescs }}"
                     device: "{{ metroDeviceName }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
               vars:
                 volumeNames: "{{ metroLunNamesNew }}"
                 newVolumeNames: "{{ metroLunNames }}"
-
-            - set_fact:
-                deviceHost: "{{ metroDeviceHost }}"
-                devicePort: "{{ metroDevicePort }}"
-                deviceSn: "{{ metroDeviceSn }}"
-                deviceToken: "{{ metroDeviceToken }}"
-                deviceSession: "{{ metroDeviceSession }}"
-
-            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
-              vars:
-                modifyLunId: "{{ metroLunIds[i] }}"
-                desc: "{{ primaryLunDescs[i] }}"
-              loop: "{{ range(0, metroLunIds|length) | list }}"
-              loop_control:
-                loop_var: i
 
             - set_fact:
                 Step_8_4_Rollbacked: True
@@ -2246,30 +2178,12 @@
                       name:
                         old: "{{ primaryLunNamesNew }}"
                         new: "{{ primaryLunNames }}"
-                      desc:
-                        old: "{{ primaryLunDescsNew }}"
-                        new: "{{ primaryLunDescs }}"
                     device: "{{ primaryDeviceName }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/rename_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNamesNew }}"
                 newVolumeNames: "{{ primaryLunNames }}"
-
-            - set_fact:
-                deviceHost: "{{ primaryDeviceHost }}"
-                devicePort: "{{ primaryDevicePort }}"
-                deviceSn: "{{ primaryDeviceSn }}"
-                deviceToken: "{{ primaryDeviceToken }}"
-                deviceSession: "{{ primaryDeviceSession }}"
-
-            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
-              vars:
-                modifyLunId: "{{ primaryLunIds[i] }}"
-                desc: "{{ primaryLunDescs[i] }}"
-              loop: "{{ range(0, primaryLunIds|length) | list }}"
-              loop_control:
-                loop_var: i
 
             - set_fact:
                 Step_7_3_Rollbacked: True
@@ -3178,7 +3092,7 @@
               params:
                 luns:
                   lunNames: "{{ metroLunNamesNew }}"
-                  lunDescs: "{{ primaryLunDescsNew }}"
+                  lunDescs: "{{ primaryLunDescs }}"
                   poolId: "{{ metroPoolId }}"
                   workload: "{{ metroWorkload }}"
                 device: "{{ metroDeviceName }}"
@@ -3238,7 +3152,7 @@
               params:
                 luns:
                   lunNames: "{{ drLunNames }}"
-                  lunDescs: "{{ drLunDescs }}"
+                  lunDescs: "{{ primaryLunDescs }}"
                   poolId: "{{ drPoolId }}"
                   workload: "{{ drWorkload }}"
                 device: "{{ drDeviceName }}"
@@ -3352,7 +3266,7 @@
                   cgName: "{{ drTestCgName }}"
                   snapNames: "{{ drTestLunNames }}"
                   activate: False
-                  snapDescs: "{{ drTestLunDescs }}"
+                  snapDescs: "{{ primaryLunDescs }}"
                 device: "{{ drDeviceName }}"
               result:
                 succeeded: "{{ Step_6_1_Completed }}"
@@ -3414,9 +3328,6 @@
                   name:
                     old: "{{ primaryLunNames }}"
                     new: "{{ primaryLunNamesNew }}"
-                  desc:
-                    old: "{{ primaryLunDescs }}"
-                    new: "{{ primaryLunDescsNew }}"
                 device: "{{ primaryDeviceName }}"
               result:
                 succeeded: "{{ Step_7_3_Completed }}"
@@ -3479,9 +3390,6 @@
                   name:
                     old: "{{ metroLunNames }}"
                     new: "{{ metroLunNamesNew }}"
-                  desc:
-                    old: "{{ primaryLunDescs }}"
-                    new: "{{ primaryLunDescsNew }}"
                 device: "{{ metroDeviceName }}"
               result:
                 succeeded: "{{ Step_8_4_Completed }}"

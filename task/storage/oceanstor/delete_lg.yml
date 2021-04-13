@@ -30,7 +30,7 @@
       set_fact:
         deletedLg: "{{ lg }}"
         lgMapped: "{{ lg.ISADD2MAPPINGVIEW == 'true' }}"
-        lgReplicaNum: "{{ lg.cdpGroupNum|int + lg.cloneGroupNum|int + lg.replicationGroupNum|int + lg.snapshotGroupNum|int + lg.drStarNum|int + lg.hyperMetroGroupNum|int}}"
+        lgReplicaNum: "{{ lg.cloneGroupNum|int + lg.replicationGroupNum|int + lg.snapshotGroupNum|int + lg.drStarNum|int + lg.hyperMetroGroupNum|int}}"
   
   when: lgName|default(none) is not none
 
@@ -54,7 +54,7 @@
       set_fact:
         deletedLg: "{{ lg }}"
         lgMapped: "{{ lg.ISADD2MAPPINGVIEW == 'true' }}"
-        lgReplicaNum: "{{ lg.cdpGroupNum|int + lg.cloneGroupNum|int + lg.replicationGroupNum|int + lg.snapshotGroupNum|int + lg.drStarNum|int + lg.hyperMetroGroupNum|int}}"  
+        lgReplicaNum: "{{ lg.cloneGroupNum|int + lg.replicationGroupNum|int + lg.snapshotGroupNum|int + lg.drStarNum|int + lg.hyperMetroGroupNum|int}}"
 
   when: lgId|default(none) is not none
 

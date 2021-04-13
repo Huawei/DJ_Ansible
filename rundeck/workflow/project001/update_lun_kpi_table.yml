@@ -11,8 +11,17 @@
 #                         (e.g. in case of expansion the value is the delta between the current size and the expanded size)
 #   STORAGE:              the name of the storage in which the Volume is created/modified/deleted
 #   VDISK_UID:            the Universal Unique ID (UUID) of the Volume created/modified/deleted
+#   Country               the country code
+#   Job_User              the user name
 
-- local_action: command psql automation -c "insert into activity(TYPE_OF_OPERATION,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID) values('{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}')"
+- local_action: command psql automation -c "insert into activity(TYPE_OF_OPERATION,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID,COUNTRY,\"USER\") values('{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}','{{Country|default("")}}','{{Job_User}}')"
 
-- local_action: command /opt/mssql-tools/bin/sqlcmd -S "{{KPIDB.host}}" -U "{{KPIDB.user}}" -P "{{KPIDB.pswd}}" -d "{{KPIDB.database}}" -Q "insert into {{KPIDB.table}}(TYPE_OF_OPERATION,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID) values('{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}')"
+- block:
+    - local_action: command psql -qAt -d automation -c "select max(GSA_ID) AS NEXTID from activity"
+      register: KPI_NEXTID
+
+    - local_action: command date +"%Y-%m-%d %H:%M:%S"
+      register: KPI_TIMESTAMP
+
+    - local_action: command /opt/mssql-tools/bin/sqlcmd -S "{{KPIDB.host}}" -U "{{KPIDB.user}}" -P "{{KPIDB.pswd}}" -d "{{KPIDB.database}}" -Q "insert into {{KPIDB.table}}(ID,OPERATION_TYPE,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID,COUNTRY,[User],[Timestamp]) values('{{KPI_NEXTID.stdout}}','{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}','{{Country|default("")}}','{{Job_User}}','{{KPI_TIMESTAMP.stdout}}')"
   when: KPIDB.enable|bool == True

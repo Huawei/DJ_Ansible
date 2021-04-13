@@ -55,6 +55,9 @@
         ansible-extra-vars: |-
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
+          Country: ${option.Country}
+          Job_User: ${job.user.name}
+
           Select_LUN: ${option.Select_LUN}
           Upload_LUN: ${file.Upload_LUN}
           Delimiter: "${option.Delimiter}"

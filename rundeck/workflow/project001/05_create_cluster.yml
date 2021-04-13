@@ -29,7 +29,7 @@
               Cluster_Description: "{{ (Cluster_Description is none) or (Cluster_Description|length <= 64) }}"
               Hosts: "{{ (checked_cluster_hosts|unique == [True]) }}"
               Class_1: "{{ Class_1 in ['A','B','C','D'] }}"
-              Session_Name: "{{ (Session_Name is none) or (Session_Name|length <= 16 and '_' not in Session_Name) }}"
+              Session_Name: "{{ (Session_Name is none) or (Session_Name|length <= 13 and '_' not in Session_Name) }}"
               Enable_HyperMetro: "{{ Enable_HyperMetro in ['Y','N'] }}"
               Protection_Level: "{{ Protection_Level|int in [1,2,3] }}"
               Check_Result_1: "{{ ('cluster' in Check_Result_1) and (Hosts is none or 'hosts' in Check_Result_1) }}"

@@ -5,8 +5,10 @@
 #
 # Optional parameters:
 #   lgName:                 LUN Group Name
+#   lgId:                   Specify LUN Group ID
 #   desc:                   Description
 #   addLunNames:            Add a list of LUNs to PG
+#   addLunIds:              Add a list of LUN IDs to LUN Group
 #
 # Generated Parameters:
 #   newPgId:           New PG ID
@@ -23,15 +25,22 @@
   when:
     - desc|default(none) is not none
 
-- import_tasks: check_lgs.yml
-  vars:
-    lgNames: ["{{ lgName }}"]
-    checkExist: True
-  when: lgName|default(none) is not none
+- block:
+    - import_tasks: check_lgs.yml
+      vars:
+        lgNames: ["{{ lgName }}"]
+        checkExist: True
+
+    - set_fact:
+        lgId: "{{ lgIds[0] }}"
+
+  # End block
+  when:
+    lgName|default(none) is not none
 
 - name: Set param - lunGroupId
   set_fact:
-    paramCreatePg: "{{ paramCreatePg | combine( { 'lunGroupId': lgIds[0] } ) }}"
+    paramCreatePg: "{{ paramCreatePg | combine( { 'lunGroupId': lgId } ) }}"
   when: lgName|default(none) is not none
 
 - name: Create PG
@@ -51,7 +60,7 @@
 - name: Check Create PG Result
   debug:
     msg: "{{ NEW_PG.json.error }}"
-  failed_when: (NEW_PG.json.error.code|int != 0)  or ('data' not in NEW_LG.json)
+  failed_when: (NEW_PG.json.error.code|int != 0)  or ('data' not in NEW_PG.json)
 
 - set_fact:
     newPgId: "{{ NEW_PG.json.data.protectGroupId }}"
@@ -60,7 +69,17 @@
     - import_tasks: check_luns.yml
       vars:
         lunNames: "{{ addLunNames }}"
+        checkExist: True
 
+    - set_fact:
+        addLunIds: "{{ lunIds }}"
+
+  # End block
+  when:
+    - addLunNames|default(none) is not none
+    - addLunNames|length > 0
+
+- block:
     - name: Add LUN to PG
       uri:
         url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/protectgroup/associate"
@@ -77,7 +96,7 @@
           ASSOCIATEOBJTYPE: 11
           ASSOCIATEOBJID: "{{ item }}"
       register: PG_ADD_LUNS
-      with_items: "{{ lunIds }}"
+      with_items: "{{ addLunIds }}"
 
     - name: Check Add LUN Results
       vars:
@@ -89,5 +108,5 @@
 
   # End Block
   when: 
-    - addLunNames|default(none) is not none
-    - addLunNames|length > 0
+    - addLunIds|default(none) is not none
+    - addLunIds|length > 0

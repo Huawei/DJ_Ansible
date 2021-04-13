@@ -20,31 +20,68 @@
 #
 # Generated Parameters (can be overwritten):
 #   className:         CI class Name, see global.yml to get supported className in INVENTORY.objType.className
-#   modifiedEpochFrom: modified time from, format: epoch in seconds
-#   modifiedEpochTo:   modified time to, format: epoch in seconds
 
 - set_fact:
     className: "{{ INVENTORY[objType].className if (objType is defined and objType is not none) else className }}"    # map objType to className
     pageNo: "{{ pageNo | default(1) }}"
     pageSize: "{{ pageSize | default(10) }}"
-    modifiedEpochFrom: "{{ (ansible_date_time.epoch|int-7*24*3600) if (modifiedTimeFrom is not defined or modifiedTimeFrom is none) else (modifiedTimeFrom|to_datetime).strftime('%s') }}"
-    modifiedEpochTo: "{{ (ansible_date_time.epoch|int) if (modifiedTimeTo is not defined or modifiedTimeTo is none) else (modifiedTimeTo|to_datetime).strftime('%s') }}"
     orderBy: "{{ orderBy | default('last_Modified') }}"
     orderAsc: "{{ orderAsc | default(False) | bool }}"
     sep: "{{ sep | default('|') }}"
-    filterCondition: ""
     waitExist: "{{ waitExist | default(False) }}"
     waitSeconds: "{{ waitSeconds | default(600) }}"
     waitInterval: "{{ waitInterval | default(10) }}"
+    constraints: []
 
-- name: Set filters
-  set_fact:
-    filterCondition: "{{filterCondition}},{\"logOp\":\"and\",\"simple\":{\"name\":\"{{item.k}}\",\"operator\":\"{{item.op|urlencode}}\",\"value\":\"{{item.v|urlencode}}\"}}"
+- set_fact:
+    constraints: "{{constraints + [timeFilter]}}"
+  vars:
+    timeFilter:
+      logOp: "and"
+      simple:
+        name: "last_Modified"
+        operator: "not less than"
+        value: "{{(modifiedTimeFrom|to_datetime).strftime('%s')}}000"
+  when: modifiedTimeFrom is defined
+
+- set_fact:
+    constraints: "{{constraints + [timeFilter]}}"
+  vars:
+    timeFilter:
+      logOp: "and"
+      simple:
+        name: "last_Modified"
+        operator: "less than"
+        value: "{{(modifiedTimeTo|to_datetime).strftime('%s')}}000"
+  when: modifiedTimeTo is defined
+
+
+- set_fact:
+    constraints: "{{constraints + [constraint]}}"
+  vars:
+    constraint:
+      logOp: "and"
+      simple:
+        name: "{{item.k}}"
+        operator: "{{item.op}}"
+        value: "{{item.v}}"
   with_items: "{{ filters }}"
   when: filters is defined
 
 - set_fact:
-    params: "pageNo={{pageNo}}&pageSize={{pageSize}}&orderBy=[{\"field\":\"{{orderBy}}\",\"asc\":\"{{orderAsc}}\"}]&condition={\"constraint\":[{\"simple\":{\"name\":\"last_Modified\",\"operator\":\"not%20less%20than\",\"value\":\"{{modifiedEpochFrom}}000\"}},{\"logOp\":\"and\",\"simple\":{\"name\":\"last_Modified\",\"operator\":\"less%20than\",\"value\":\"{{modifiedEpochTo}}000\"}}{{filterCondition}}]}"
+    paramCondition:
+      constraint: "{{constraints}}"
+
+- set_fact:
+    paramOrderBy:
+      - field: "{{orderBy}}"
+        asc: "{{orderAsc}}"
+
+- set_fact:
+    params: "pageNo={{pageNo}}&pageSize={{pageSize}}&orderBy={{paramOrderBy | to_json | urlencode}}&condition={{paramCondition | to_json(ensure_ascii=False) | urlencode}}"
+
+- debug:
+    msg: "{{params}}"
 
 - name: List Instances
   uri:
@@ -70,7 +107,7 @@
     keys: "{{INVENTORY[objType].attributes}}"
     file: "{{export}}"
     sep: "{{sep}}"
-  when: 
+  when:
     - export is defined
     - INSTANCES.json.objList is defined
     - INSTANCES.json.objList|length > 0

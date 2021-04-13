@@ -179,11 +179,6 @@
                     cgName: "{{ drTestCgName }}"
                     device: "{{ deviceName }}"
 
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/sync_replication_cg.yml"
-              vars:
-                cgName: "{{ drCgName }}"
-                waitSync: True
-
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/activate_snapshot_cg.yml"
               vars:
                 cgName: "{{ drTestCgName }}"

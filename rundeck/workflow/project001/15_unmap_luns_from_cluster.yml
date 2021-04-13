@@ -1059,11 +1059,6 @@
                 deviceToken: "{{ drDeviceToken }}"
                 deviceSession: "{{ drDeviceSession }}"
 
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/sync_replication_cg.yml"
-              vars:
-                cgName: "{{ drCgName }}"
-                waitSync: True
-
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
               vars:
                 pgName: "{{ drPgName }}"
@@ -1922,11 +1917,6 @@
                 deviceSn: "{{ drDeviceSn }}"
                 deviceToken: "{{ drDeviceToken }}"
                 deviceSession: "{{ drDeviceSession }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/sync_replication_cg.yml"
-              vars:
-                cgName: "{{ drCgName }}"
-                waitSync: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
               vars:
