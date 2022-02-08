@@ -14,7 +14,7 @@
               Source_Cluster: "{{ Source_Cluster is not none and Source_Cluster != DEFAULT.noneValue }}"
               Source_LUN_Group: "{{ Source_LUN_Group is not none and Source_LUN_Group != DEFAULT.noneValue }}"
               Source_Protection_Group: "{{ Source_Protection_Group is not none and Source_Protection_Group != DEFAULT.noneValue }}"
-              Target_Cluster: "{{ Target_Cluster is not none and Target_Cluster != DEFAULT.noneValue }}"
+              Target_Host: "{{ Target_Host is not none and Target_Host != DEFAULT.noneValue }}"
               Target_LUN_Group: "{{ Target_LUN_Group is not none and Target_LUN_Group != DEFAULT.noneValue }}"
               Target_HyperMetro: "{{ (Target_HyperMetro is not none) and (Target_HyperMetro != DEFAULT.noneValue) and (Target_HyperMetro == 'N') }}"
               Target_Protection_Level: "{{ (Target_Protection_Level is not none) and (Target_Protection_Level != DEFAULT.noneValue) and (Target_Protection_Level|int == 1) }}"
@@ -35,47 +35,75 @@
         sourceClusterName: "{{ Source_Cluster }}"
         sourceLgName: "{{ Source_LUN_Group }}"
         sourcePgName: "{{ Source_Protection_Group }}"
-        osType: "{{ Target_Cluster.split('_')[1] }}"
-        deviceSn: "{{ Storage|string }}"
+        osType: "{{ Target_Host.split('_')[1] }}"
+        primaryDeviceSn: "{{ Storage|string }}"
+        metroDeviceSn: "{{ Source_Metro_Storage|string }}"
         room: "{{ Storage_Room }}"
         site: "{{ AZ[Storage_Room]['dc'] }}"
-        targetClusterName: "{{ Target_Cluster }}"
+        targetHostName: "{{ Target_Host }}"
         targetLgName: "{{ Target_LUN_Group }}"
+        targetClusterSessionName: "{{ Source_Cluster.split('_')[2] }}"
         snapActivate: "{{ Activate }}"
         snapRemarks: "{{ Snapshot_Description|string if (Snapshot_Description is not none) else '' }}"
         class1: "{{ Designate_Class_1 if (Designate_Class_1 is not none) else Class_1 }}"
         timestamp: "{{ansible_date_time.year}}{{ansible_date_time.month}}{{ansible_date_time.day}}{{ansible_date_time.hour}}{{ansible_date_time.minute}}{{ansible_date_time.second}}"
-        metroEnable: N
-        protectLevel: 1
+
+        # Always "N", disable changing the metro lun name.
+        sourceMetroEnable: "N"
 
     - set_fact:
         maxScsiId: "{{ OSTYPE[osType]['max_scsi_id'] }}"                                   # See ../../config/project001.yml
-        protectType: "{{ REPTYPE[metroEnable+protectLevel|string]['enum'] }}"              # See ../../config/project001.yml
-        replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
 
     - set_fact:
-        sourceCgName: "{{targetLgName}}_SNAP_{{timestamp}}"
-        targetLunPrefix: "{{targetClusterName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
-        targetLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else site}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
-        lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s"
+        flashcopyPlaceholder: "%01d"
+        progressivePlaceholder: "%0{{DEFAULT.suffixDigits}}d"
+
+    - set_fact:
+        sourceCgNameTemplate: "FC_{{ room }}_{{ targetClusterSessionName }}_N{{ flashcopyPlaceholder }}"
+
+    - set_fact:
+        targetLunTemplate: "{{ targetHostName }}_NN{{ progressivePlaceholder }}_{{ class1 }}_T{{ flashcopyPlaceholder }}_{{ sourceCgNameTemplate }}"
 
     - set_fact:
         Precheck_1_Execute: True
+        Precheck_2_Execute: True
+        Precheck_3_Execute: "{{ (sourceMetroEnable == 'Y') }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
+
     - block:
-        - name: Precheck_1 - Check Cluster
+        - name: Precheck_1 - Check DJ Storages
           debug:
             msg:
-              host: "{{ targetClusterName }}"
-              device: "{{ deviceSn }}"
+              primaryDeviceSn: "{{ primaryDeviceSn|default(none) }}"
+              metroDeviceSn: "{{ metroDeviceSn|default(none) }}"
+              drDeviceSn: "{{ drDeviceSn|default(none) }}"
 
-        - name: Login Device
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Primary Cluster
+          debug:
+            msg:
+              host: "{{ targetHostName }}"
+              device: "{{ primaryDeviceSn }}"
+
+        - name: Login Primary Device
           set_fact:
-            deviceSn: "{{ deviceSn }}"
+            deviceSn: "{{ primaryDeviceSn }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            primaryDeviceName: "{{ deviceName }}"
+            primaryDeviceHost: "{{ deviceHost }}"
+            primaryDevicePort: "{{ devicePort }}"
+            primaryDeviceToken: "{{ deviceToken }}"
+            primaryDeviceSession: "{{ deviceSession }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
           vars:
@@ -89,13 +117,20 @@
             lunNum: "{{ checkedLuns[sourceLgName] | length }}"
             lunSectors: "{{ checkedLuns[sourceLgName] | json_query('[*].CAPACITY') }}"
 
-        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hostgroups.yml"
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_hosts.yml"
           vars:
-            hostGroupNames: ["{{ targetClusterName }}"]
+            hostNames: ["{{ targetHostName }}"]
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id.yml"
           vars:
-            hostGroupName: "{{ targetClusterName }}"
+            hostName: "{{ targetHostName }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_luns_by_pg.yml"
+          vars:
+            pgName: "{{ sourcePgName }}"
+
+        - set_fact:
+            sourceLunNames: "{{ checkedLuns | json_query('[*].NAME') }}"
 
         - block:
             - set_fact:
@@ -132,19 +167,100 @@
             nextLunNo: "{{ (maxScsiId|int - nextScsiId|int + 1) }}"
             targetLunNames: []
             lunScsiIds: []
+            sourceCgNo: 1
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_snapshot_cgs_by_pg.yml"
+          vars:
+            pgName: "{{ sourcePgName }}"
+            ignoreEmpty: true
+
+        # Get Current CG Number
+        - block:
+            - set_fact:
+                sourceCgNames: "{{ checkedSnapCgs|json_query('[*].NAME') }}"
+                sourceCgNameSuffixes: []
+
+            - set_fact:
+                sourceCgNameSuffixes: "{{ sourceCgNameSuffixes + [ item.split('_')[-1][-1]|int ] }}"
+              with_items: "{{ sourceCgNames }}"
+
+            - set_fact:
+                sourceCgNo: "{{ sourceCgNameSuffixes|max + 1 }}"
+
+          when: (checkedSnapCgs|length > 0)
 
         - set_fact:
-            targetLunNames: "{{ targetLunNames + [ lunNameTemplate | format(targetLunPrefix, (nextLunNo|int + item|int), targetLunSuffix ) ] }}"
+            targetLunNames: "{{ targetLunNames + [ targetLunTemplate | format(progressive|int, sourceCgNo|int, sourceCgNo|int) ] }}"
+          vars:
+            progressive: "{{ item.split('_')[4][-DEFAULT.suffixDigits:] }}"
+          with_items: "{{ sourceLunNames }}"
+
+        - set_fact:
             lunScsiIds: "{{ lunScsiIds + [nextScsiId|int - item|int] }}"
           with_sequence: start=0 count="{{lunNum}}"
+
+        - set_fact:
+            sourceLunNewNames: []
+
+        - set_fact:
+            sourceLunNewNames: "{{ sourceLunNewNames + [ item|regex_replace('(?P<p1>.*_F)\\d(?P<p2>_.*)', '\\g<p1>'+fcNo+'\\g<p2>') ] }}"
+          vars:
+            fcNo: "{{ item|regex_search('.*_F(\\d)_.*', '\\1')|first|int + 1 }}"
+          with_items: "{{ sourceLunNames }}"
+
+        - set_fact:
+            sourceCgName: "{{ sourceCgNameTemplate|format(sourceCgNo|int) }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
           vars:
             lunNames: "{{ targetLunNames }}"
             checkExist: False
 
-        # End Precheck_1
-      when: Precheck_1_Execute
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+          vars:
+            lunNames: "{{ sourceLunNewNames }}"
+            checkExist: False
+
+        # End Precheck_2
+      when: Precheck_2_Execute
+
+
+    - block:
+        - name: Precheck_3 - Check Metro Cluster
+          debug:
+            msg:
+              device: "{{ metroDeviceSn }}"
+
+        - name: Login Metro Device
+          set_fact:
+            deviceSn: "{{ metroDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            metroDeviceName: "{{ deviceName }}"
+            metroDeviceHost: "{{ deviceHost }}"
+            metroDevicePort: "{{ devicePort }}"
+            metroDeviceToken: "{{ deviceToken }}"
+            metroDeviceSession: "{{ deviceSession }}"
+
+        - set_fact:
+            sourceMetroLunNewNames: "{{ sourceLunNewNames }}"
+            sourceMetroLunNames: "{{ sourceLunNames }}"
+
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+          vars:
+            lunNames: "{{ sourceMetroLunNames }}"
+            checkExist: True
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+          vars:
+            lunNames: "{{ sourceMetroLunNewNames }}"
+            checkExist: False
+
+        # End Precheck_3
+      when: Precheck_3_Execute
 
 
     - block:
@@ -163,24 +279,50 @@
             Step_1_2_Completed: False
             Step_1_2_Rollbacked: False
 
-            deviceSynced: False
+            # Modify Source Lun Names
+            Step_1_3_Execute: True
+            Step_1_3_Completed: False
+            Step_1_3_Rollbacked: False
 
-            # Set Class for Target LUNs
-            Step_2_1_Execute: True
+            # Modify Source Metro Lun Names
+            Step_2_1_Execute: "{{ (sourceMetroEnable == 'Y') }}"
             Step_2_1_Completed: False
             Step_2_1_Rollbacked: False
 
-            # Insert Target LUNs to KPI table
+            deviceSynced: []
+
+            # Sync Primary Device
             Step_3_1_Execute: True
             Step_3_1_Completed: False
+
+            # Sync Metro Device
+            Step_3_2_Execute: "{{ (sourceMetroEnable == 'Y') }}"
+            Step_3_2_Completed: False
+
+            # Set Class for Target LUNs
+            Step_4_1_Execute: True
+            Step_4_1_Completed: False
+            Step_4_1_Rollbacked: False
+
+            # Insert Target LUNs to KPI table
+            Step_5_1_Execute: True
+            Step_5_1_Completed: False
 
         - name: Workflow - Create LUNs for Host
           debug:
             msg:
               Step_1_1: "[{{Step_1_1_Execute}}] Create Source Snapshot CG"
               Step_1_2: "[{{Step_1_2_Execute}}] Add Source Snapshots to Target LUN Group"
-              Step_2_1: "[{{Step_2_1_Execute}}] Set Class for Target LUNs"
-              Step_3_1: "[{{Step_3_1_Execute}}] Insert Target LUNs to KPI table"
+              Step_1_3: "[{{Step_1_3_Execute}}] Modify Source Lun Names"
+
+              Step_2_1: "[{{Step_2_1_Execute}}] Modify Source Metro Lun Names"
+
+              Step_3_1: "[{{Step_3_1_Execute}}] Sync Primary Device"
+              Step_3_2: "[{{Step_3_2_Execute}}] Sync Metro Device"
+
+              Step_4_1: "[{{Step_4_1_Execute}}] Set Class for Target LUNs"
+
+              Step_5_1: "[{{Step_5_1_Execute}}] Insert Target LUNs to KPI table"
 
         - block:
             - name: Step_1_1 - Create Source Snapshot CG
@@ -193,7 +335,14 @@
                       snapNames: "{{ targetLunNames }}"
                       activate: "{{ snapActivate }}"
                       snapDesc: "{{ snapRemarks }}"
-                    device: "{{ deviceName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
               vars:
@@ -202,11 +351,6 @@
                 snapNames: "{{ targetLunNames }}"
                 activate: "{{ snapActivate }}"
                 snapDesc: "{{ snapRemarks }}"
-
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
-
-            - set_fact:
-                deviceSynced: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
               vars:
@@ -231,7 +375,14 @@
                       lgName: "{{ targetLgName }}"
                       lunNames: "{{ targetLunNames }}"
                       startScsiId: "{{ nextScsiId }}"
-                    device: "{{ deviceName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_luns_to_lg.yml"
               vars:
@@ -247,12 +398,124 @@
           # End block
           when: Step_1_2_Execute
 
+        - block:
+            - name: Step_1_3 - Modify Source Lun Names
+              debug:
+                msg:
+                  params:
+                    lunNames: "{{ sourceLunNames }}"
+                    newLunNames: "{{ sourceLunNewNames }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ sourceLunNames[i] }}"
+                newLunName: "{{ sourceLunNewNames[i] }}"
+              loop: "{{ range(0, sourceLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_3_Completed: True
+            # End Step_1_3
+
+          # End block
+          when: Step_1_3_Execute
+
+        - block:
+            - name: Step_2_1 - Modify Source Metro Lun Names
+              debug:
+                msg:
+                  params:
+                    lunNames: "{{ sourceMetroLunNames }}"
+                    newLunNames: "{{ sourceMetroLunNewNames }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ sourceMetroLunNames[i] }}"
+                newLunName: "{{ sourceMetroLunNewNames[i] }}"
+              loop: "{{ range(0, sourceMetroLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_2_1_Completed: True
+            # End Step_2_1
+
+          # End block
+          when: Step_2_1_Execute
+
         # End Device Steps
 
         # Begin DJ Steps
 
         - block:
-            - name: Step_2_1 - Set Class for Target LUNs
+            - name: Step_3_1 - Sync Primary Device
+              debug:
+                msg:
+                  params:
+                    deviceName: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceName: "{{ primaryDeviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+            - set_fact:
+                deviceSynced: "{{ deviceSynced + [primaryDeviceName] }}"
+
+            - set_fact:
+                Step_3_1_Completed: True
+
+            # End Step_3_1
+
+          # End block
+          when: Step_3_1_Execute
+
+        - block:
+            - name: Step_3_2 - Sync Metro Device
+              debug:
+                msg:
+                  params:
+                    deviceName: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceName: "{{ metroDeviceName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+              when:
+                - metroDeviceName not in deviceSynced
+
+            - set_fact:
+                deviceSynced: "{{ deviceSynced + [metroDeviceName] }}"
+              when:
+                - metroDeviceName not in deviceSynced
+
+            - set_fact:
+                Step_3_2_Completed: True
+
+            # End Step_3_2
+
+          # End block
+          when: Step_3_2_Execute
+
+        - block:
+            - name: Step_4_1 - Set Class for Target LUNs
               debug:
                 msg:
                   params:
@@ -262,23 +525,25 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ targetLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ targetLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
-                Step_2_1_Completed: True
+                Step_4_1_Completed: True
 
-            # End Step_2_1
+            # End Step_4_1
 
           # End block
-          when: Step_2_1_Execute
+          when: Step_4_1_Execute
 
         - block:
-            - name: Step_3_1 - Insert Target LUNs to KPI table
+            - name: Step_5_1 - Insert Target LUNs to KPI table
               debug:
                 msg:
                   params:
@@ -290,7 +555,7 @@
                 TYPE_OF_OPERATION: "create"
                 WBE_CODE: "{{ WBE_CODE }}"
                 TICKET_NUMBER: "{{ TICKET_NUMBER }}"
-                SYSTEM_NAME: "{{ targetClusterName }}"
+                SYSTEM_NAME: "{{ targetHostName }}"
                 SITE: "{{ site }}"
                 ENVIRONMENT: "{{ osType }}"
                 STORAGE_CLASS: "{{ class1 }}"
@@ -300,19 +565,19 @@
               with_indexed_items: "{{ targetLunIds }}"
 
             - set_fact:
-                Step_3_1_Completed: True
+                Step_5_1_Completed: True
 
-            # End Step_3_1
+            # End Step_5_1
 
           # End block
-          when: Step_3_1_Execute
+          when: Step_5_1_Execute
 
       # End Block
       rescue:
         # Begin Rollback
 
         - block:
-            - name: Rollback_2_1 - Remove Class for Target LUNs
+            - name: Rollback_4_1 - Remove Class for Target LUNs
               debug:
                 msg:
                   params:
@@ -321,6 +586,39 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ targetLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
+
+            - set_fact:
+                Step_4_1_Rollbacked: True
+
+            # End Rollback_4_1
+
+          # End block
+          when: Step_4_1_Completed
+
+        - block:
+            - name: Rollback_2_1 - Modify Source Lun Names Back
+              debug:
+                msg:
+                  params:
+                    originlunNames: "{{ sourceMetroLunNames }}"
+                    currentLunNames: "{{ sourceMetroLunNewNames }}"
+                    device: "{{ metroDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ metroDeviceHost }}"
+                devicePort: "{{ metroDevicePort }}"
+                deviceSn: "{{ metroDeviceSn }}"
+                deviceToken: "{{ metroDeviceToken }}"
+                deviceSession: "{{ metroDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ sourceMetroLunNewNames[i] }}"
+                newLunName: "{{ sourceMetroLunNames[i] }}"
+              loop: "{{ range(0, sourceMetroLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
 
             - set_fact:
                 Step_2_1_Rollbacked: True
@@ -331,6 +629,38 @@
           when: Step_2_1_Completed
 
         - block:
+            - name: Rollback_1_3 - Modify Source Lun Names Back
+              debug:
+                msg:
+                  params:
+                    originlunNames: "{{ sourceLunNames }}"
+                    currentLunNames: "{{ sourceLunNewNames }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ sourceLunNewNames[i] }}"
+                newLunName: "{{ sourceLunNames[i] }}"
+              loop: "{{ range(0, sourceLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_3_Rollbacked: True
+
+            # End Rollback_1_3
+
+          # End block
+          when: Step_1_3_Completed
+
+        - block:
             - name: Rollback_1_2 - Remove Source Snapshots from Target LUN Group
               debug:
                 msg:
@@ -338,7 +668,14 @@
                     luns:
                       lunNames: "{{ targetLunNames }}"
                       lgName: "{{ targetLgName }}"
-                    device: "{{ deviceName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_luns_from_lg.yml"
               vars:
@@ -359,7 +696,14 @@
                 msg:
                   params:
                     cgName: "{{ sourceCgName }}"
-                    device: "{{ deviceName }}"
+                    device: "{{ primaryDeviceName }}"
+
+            - set_fact:
+                deviceHost: "{{ primaryDeviceHost }}"
+                devicePort: "{{ primaryDevicePort }}"
+                deviceSn: "{{ primaryDeviceSn }}"
+                deviceToken: "{{ primaryDeviceToken }}"
+                deviceSession: "{{ primaryDeviceSession }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_snapshot_cg.yml"
               vars:
@@ -378,11 +722,14 @@
               debug:
                 msg:
                   params:
-                    devices: "{{ deviceName }}"
+                    devices: "{{ deviceSynced }}"
 
-            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+              loop: "{{ deviceSynced }}"
+              loop_control:
+                loop_var: deviceName
 
-          when: deviceSynced
+          when: deviceSynced|length > 0
 
       # End Rollbacks
 
@@ -415,35 +762,81 @@
                   lgName: "{{ targetLgName }}"
                   lunNames: "{{ targetLunNames }}"
                   startScsiId: "{{ nextScsiId }}"
-                device: "{{ deviceName }}"
+                device: "{{ primaryDeviceName }}"
               result:
                 succeeded: "{{ Step_1_2_Completed }}"
                 rollbacked: "{{ Step_1_2_Rollbacked }}"
           failed_when: Step_1_2_Completed|bool == False
           when: Step_1_2_Execute
 
-        - name: Result_2_1 - Set Class for Target LUNs
+        - name: Result_1_3 - Modify Source Lun Names
+          debug:
+            msg:
+              params:
+                lunNames: "{{ sourceLunNames }}"
+                newLunNames: "{{ sourceLunNewNames }}"
+                device: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_1_3_Completed }}"
+                rollbacked: "{{ Step_1_3_Rollbacked }}"
+          failed_when: Step_1_3_Completed | bool == False
+          when: Step_1_3_Execute
+
+        - name: Result_2_1 - Modify Source Metro Lun Names
+          debug:
+            msg:
+              params:
+                lunNames: "{{ sourceMetroLunNames }}"
+                newLunNames: "{{ sourceMetroLunNewNames }}"
+                device: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_2_1_Completed }}"
+                rollbacked: "{{ Step_2_1_Rollbacked }}"
+          failed_when: Step_2_1_Completed | bool == False
+          when: Step_2_1_Execute
+
+        - name: Result_3_1 - Sync Primary Device
+          debug:
+            msg:
+              params:
+                deviceName: "{{ primaryDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_1_Completed }}"
+          failed_when: Step_3_1_Completed|bool == False
+          when: Step_3_1_Execute
+
+        - name: Result_3_2 - Sync Metro Device
+          debug:
+            msg:
+              params:
+                deviceName: "{{ metroDeviceName }}"
+              result:
+                succeeded: "{{ Step_3_2_Completed }}"
+          failed_when: Step_3_2_Completed|bool == False
+          when: Step_3_2_Execute
+
+        - name: Result_4_1 - Set Class for Target LUNs
           debug:
             msg:
               params:
                 volumeNames: "{{ targetLunNames }}"
                 tierName: "{{ class1 }}"
               result:
-                succeeded: "{{ Step_2_1_Completed }}"
-                rollbacked: "{{ Step_2_1_Rollbacked }}"
-          failed_when: Step_2_1_Completed|bool == False
-          when: Step_2_1_Execute
+                succeeded: "{{ Step_4_1_Completed }}"
+                rollbacked: "{{ Step_4_1_Rollbacked }}"
+          failed_when: Step_4_1_Completed|bool == False
+          when: Step_4_1_Execute
 
-        - name: Result_3_1 - Insert Target LUNs to KPI table
+        - name: Result_5_1 - Insert Target LUNs to KPI table
           debug:
             msg:
               params:
                 lunIds: "{{ targetLunIds }}"
-                device: "{{ deviceName }}"
+                device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_3_1_Completed }}"
-          failed_when: Step_3_1_Completed|bool == False
-          when: Step_3_1_Execute
+                succeeded: "{{ Step_5_1_Completed }}"
+          failed_when: Step_5_1_Completed|bool == False
+          when: Step_5_1_Execute
 
     # End Validate Results
 

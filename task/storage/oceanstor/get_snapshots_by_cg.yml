@@ -10,7 +10,7 @@
 #   checkedSnapshots:          # Checked Snapshots associate with snapshot consistent group
 
 - set_fact:
-    checkedSnapshots: "{{ none }}"
+    checkedSnapshots: []
 
 - block:
     - name: Query Snapshot CG by Name
@@ -30,21 +30,23 @@
         scg: "{{ SCGs.json.data[0] }} "
       set_fact:
         cgId: "{{ scg.ID }}"
-      failed_when: ('data' not in SCGs.json) or (SCGs.json.data|length != 1)
+      when: ('data' in SCGs.json) and (SCGs.json.data|length == 1)
 
   when: cgName|default(none) is not none
 
-- name: Get Snapshots by CG ID
-  uri:
-    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{cgId}}"
-    method: GET
-    validate_certs: no
-    headers:
-      Accept: "application/json"
-      Content-Type: "application/json;charset=utf8"
-      iBaseToken: "{{ deviceToken }}"
-      Cookie: "session={{ deviceSession }}"
-  register: SNAPSHOTS
+- block:
+    - name: Get Snapshots by CG ID
+      uri:
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{cgId}}"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          iBaseToken: "{{ deviceToken }}"
+          Cookie: "session={{ deviceSession }}"
+      register: SNAPSHOTS
 
-- set_fact:
-    checkedSnapshots: "{{ SNAPSHOTS.json.data }}"
+    - set_fact:
+        checkedSnapshots: "{{ SNAPSHOTS.json.data }}"
+  when: cgId|default(none) is not none

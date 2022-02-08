@@ -121,14 +121,28 @@
 
     - set_fact:
         Precheck_1_Execute: True
-        Precheck_2_Execute: "{{ (metroEnable == 'Y') }}"
-        Precheck_3_Execute: "{{ (protectLevel|int >= 2) }}"
-        Precheck_4_Execute: "{{ (protectLevel|int == 3) }}"
+        Precheck_2_Execute: True
+        Precheck_3_Execute: "{{ (metroEnable == 'Y') }}"
+        Precheck_4_Execute: "{{ (protectLevel|int >= 2) }}"
+        Precheck_5_Execute: "{{ (protectLevel|int == 3) }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
     - block:
-        - name: Precheck_1 - Check Primary Host
+        - name: Precheck_1 - Check DJ Storages
+          debug:
+            msg:
+              primaryDeviceSn: "{{ primaryDeviceSn }}"
+              metroDeviceSn: "{{ metroDeviceSn }}"
+              drDeviceSn: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Primary Host
           debug:
             msg:
               host: "{{ primaryHostName }}"
@@ -138,9 +152,19 @@
           vars:
             hostNames: ["{{ primaryHostName }}"]
 
+        - set_fact:
+           primaryLunHasSnapshot: "{{ primaryLunNames | map('regex_search','.*_F([^0])_.*') | select('string') | list }}"
+
+        - name: Check Primary LUNs Do Not Have Snapshot
+          debug:
+            msg:
+              primaryLunHasSnapshot: "{{ primaryLunHasSnapshot }}"
+          failed_when: (primaryLunHasSnapshot|length > 0)
+
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ primaryLunNames }}"
+            filterDeviceId: "{{ primaryDeviceId }}"
 
         - set_fact:
             primaryLunsInTier: "{{ checkedVolumes | json_query(queryLunsName) }}"
@@ -243,12 +267,12 @@
           with_indexed_items: "{{ primaryLunNames }}"
           when: protectLevel|int >= 2
 
-        # End Precheck_1
-      when: Precheck_1_Execute
+        # End Precheck_2
+      when: Precheck_2_Execute
 
 
     - block:
-        - name: Precheck_2 - Check Metro Host
+        - name: Precheck_3 - Check Metro Host
           debug:
             msg:
               host: "{{ metroHostName }}"
@@ -257,6 +281,7 @@
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ metroLunNames }}"
+            filterDeviceId: "{{ metroDeviceId }}"
 
         - set_fact:
             metroLunsInTier: "{{ checkedVolumes | json_query(queryLunsInTier) }}"
@@ -331,14 +356,14 @@
             checkExist: True
           when: protectLevel|int >= 2
 
-        # End Precheck_2
+        # End Precheck_3
       when:
-        - Precheck_2_Execute
+        - Precheck_3_Execute
         - metroLunNames|length > 0
 
 
     - block:
-        - name: Precheck_3 - Check DR Host
+        - name: Precheck_4 - Check DR Host
           debug:
             msg:
               host: "{{ drHostName }}"
@@ -351,6 +376,7 @@
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ drLunNames }}"
+            filterDeviceId: "{{ drDeviceId }}"
 
         - set_fact:
             drLunsInTier: "{{ checkedVolumes | json_query(queryLunsInTier) }}"
@@ -433,14 +459,14 @@
           with_items: "{{ drLunNames }}"
           when: protectLevel|int == 3
 
-        # End Precheck_3
+        # End Precheck_4
       when:
-        - Precheck_3_Execute
+        - Precheck_4_Execute
         - drLunNames|length > 0
 
 
     - block:
-        - name: Precheck_4 - Check DR Test Host
+        - name: Precheck_5 - Check DR Test Host
           debug:
             msg:
               host: "{{ drTestHostName }}"
@@ -496,9 +522,9 @@
             existDrTestLunsSector: "{{ checkedLuns | json_query('[*].CAPACITY') }}"
             existDrTestLunsDesc: "{{ checkedLuns | json_query('[*].DESCRIPTION') }}"
 
-        # End Precheck_4
+        # End Precheck_5
       when:
-        - Precheck_4_Execute
+        - Precheck_5_Execute
         - drTestLunNames|length > 0
 
     - block:
@@ -1996,6 +2022,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 waitExist: True
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
@@ -2023,6 +2050,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 waitExist: True
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
@@ -2050,6 +2078,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 waitExist: True
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"

@@ -53,6 +53,7 @@
     name: DR_Test_CG_Status
     valuesUrl: http://localhost:26336/rest/data/v1/enum/SNAPCG?nameAttr=desc&valueAttr=enum&filter={"enum":${option.DR_Test_CG_Status_Enum.value}}
   - enforced: true
+    required: true
     name: Designate_Class_3
     valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
   - delimiter: ','

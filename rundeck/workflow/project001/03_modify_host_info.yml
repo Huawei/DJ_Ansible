@@ -92,6 +92,7 @@
         metroCgId: "{{ Metro_CG_ID }}"
         drCgName: "{{ DR_CG }}"
         drCgId: "{{ DR_CG_ID }}"
+        drRoom: "{{ DR_Storage_Room }}"
         drDeviceSn: "{{ DR_Storage|string }}"
         drHostName: "{{ DR_Host }}"
         drHostNetName: "{{ DR_Host_Name }}"
@@ -117,7 +118,7 @@
         class2New: "{{ Modify_Class_2 if (Modify_Class_2 is not none) else class2 }}"
         class3New: "{{ Modify_Class_3 if (Modify_Class_3 is not none) else class3 }}"
         drHostNetNameNew: "{{ Modify_DR_Host_Name if (Modify_DR_Host_Name is not none) else drHostNetName }}"
-        drTestCgName: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
+        drTestCgName: "DR_{{ drRoom }}_{{ sessionName }}_{{ protectType }}1"
 
     - set_fact:
         primaryHostNameNew: "{{ primaryHostName | replace(primaryHostNetName, primaryHostNetNameNew) }}"
@@ -158,9 +159,10 @@
     - set_fact:
         Precheck_0_Execute: True
         Precheck_1_Execute: True
-        Precheck_2_Execute: "{{ (metroEnable == 'Y') }}"
-        Precheck_3_Execute: "{{ (protectLevel|int >= 2) }}"
-        Precheck_4_Execute: "{{ (protectLevel|int == 3) }}"
+        Precheck_2_Execute: True
+        Precheck_3_Execute: "{{ (metroEnable == 'Y') }}"
+        Precheck_4_Execute: "{{ (protectLevel|int >= 2) }}"
+        Precheck_5_Execute: "{{ (protectLevel|int == 3) }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
@@ -185,7 +187,19 @@
       when: Precheck_0_Execute
 
     - block:
-        - name: Precheck_1 - Check Primary Host
+        - name: Precheck_1 - Check Stroages Exist
+          debug:
+            msg:
+              primaryDeviceSn: "{{ primaryDeviceSn }}"
+              metroDeviceSn: "{{ metroDeviceSn }}"
+              drDeviceSn: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Primary Host
           debug:
             msg:
               host: "{{ primaryHostName }}"
@@ -231,11 +245,11 @@
         - set_fact:
             primaryPgId: "{{ pgIds[0] }}"
 
-        # End Precheck_1
-      when: Precheck_1_Execute
+        # End Precheck_2
+      when: Precheck_2_Execute
 
     - block:
-        - name: Precheck_2 - Check Host on Metro Device
+        - name: Precheck_3 - Check Host on Metro Device
           debug:
             msg:
               host: "{{ primaryHostName }}"
@@ -280,11 +294,11 @@
         - set_fact:
             metroPgId: "{{ pgIds[0] }}"
 
-        # End Precheck_2
-      when: Precheck_2_Execute
+        # End Precheck_3
+      when: Precheck_3_Execute
 
     - block:
-        - name: Precheck_3 - Check DR Host
+        - name: Precheck_4 - Check DR Host
           debug:
             msg:
               host: "{{ drHostName }}"
@@ -330,11 +344,11 @@
         - set_fact:
             drPgId: "{{ pgIds[0] }}"
 
-        # End Precheck_3
-      when: Precheck_3_Execute
+        # End Precheck_4
+      when: Precheck_4_Execute
 
     - block:
-        - name: Precheck_4 - Check DR Test Host
+        - name: Precheck_5 - Check DR Test Host
           debug:
             msg:
               host: "{{ drTestHostName }}"
@@ -378,8 +392,8 @@
             drTestCgId: "{{ DR_TEST_CG.json.data[0].ID }}"
           when: drTestLunIds|length > 0
 
-        # End Precheck_4
-      when: Precheck_4_Execute
+        # End Precheck_5
+      when: Precheck_5_Execute
 
     - block:
         - set_fact:
@@ -592,11 +606,13 @@
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
+                filterDeviceId: "{{ primaryDeviceId }}"
                 volumeNames: "{{ primaryLunNames }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 tierName: "{{ class1New }}"
 
             - set_fact:
@@ -617,10 +633,12 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 tierName: "{{ class1New }}"
 
             - set_fact:
@@ -641,10 +659,12 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 tierName: "{{ class2New }}"
 
             - set_fact:
@@ -1829,10 +1849,12 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 tierName: "{{ class2 }}"
 
             - set_fact:
@@ -1853,10 +1875,12 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
@@ -1877,10 +1901,12 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:

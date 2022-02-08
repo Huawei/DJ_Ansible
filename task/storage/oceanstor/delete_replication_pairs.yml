@@ -11,7 +11,7 @@
       vars:
         queryId: "[? SN=='{{remoteSn}}'].ID"
       uri:
-        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/remote_device?range=[0-100]&filter=ARRAYTYPE::1"
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/remote_device?range=[0-4096]&filter=ARRAYTYPE::1"
         method: GET
         validate_certs: no
         headers:

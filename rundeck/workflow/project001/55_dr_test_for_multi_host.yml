@@ -45,7 +45,7 @@
         drTestCgNames: []
         drCgNames: []
         drHostLunsAll: []
-        drTestLunClasses: []
+        tier2drTestLun: {}
 
     # check wwns
     - set_fact:
@@ -108,6 +108,23 @@
         drTestLunSectors: "{{ checkedLuns | json_query('[*].CAPACITY') }}"
 
     - set_fact:
+        tier2drTestLun: "{{ { designateClass3: drTestLunNames } if designateClass3 != '' else {} }}"
+        tierNames: []
+        drTestLunClasses: []
+
+    - block:
+      - set_fact:
+          tierNames: "{{ tierNames + [ item.split('_')[5] ]}}"
+        with_items: "{{ drTestLunNames }}"
+
+      - set_fact:
+          tier2drTestLun: "{{ tier2drTestLun |combine( { item: drTestLunNames|select('search', searchClassName)|list } )}}"
+        vars:
+          searchClassName: "{{ '_%s_'|format(item) }}"
+        with_items: "{{ tierNames | unique }}"
+      when: designateClass3 == ''
+
+    - set_fact:
         drTestLunClasses: "{{ drTestLunClasses + [ designateClass3 if (designateClass3 != '' ) else item.split('_')[5] ]}}"
       with_items: "{{ drTestLunNames }}"
 
@@ -166,8 +183,7 @@
 
     - debug:
         msg:
-          checkedPgRepCgs: "{{ checkedPgRepCgs }}"
-          drHostNames: "{{ drPgNames }}"
+          drPgNames: "{{ drPgNames }}"
       failed_when: item|length|int != 1
       loop: "{{ checkedPgRepCgs }}"
 
@@ -183,6 +199,7 @@
           drTestHostNames: "{{ drTestHostNames }}"
           drTestLunNames: "{{ drTestLunNames }}"
           drTestLunClasses: "{{ drTestLunClasses }}"
+          tier2drTestLun: "{{ tier2drTestLun }}"
       failed_when: (drHostWwns|length == 0) or (drTestLunNames|length == 0)
 
     - block:
@@ -253,16 +270,15 @@
               debug:
                 msg:
                   params:
-                    volumeNames: "{{ drTestLunNames }}"
-                    tierNames: "{{ drTestLunClasses }}"
+                    tier2drTestLun: "{{ tier2drTestLun }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
-                volumeNames: ["{{ drTestLun.0 }}"]
-                tierName: "{{ drTestLun.1 }}"
-              loop: "{{ drTestLunNames|zip(drTestLunClasses)|list }}"
+                volumeNames: "{{ tier2drTestLunItem.value }}"
+                tierName: "{{ tier2drTestLunItem.key }}"
+              loop: "{{ tier2drTestLun | dict2items }}"
               loop_control:
-                loop_var: drTestLun
+                loop_var: tier2drTestLunItem
 
             - set_fact:
                 Step_1_2_Completed: True
@@ -422,16 +438,15 @@
               debug:
                 msg:
                   params:
-                    volumeNames: "{{ drTestLunNames }}"
-                    tierNames: "{{ drTestLunClasses }}"
+                    tier2drTestLun: "{{ tier2drTestLun }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
-                volumeNames: "{{ drTestLun.0 }}"
-                tierName: "{{ drTestLun.1 }}"
-              loop: "{{ drTestLunNames|zip(drTestLunClasses)|list }}"
+                volumeNames: "{{ tier2drTestLunItem.value }}"
+                tierName: "{{ tier2drTestLunItem.key }}"
+              loop: "{{ tier2drTestLun | dict2items }}"
               loop_control:
-                loop_var: drTestLun
+                loop_var: tier2drTestLunItem
 
             - set_fact:
                 Step_1_2_Rollbacked: True
@@ -487,7 +502,6 @@
           debug:
             msg:
               params:
-                cgNames: "{{ drTestCgNames }}"
                 cgTestNames: "{{ drTestCgNames }}"
                 device: "{{ deviceName }}"
               result:
@@ -500,8 +514,7 @@
           debug:
             msg:
               params:
-                volumeNames: "{{ drTestLunNames }}"
-                tierName: "{{ drTestLunClasses }}"
+                tier2DrTestLun: "{{ tier2drTestLun }}"
               result:
                 succeeded: "{{ Step_1_2_Completed }}"
                 rollbacked: "{{ Step_1_2_Rollbacked }}"
@@ -512,7 +525,7 @@
           debug:
             msg:
               params:
-                wwns: "{{ drHostWwns }}"
+                drHost2Wwn: "{{ drHostWwns }}"
                 device: "{{ deviceName }}"
               result:
                 succeeded: "{{ Step_2_1_Completed }}"
@@ -524,7 +537,7 @@
           debug:
             msg:
               params:
-                wwns: "{{ drHostWwns }}"
+                drTestHost2Wwn: "{{ drTestHostWwns }}"
                 device: "{{ deviceName }}"
               result:
                 succeeded: "{{ Step_2_2_Completed }}"
@@ -537,7 +550,7 @@
             msg:
               params:
                 lunIds: "{{ drTestLunIds }}"
-                classes: "{{ drTestLunClasses }}"
+                class: "{{ drTestLunClasses }}"
               result:
                 succeeded: "{{ Step_3_1_Completed }}"
           failed_when: Step_3_1_Completed|bool == False

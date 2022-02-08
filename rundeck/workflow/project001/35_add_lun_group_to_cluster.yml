@@ -16,7 +16,7 @@
               Storage_Room: "{{ (Storage_Room is not none and Storage_Room != DEFAULT.noneValue) and Storage_Room in AZ }}"
               Cluster: "{{ Cluster is not none and Cluster != DEFAULT.noneValue }}"
               Class_1: "{{ Class_1 in ['A','B','C','D'] }}"
-              Session_Name: "{{ (Session_Name is not none) and (Session_Name|length <= 13 and '_' not in Session_Name) }}"
+              Session_Name: "{{ (Session_Name is not none) and (Session_Name|length <= 16 and '_' not in Session_Name) }}"
               Enable_HyperMetro: "{{ Enable_HyperMetro in ['Y','N'] }}"
               Protection_Level: "{{ Protection_Level|int in [1,2,3] }}"
               Check_Result_1: "{{ ('lungroup' in Check_Result_1) }}"
@@ -109,9 +109,9 @@
 
     # Set Params
     - set_fact:
-        sessionName: "{{Country}}0{{Session_Name}}"
+        sessionName: "{{Session_Name}}"
         protectType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['enum'] }}"              # See ../../config/project001.yml
-        replicaType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['type'] }}"              # See ../../config/project001.yml
+#        replicaType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['type'] }}"              # See ../../config/project001.yml
 
     - set_fact:
         primaryClusterName: "{{Cluster}}"
@@ -122,7 +122,8 @@
 
     - set_fact:
         metroDeviceSn: "{{ Metro_Storage|string }}"
-        metroCgName: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}1"
+        metroCgName: "HM_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}1"
+        metroRoom: "{{ Metro_Storage_Room }}"
         metroHosts: "{{ Metro_Hosts.split(',') }}"
       when:
         - Enable_HyperMetro == 'Y'
@@ -132,7 +133,7 @@
         drRoom: "{{ DR_Storage_Room }}"
         drSite: "{{ AZ[DR_Storage_Room]['dc'] }}"
         drLgDesc: "N{{ Protection_Level }}{{ Class_1 }}{{Class_2}}{{Class_3 if Protection_Level|int >= 3 else '0'}}_{{ sessionName }}"
-        drCgName: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}2"
+        drCgName: "HR_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}1"
         drSyncMode: "{{ DR_Sync_Mode }}"
       when:
         - Protection_Level|int >= 2
@@ -152,13 +153,13 @@
         - Exist_DR_Cluster is not none
 
     - set_fact:
-        standbyCgName: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}4"
+        standbyCgName: "HR_{{ metroRoom }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Enable_HyperMetro == 'Y'
         - Protection_Level|int >= 2
 
     - set_fact:
-        drTestCgName: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
+        drTestCgName: "DR_{{ drRoom }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Protection_Level|int == 3
 

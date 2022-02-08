@@ -16,7 +16,7 @@
               Site: "{{ (Site is not none and Site != DEFAULT.noneValue) and Site in DC }}"
               Primary_Storage_Room: "{{ (Primary_Storage_Room is not none and Primary_Storage_Room != DEFAULT.noneValue) and Primary_Storage_Room in AZ }}"
               Primary_Storage: "{{ (Primary_Storage is not none and Primary_Storage != DEFAULT.noneValue) and (Primary_Storage|string|length == 20) }}"
-              Session_Name: "{{ Session_Name|length <= 13 and '_' not in Session_Name }}"
+              Session_Name: "{{ (Session_Name is not none) and (Session_Name|length <= 16 and '_' not in Session_Name) }}"
               Enable_HyperMetro: "{{ Enable_HyperMetro in ['Y','N'] }}"
               Protection_Level: "{{ Protection_Level|int in [1,2,3] }}"
               Check_Result_1: "{{ ('pg' in Check_Result_1) }}"
@@ -60,24 +60,27 @@
     # Set Params
 
     - set_fact:
-        sessionName: "{{Country}}0{{ Session_Name}}"
+        sessionName: "{{ Session_Name}}"
         protectType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['enum'] }}"              # See ../../config/project001.yml
-        replicaType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['type'] }}"              # See ../../config/project001.yml
+#        replicaType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['type'] }}"              # See ../../config/project001.yml
 
     - set_fact:
         primaryDeviceSn: "{{ Primary_Storage|string }}"
+        primaryRoom: "{{ Primary_Storage_Room }}"
         primaryPgName: "{{ sessionName }}_1"
         primaryPgDesc: "{{ Enable_HyperMetro }}{{ Protection_Level }}"
+        metroRoom: "{{ Metro_Storage_Room }}"
+        drRoom: "{{  DR_Storage_Room }}"
 
     - set_fact:
         metroDeviceSn: "{{ Metro_Storage|string if (Metro_Storage is not none) else none }}"
-        metroCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}1"
+        metroCgName: "HM_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Enable_HyperMetro == 'Y'
 
     - set_fact:
         drDeviceSn: "{{ DR_Storage|string if (DR_Storage is not none) else none }}"
-        drCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}2"
+        drCgName: "HR_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}1"
         drSyncMode: "{{ DR_Sync_Mode }}"
       when:
         - Protection_Level|int >= 2
@@ -88,13 +91,13 @@
         - Protection_Level|int >= 2
 
     - set_fact:
-        standbyCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}4"
+        standbyCgName: "HR_{{ metroRoom }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Enable_HyperMetro == 'Y'
         - Protection_Level|int >= 2
 
     - set_fact:
-        drTestCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}3"
+        drTestCgName: "DR_{{ drRoom }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Protection_Level|int == 3
 

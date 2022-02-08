@@ -217,6 +217,7 @@
           DR_Storage: ${option.DR_Storage}
           DR_Host: ${option.DR_Host}
           DR_Host_Name: ${option.DR_Host_Name}
+          DR_Storage_Room: ${option.DR_Storage_Room}
           Modify_DR_Host_Name: ${option.Modify_DR_Host_Name}
           DR_Host_Description: ${option.DR_Host_Description}
           Modify_DR_Host_Description: ${option.Modify_DR_Host_Description}

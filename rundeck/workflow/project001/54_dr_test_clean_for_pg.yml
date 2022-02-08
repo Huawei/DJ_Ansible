@@ -63,9 +63,11 @@
         drTestLg00Names: []
 
     - set_fact:
-        drHostNames: "{{ drHostNames + [item[:-6]] }}"
-        drTestHostNames: "{{ drTestHostNames + [item[:-7] + '3'] }}"
-        drTestLg00Names: "{{ drTestLg00Names + [item[:-7] + '3_LG00'] }}"
+        drHostNames: "{{ drHostNames + [hostNamePrefix + '_2'] }}"
+        drTestHostNames: "{{ drTestHostNames + [hostNamePrefix + '_3'] }}"
+        drTestLg00Names: "{{ drTestLg00Names + [hostNamePrefix + '_3_LG00'] }}"
+      vars:
+        hostNamePrefix: "{{'_'.join(item.split('_')[:3])}}"
       with_items: "{{ drLunNames }}"
 
     - set_fact:
@@ -148,8 +150,10 @@
         targetLunDescs: []
 
     - set_fact:
-        targetLunNames: "{{ targetLunNames + [  item.0[:-7] + '3' + item.0[-6:] ] }}"
+        targetLunNames: "{{ targetLunNames + [  lunName ] }}"
         targetLunDescs: "{{ targetLunDescs + [ class3 + item.1[1:] ] }}"
+      vars:
+        lunName: "{% set fields = item.0.split('_') %}{% set output = fields[:3] + ['3'] + fields[4:] %}{{'_'.join(output)}}"
       with_together:
         - "{{ existDrLunNames }}"
         - "{{ existDrLunDescs }}"
@@ -341,7 +345,7 @@
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_luns_from_lg.yml"
               vars:
-                lgName: "{{ name[:-5] + 'LG00' }}"
+                lgName: "{{'_'.join(name.split('_')[:4]) + '_LG00'}}"
                 lunNames: [ "{{ name }}" ]
               loop: "{{ drTestLunNames | flatten(levels=1) }}"
               loop_control:
@@ -417,7 +421,7 @@
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_luns_to_lg.yml"
               vars:
-                lgName: "{{ param.0[:-5] + 'LG00' }}"
+                lgName: "{{'_'.join(param.0.split('_')[:4]) + '_LG00'}}"
                 lunNames: [ "{{ param.0 }}" ]
                 addLunScsiIds: [ "{{ param.1 }}" ]
               loop: "{{ targetLunNames | zip(targetLunLunScsiIds) | list }}"
@@ -465,7 +469,7 @@
                 TYPE_OF_OPERATION: "delete"
                 WBE_CODE: "{{ WBE_CODE }}"
                 TICKET_NUMBER: "{{ TICKET_NUMBER }}"
-                SYSTEM_NAME: "{{ item.1[:-6] }}"
+                SYSTEM_NAME: "{{'_'.join(drTestLunNames[item.0].split('_')[:4])}}"
                 SITE: "{{ site }}"
                 ENVIRONMENT: "{{ osType }}"
                 STORAGE_CLASS: "{{ drTestLunClass[item.0] }}"
@@ -479,7 +483,7 @@
                 TYPE_OF_OPERATION: "create"
                 WBE_CODE: "{{ WBE_CODE }}"
                 TICKET_NUMBER: "{{ TICKET_NUMBER }}"
-                SYSTEM_NAME: "{{ item.1[:-6] }}"
+                SYSTEM_NAME: "{{'_'.join(targetLunNames[item.0].split('_')[:4])}}"
                 SITE: "{{ site }}"
                 ENVIRONMENT: "{{ osType }}"
                 STORAGE_CLASS: ""

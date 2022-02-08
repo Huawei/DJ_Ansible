@@ -54,7 +54,7 @@
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=hostName&valueAttr=hostName&range=[0-100]&obj=lungroup&filter=NAME::${option.Target_LUN_Group.value}
   - enforced: true
     name: Target_LUN_Group
-    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/split/snapshot_consistency_group?valueAttr=NAME&valueSplit=_SNAP_&match=LG&filter=NAME::${option.Snapshot_CG.value}
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/lungroup?obj=snapshot_consistency_group&filter=NAME::${option.Snapshot_CG.value}&valueAttr=NAME
   - enforced: true
     name: Snapshot_CG_Status
     valuesUrl: http://localhost:26336/rest/data/v1/enum/SNAPCG?nameAttr=desc&valueAttr=enum&filter={"enum":${option.Snapshot_CG_Status_Enum.value}}
@@ -86,6 +86,22 @@
   - enforced: true
     name: Snapshot_CG_Status_Enum
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/snapshot_consistency_group?nameAttr=RUNNINGSTATUS&valueAttr=RUNNINGSTATUS&filter=NAME::${option.Snapshot_CG.value}
+  - enforced: true
+    name: Source_Protection_Group_ID
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/protectgroup?nameAttr=protectGroupId&valueAttr=protectGroupId&range=[0-100]&filter=lunGroupId::${option.Source_LUN_Group_ID.value}
+  - enforced: true
+    name: Source_Enable_HyperMetro
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:0:1&valueAttr=DESCRIPTION:0:0:1&filter=NAME::${option.Source_LUN_Group.value}
+  - enforced: true
+    name: Metro_Domain
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/hypermetro_consistentgroup?nameAttr=DOMAINNAME&valueAttr=DOMAINID&range=[0-100]&filter=localPgName::${option.Source_Protection_Group.value}
+  - enforced: true
+    name: Metro_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/detail/HyperMetroDomain?ID=${option.Metro_Domain.value}&nameAttr=REMOTEDEVICES:11&nameSplit="&valueAttr=REMOTEDEVICES:7&valueSplit="
+  - enforced: true
+    name: Metro_Protection_Group
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/hypermetro_consistentgroup?nameAttr=rmtPgName&valueAttr=rmtPgName&range=[0-100]&filter=localPgId::${option.Source_Protection_Group_ID.value}
+
   scheduleEnabled: true
   sequence:
     commands:
@@ -103,6 +119,9 @@
           Source_Host: ${option.Source_Host}
           Source_LUN_Group: ${option.Source_LUN_Group}
           Source_Protection_Group: ${option.Source_Protection_Group}
+          Source_Enable_HyperMetro: ${option.Source_Enable_HyperMetro}
+          Metro_Storage: ${option.Metro_Storage}
+          Metro_Protection_Group: ${option.Metro_Protection_Group}
 
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}

@@ -7,7 +7,7 @@
 
 - name: Query Host by Name
   uri:
-    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?range=%5B0-100%5D&filter=NAME%3A%3A{{hostName|urlencode}}"
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/host?range=%5B0-4096%5D&filter=NAME%3A%3A{{hostName|urlencode}}"
     method: GET
     validate_certs: no
     headers:
@@ -48,7 +48,7 @@
 
 - name: Query LUNs by Name
   uri:
-    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?range=%5B0-100%5D&filter=NAME%3A%3A{{item|urlencode}}"
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/lun?range=%5B0-4096%5D&filter=NAME%3A%3A{{item|urlencode}}"
     method: GET
     validate_certs: no
     headers:

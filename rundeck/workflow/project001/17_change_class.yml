@@ -9,6 +9,7 @@
     - set_fact:
         selectedLunNames: "{{ Select_LUN.split(',') if (Select_LUN is not none) else [] }}"
         targetClass: "{{ Target_Class }}"
+        storageSn: "{{ Storage_Sn | string }}"
 
     - block:
         - name: Read LUN name from upload file
@@ -30,19 +31,54 @@
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
+    - set_fact:
+        deviceSn: "{{ storageSn }}"
+
+    - name: Get Stroage By Sn
+      uri:
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.storages }}?start=1&limit=1000"
+        method: GET
+        validate_certs: no
+        headers:
+          Accept: "application/json"
+          Content-Type: "application/json;charset=utf8"
+          X-Auth-Token: "{{djToken}}"
+      register: DEVICES
+
+    - name: Check Storage Exists
+      vars:
+        query: "[?sn=='{{ storageSn }}'].id"
+      set_fact:
+        deviceId: "{{ DEVICES.json.datas | json_query(query) | first }}"
+      failed_when: DEVICES.json.datas | json_query(query) | length != 1
+      when:
+        - storageSn is defined
+        - storageSn is not none
+        - storageSn != DEFAULT.noneValue
+
     - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
       vars:
         volumeNames: "{{ selectedLunNames }}"
+        filterDeviceId: "{{ deviceId }}"
 
     - set_fact:
         storageSns: "{{ checkedVolumes | json_query('[*].storage_sn') | unique }}"
         storageLunNames: {}
+        newLunNames: []
+        newStorageLunNameTemplate: "%s%s%s"
 
     - set_fact:
         storageLunNames: "{{ storageLunNames | combine({item: checkedVolumes | json_query(queryLunName) }) }}"
       vars:
         queryLunName: "[? storage_sn=='{{item}}'].name"
       with_items: "{{ storageSns }}"
+
+    - set_fact:
+        newLunNames: "{{ newLunNames + [ newStorageLunNameTemplate | format(lunNamePrefix, targetClass, lunNameSuffix) ] }}"
+      vars:
+        lunNamePrefix: "{{ item | regex_replace('(.*_)[A-D|0](_.*)', ('\\1')) }}"
+        lunNameSuffix: "{{ item | regex_replace('(.*_)[A-D|0](_.*)', ('\\2')) }}"
+      with_items: "{{ selectedLunNames }}"
 
     - set_fact:
         volumesInTier: "{{ checkedVolumes | json_query(queryVolumesInTier) }}"
@@ -55,21 +91,32 @@
       vars:
         volumeNames: "{{ volumesInTier }}"
         tierName: "{{ targetClass }}"
+        filterDeviceId: "{{ deviceId }}"
       when: volumesInTier|length > 0
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
       vars:
         volumeNames: "{{ volumesNotInTier }}"
+        filterDeviceId: "{{ deviceId }}"
         tierName: "{{ targetClass }}"
       when: volumesNotInTier|length > 0
 
-    - include_tasks: "modify_luns_on_storage.yml"
+    - name: Modify LUN Names
+      debug:
+        msg:
+          lunNames: "{{ selectedLunNames }}"
+          newLunNames: "{{ newLunNames }}"
+          deviceSn: "{{ storageSn }}"
+          newClass: "{{ targetClass }}"
+
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+    - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
       vars:
-        lunNames: "{{ storageLunNames[deviceSn] }}"
-        newClass: "{{ targetClass }}"
-      loop: "{{ storageSns }}"
+        lunName: "{{ selectedLunNames[i] }}"
+        newLunName: "{{ newLunNames[i] }}"
+      loop: "{{ range(0, selectedLunNames|length) | list }}"
       loop_control:
-        loop_var: deviceSn
+        loop_var: i
 
     - include_tasks: "update_lun_kpi_table.yml"
       vars:
@@ -106,3 +153,5 @@
         STORAGE: "{{ STORAGES | json_query(queryDeviceName) | first }}"
         VDISK_UID: "{{ checkedVolumes[item.0].volume_raw_id }}"
       with_indexed_items: "{{ selectedLunNames }}"
+
+    - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"

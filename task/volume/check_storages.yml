@@ -1,0 +1,68 @@
+# Check Storage Name Exists on DJ
+#
+# Optional parameters:
+#   primaryDeviceSn:           # check exist or not exist, default: true, options: true/false
+#   metroDeviceSn:             # check if host status is normal, options: true/false
+#   drDeviceSn:                # check if at least 1 initiator status is online, options: true/false
+#
+# Generated variables:
+#   primaryDeviceId:           # Primary Device Id
+#   metroDeviceId:             # Metro Device Id
+#   drDeviceId:                # DR Device Id
+
+- name: Set default variables
+  set_fact:
+    primaryDeviceId: "{{ none }}"
+    metroDeviceId: "{{ none }}"
+    drDeviceId: "{{ none }}"
+
+- name: Query Storages
+  uri:
+    url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.storages }}?start=1&limit=1000"
+    method: GET
+    validate_certs: no
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json;charset=utf8"
+      X-Auth-Token: "{{djToken}}"
+  register: DEVICES
+
+- name: Check Primary Storage Exists
+  vars:
+    query: "[?sn=='{{ primaryDeviceSn }}'].id"
+  set_fact:
+    primaryDeviceId: "{{ DEVICES.json.datas | json_query(query) | first }}"
+  failed_when: DEVICES.json.datas | json_query(query) | length != 1
+  when:
+    - primaryDeviceSn is defined
+    - primaryDeviceSn is not none
+    - primaryDeviceSn != DEFAULT.noneValue
+
+- name: Check Metro Storage Exists
+  vars:
+    query: "[?sn=='{{ metroDeviceSn }}'].id"
+  set_fact:
+    metroDeviceId: "{{ DEVICES.json.datas | json_query(query) | first }}"
+  failed_when: DEVICES.json.datas | json_query(query) | length != 1
+  when:
+    - metroDeviceSn is defined
+    - metroDeviceSn is not none
+    - metroDeviceSn != DEFAULT.noneValue
+
+- name: Check DR Storage Exists
+  vars:
+    query: "[?sn=='{{ drDeviceSn }}'].id"
+  set_fact:
+    drDeviceId: "{{ DEVICES.json.datas | json_query(query) | first }}"
+  failed_when: DEVICES.json.datas | json_query(query) | length != 1
+  when:
+    - drDeviceSn is defined
+    - drDeviceSn is not none
+    - drDeviceSn != DEFAULT.noneValue
+
+- name: Checked Storage Ids
+  debug:
+    msg:
+      primaryDeviceId: "{{ primaryDeviceId }}"
+      metroDeviceId: "{{ metroDeviceId }}"
+      drDeviceId: "{{ drDeviceId }}"

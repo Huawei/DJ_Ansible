@@ -27,7 +27,7 @@
         room: "{{ DR_Storage_Room }}"
         site: "{{ AZ[DR_Storage_Room]['dc'] }}"
         drClusterNames: "{{ (Select_DR_Cluster|string).split(',') }}"
-        designateClass3: "{{ Designate_Class_3|default(none) }}"
+        designateClass3: "{{ Designate_Class_3|default('') }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
     - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
@@ -164,8 +164,8 @@
         drTestLunClasses: []
 
     - set_fact:
-        drTestLunClasses: "{{ drTestLunClasses + [ designateClass3 if (designateClass3 != '' ) else item[:1] ]}}"
-      with_items: "{{ drTestLunDesc }}"
+        drTestLunClasses: "{{ drTestLunClasses + [ designateClass3 if (designateClass3 != '' ) else item.split('_')[5]]}}"
+      with_items: "{{ drTestLunNames }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
       vars:

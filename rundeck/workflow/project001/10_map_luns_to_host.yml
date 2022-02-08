@@ -120,16 +120,16 @@
 
     - set_fact:
         lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s"
-        primaryLunPrefix: "{{primaryHostName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
-        primaryLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
+        primaryLunPrefix: "{{primaryHostName}}_{{protectType}}{{'M' if metroEnable == 'Y' else 'N'}}"
+        primaryLunSuffix: "{{ class1 }}_F0_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'00' if replicaType == '00' else protectType + '1'}}"
         metroLunPrefix: "{{metroHostName}}_{{protectType}}M"
-        metroLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
+        metroLunSuffix: "{{ class1 }}_F0_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
         drLunPrefix: "{{drHostName}}_{{protectType}}N"
-        drLunSuffix: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2"
+        drLunSuffix: "{{ class2 }}_F0_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
         drTestLunPrefix: "{{drTestHostName}}_{{protectType}}N"
-        drTestLunSuffix: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3"
-        drTestCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
-        drStarCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}0"
+        drTestLunSuffix: "{{ class3 }}_F0_DR_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
+        drTestCgNameDefault: "DR_{{ drRoom }}_{{ sessionName }}_{{ protectType }}1"
+        drStarCgNameDefault: "H3_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}0"
 
     - set_fact:
         drTestCgName: "{{ DR_Test_CG if (DR_Test_CG is not none and DR_Test_CG != DEFAULT.noneValue) else drTestCgNameDefault }}"
@@ -139,12 +139,25 @@
 
     - set_fact:
         Precheck_1_Execute: True
-        Precheck_2_Execute: "{{ (metroEnable == 'Y') }}"
-        Precheck_3_Execute: "{{ (protectLevel|int >= 2) }}"
-        Precheck_4_Execute: "{{ (protectLevel|int == 3) }}"
+        Precheck_2_Execute: True
+        Precheck_3_Execute: "{{ (metroEnable == 'Y') }}"
+        Precheck_4_Execute: "{{ (protectLevel|int >= 2) }}"
+        Precheck_5_Execute: "{{ (protectLevel|int == 3) }}"
 
     - block:
-        - name: Precheck_1 - Check Primary Host
+        - name: Precheck_1 - Check DJ Storage
+          debug:
+            msg:
+              primaryDeviceSn: "{{ primaryDeviceSn }}"
+              metroDeviceSn: "{{ metroDeviceSn }}"
+              drDeviceSn: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Primary Host
           debug:
             msg:
               host: "{{ primaryHostName }}"
@@ -222,6 +235,7 @@
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ primaryLunNames }}"
+            filterDeviceId: "{{ primaryDeviceId }}"
 
         - set_fact:
             primaryLunsClass: []
@@ -239,12 +253,12 @@
             queryVolumesInTierClass: "[? service_level_name != '' && service_level_name != null ].service_level_name"
             queryVolumesNotInTier: "[? service_level_name == '' || service_level_name == null ].name"
 
-        # End Precheck_1
-      when: Precheck_1_Execute
+        # End Precheck_2
+      when: Precheck_2_Execute
 
 
     - block:
-        - name: Precheck_2 - Check Metro Host
+        - name: Precheck_3 - Check Metro Host
           debug:
             msg:
               host: "{{ metroHostName }}"
@@ -289,12 +303,12 @@
             lunNames: "{{ metroLunNames }}"
             checkExist: False
 
-        # End Precheck_2
-      when: Precheck_2_Execute
+        # End Precheck_3
+      when: Precheck_3_Execute
 
 
     - block:
-        - name: Precheck_3 - Check DR Host
+        - name: Precheck_4 - Check DR Host
           debug:
             msg:
               host: "{{ drHostName }}"
@@ -343,12 +357,12 @@
             lunNames: "{{ drLunNames }}"
             checkExist: False
 
-        # End Precheck_3
-      when: Precheck_3_Execute
+        # End Precheck_4
+      when: Precheck_4_Execute
 
 
     - block:
-        - name: Precheck_4 - Check DR Test Host
+        - name: Precheck_5 - Check DR Test Host
           debug:
             msg:
               host: "{{ drTestHostName }}"
@@ -394,8 +408,8 @@
             existDrTestLunsDesc: "{{ checkedLuns | json_query('[*].DESCRIPTION') }}"
           when: existDrTestLuns|length > 0
 
-        # End Precheck_4
-      when: Precheck_4_Execute
+        # End Precheck_5
+      when: Precheck_5_Execute
 
 
     - block:
@@ -1140,11 +1154,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunsInTier }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
               when: primaryLunsInTier|length > 0
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
@@ -1261,11 +1277,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
@@ -1284,11 +1302,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 tierName: "{{ class2 }}"
 
             - set_fact:
@@ -1494,6 +1514,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
 
             - set_fact:
                 Step_5_2_Rollbacked: True
@@ -1510,6 +1531,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
 
             - set_fact:
                 Step_5_1_Rollbacked: True
@@ -2039,16 +2061,19 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: ["{{ item.0 }}"]
                 tierName: "{{ item.1 }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
               with_together:
                 - "{{ primaryLunsInTier }}"
                 - "{{ primaryLunsInTierClass }}"

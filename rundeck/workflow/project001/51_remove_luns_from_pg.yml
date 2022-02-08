@@ -109,14 +109,28 @@
 
     - set_fact:
         Precheck_1_Execute: True
-        Precheck_2_Execute: "{{ (metroEnable == 'Y') }}"
-        Precheck_3_Execute: "{{ (protectLevel|int >= 2) }}"
-        Precheck_4_Execute: "{{ (protectLevel|int == 3) }}"
+        Precheck_2_Execute: True
+        Precheck_3_Execute: "{{ (metroEnable == 'Y') }}"
+        Precheck_4_Execute: "{{ (protectLevel|int >= 2) }}"
+        Precheck_5_Execute: "{{ (protectLevel|int == 3) }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
     - block:
-        - name: Precheck_1 - Check Primary Protection Group
+        - name: Precheck_1 - Check DJ Storages
+          debug:
+            msg:
+              primaryDeviceSn: "{{ primaryDeviceSn|default(none) }}"
+              metroDeviceSn: "{{ metroDeviceSn|default(none) }}"
+              drDeviceSn: "{{ drDeviceSn|default(none) }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Primary Protection Group
           debug:
             msg:
               pg: "{{ primaryPgName }}"
@@ -125,6 +139,7 @@
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ primaryLunNames }}"
+            filterDeviceId: "{{ primaryDeviceId }}"
 
         - set_fact:
             primaryLunsInTier: "{{ checkedVolumes | json_query(queryLunsName) }}"
@@ -251,12 +266,12 @@
           with_indexed_items: "{{ primaryLunNames }}"
           when: protectLevel|int >= 2
 
-        # End Precheck_1
-      when: Precheck_1_Execute
+        # End Precheck_2
+      when: Precheck_2_Execute
 
 
     - block:
-        - name: Precheck_2 - Check Metro Protection Group
+        - name: Precheck_3 - Check Metro Protection Group
           debug:
             msg:
               pg: "{{ primaryPgName }}"
@@ -265,6 +280,7 @@
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ metroLunNames }}"
+            filterDeviceId: "{{ metroDeviceId }}"
 
         - set_fact:
             metroLunsInTier: "{{ checkedVolumes | json_query(queryLunsInTier) }}"
@@ -363,14 +379,14 @@
             checkExist: True
           when: protectLevel|int >= 2
 
-        # End Precheck_2
+        # End Precheck_3
       when:
-        - Precheck_2_Execute
+        - Precheck_3_Execute
         - metroLunNames|length > 0
 
 
     - block:
-        - name: Precheck_3 - Check DR Protection Group
+        - name: Precheck_4 - Check DR Protection Group
           debug:
             msg:
               pg: "{{ drPgName }}"
@@ -379,6 +395,7 @@
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ drLunNames }}"
+            filterDeviceId: "{{ drDeviceId }}"
 
         - set_fact:
             drLunsInTier: "{{ checkedVolumes | json_query(queryLunsInTier) }}"
@@ -488,14 +505,14 @@
         - set_fact:
             drTestLunNamesAll: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].NAME') }}"
 
-        # End Precheck_3
+        # End Precheck_4
       when:
-        - Precheck_3_Execute
+        - Precheck_4_Execute
         - drLunNames|length > 0
 
 
     - block:
-        - name: Precheck_4 - Check DR Test Protection Group
+        - name: Precheck_5 - Check DR Test Protection Group
           debug:
             msg:
               pg: "{{ drPgName }}"
@@ -574,9 +591,9 @@
             existDrTestLunsSector: "{{ checkedLuns | json_query('[*].CAPACITY') }}"
             existDrTestLunsDesc: "{{ checkedLuns | json_query('[*].DESCRIPTION') }}"
 
-        # End Precheck_4
+        # End Precheck_5
       when:
-        - Precheck_4_Execute
+        - Precheck_5_Execute
         - drTestLunNames|length > 0
 
     - block:
@@ -786,6 +803,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ drLunsInTier }}"
+                filterDeviceId: "{{ drDeviceId }}"
               when: drLunsInTier|length > 0
 
             - set_fact:
@@ -806,6 +824,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ metroLunsInTier }}"
+                filterDeviceId: "{{ metroDeviceId }}"
               when: metroLunsInTier|length > 0
 
             - set_fact:
@@ -826,6 +845,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunsInTier }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
               when: primaryLunsInTier|length > 0
 
             - set_fact:
@@ -1349,6 +1369,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/disable_volumes_qos.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
 
             - set_fact:
                 deviceHost: "{{ drDeviceHost }}"
@@ -1380,6 +1401,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/disable_volumes_qos.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
 
             - set_fact:
                 deviceHost: "{{ metroDeviceHost }}"
@@ -2558,12 +2580,14 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 waitExist: True
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: ["{{ primaryLunsInTier[i] }}"]
                 tierName: "{{ primaryLunsInTierClass[i] }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
               loop: "{{ range(0, primaryLunsInTier|length) | list }}"
               loop_control:
                 loop_var: i
@@ -2585,12 +2609,14 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 waitExist: True
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: ["{{ metroLunsInTier[i] }}"]
                 tierName: "{{ metroLunsInTierClass[i] }}"
+                filterDeviceId: "{{ metroDeviceId }}"
               loop: "{{ range(0, metroLunsInTier|length) | list }}"
               loop_control:
                 loop_var: i
@@ -2612,12 +2638,14 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 waitExist: True
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: ["{{ drLunsInTier[i] }}"]
                 tierName: "{{ drLunsInTierClass[i] }}"
+                filterDeviceId: "{{ drDeviceId }}"
               loop: "{{ range(0, drLunsInTier|length) | list }}"
               loop_control:
                 loop_var: i

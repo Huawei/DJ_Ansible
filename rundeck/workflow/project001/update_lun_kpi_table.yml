@@ -17,11 +17,12 @@
 - local_action: command psql automation -c "insert into activity(TYPE_OF_OPERATION,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID,COUNTRY,\"USER\") values('{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}','{{Country|default("")}}','{{Job_User}}')"
 
 - block:
-    - local_action: command psql -qAt -d automation -c "select max(GSA_ID) AS NEXTID from activity"
+    - local_action: command command /opt/mssql-tools/bin/sqlcmd -S "{{KPIDB.host}}" -U "{{KPIDB.user}}" -P "{{KPIDB.pswd}}" -d "{{KPIDB.database}}" -h-1 -Q "set nocount on;select max(ID)+1 from {{KPIDB.table}}"
       register: KPI_NEXTID
 
     - local_action: command date +"%Y-%m-%d %H:%M:%S"
-      register: KPI_TIMESTAMP
+      register: KPI_OPDATE
 
-    - local_action: command /opt/mssql-tools/bin/sqlcmd -S "{{KPIDB.host}}" -U "{{KPIDB.user}}" -P "{{KPIDB.pswd}}" -d "{{KPIDB.database}}" -Q "insert into {{KPIDB.table}}(ID,OPERATION_TYPE,WBE_CODE,TICKET_NUMBER,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID,COUNTRY,[User],[Timestamp]) values('{{KPI_NEXTID.stdout}}','{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}','{{Country|default("")}}','{{Job_User}}','{{KPI_TIMESTAMP.stdout}}')"
+    - local_action: command /opt/mssql-tools/bin/sqlcmd -S "{{KPIDB.host}}" -U "{{KPIDB.user}}" -P "{{KPIDB.pswd}}" -d "{{KPIDB.database}}" -Q "insert into {{KPIDB.table}}(ID,OPERATION_TYPE,WBE_CODE,TICKET_NUMBER,OPERATION_DATE,SYSTEM_NAME,SITE,ENVIRONMENT,STORAGE_CLASS,CAPACITY_GB,STORAGE,VDISK_UID,COUNTRY,[User]) values('{{KPI_NEXTID.stdout}}','{{TYPE_OF_OPERATION}}','{{WBE_CODE}}','{{TICKET_NUMBER}}','{{KPI_OPDATE.stdout}}','{{SYSTEM_NAME}}','{{SITE}}','{{ENVIRONMENT}}','{{STORAGE_CLASS}}','{{CAPACITY_GB}}','{{STORAGE}}','{{VDISK_UID}}','{{Country|default("")}}','{{Job_User}}')"
+
   when: KPIDB.enable|bool == True

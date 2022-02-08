@@ -98,28 +98,45 @@
 
     - set_fact:
         Precheck_1_Execute: True
-        Precheck_2_Execute: "{{ protectLevel|int == 3 }}"
+        Precheck_2_Execute: True
+        Precheck_3_Execute: "{{ protectLevel|int == 3 }}"
 
     - block:
-        - name: Precheck_1 - Check LUNs
+        - name: Precheck_1 - Check DJ Storages
+          debug:
+            msg:
+              primaryDeviceSn: "{{ primaryDeviceSn|default(none) }}"
+              metroDeviceSn: "{{ metroDeviceSn|default(none) }}"
+              drDeviceSn: "{{ drDeviceSn|default(none) }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check LUNs
           debug:
             msg:
               device: "{{ primaryDeviceSn }}"
               luns: "{{ primaryLunNames }}"
 
-        - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
-
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ primaryLunNames }}"
+            filterDeviceId: "{{ primaryDeviceId }}"
 
         - set_fact:
             primaryVolumesTier: []
             primaryLunIds: []
+            primaryVolumeIds: []
 
         - set_fact:
             primaryVolumesTier: "{{ primaryVolumesTier + [ checkedVolumes[item.0].service_level_name ] }}"
             primaryLunIds: "{{ primaryLunIds + [ checkedVolumes[item.0].volume_raw_id ] }}"
+            primaryVolumeIds: "{{ primaryVolumeIds + [ checkedVolumes[item.0].id ] }}"
           with_indexed_items: "{{ primaryLunNames }}"
 
         - name: Login Device
@@ -154,6 +171,7 @@
             metroLunIds: []
             metroLunNames: []
             metroVolumesTier: []
+            metroVolumeIds: []
 
         - name: Get Metro LUNs
           vars:
@@ -168,12 +186,14 @@
         - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
           vars:
             volumeNames: "{{ metroLunNames }}"
+            filterDeviceId: "{{ metroDeviceId }}"
           when:
             - metroEnable == 'Y'
             - metroLunNames|length > 0
 
         - set_fact:
             metroVolumesTier: "{{ metroVolumesTier + [ checkedVolumes[item.0].service_level_name ] }}"
+            metroVolumeIds: "{{ metroVolumeIds + [ checkedVolumes[item.0].id ] }}"
           with_indexed_items: "{{ metroLunNames }}"
           when:
             - metroEnable == 'Y'
@@ -198,6 +218,7 @@
             drLunIds: []
             drLunNames: []
             drVolumesTier: []
+            drVolumeIds: []
 
         - name: Get DR LUNs
           vars:
@@ -219,16 +240,17 @@
 
         - set_fact:
             drVolumesTier: "{{ drVolumesTier + [ checkedVolumes[item.0].service_level_name ] }}"
+            drVolumeIds: "{{ drVolumeIds + [ checkedVolumes[item.0].id ] }}"
           with_indexed_items: "{{ drLunNames }}"
           when:
             - protectLevel|int >= 2
             - drLunNames|length > 0
 
-        # End Precheck_1
-      when: Precheck_1_Execute
+        # End Precheck_2
+      when: Precheck_2_Execute
 
     - block:
-        - name: Precheck_2 - Check DR Test LUNs
+        - name: Precheck_3 - Check DR Test LUNs
           debug:
             msg:
               device: "{{ drDeviceSn }}"
@@ -264,9 +286,9 @@
             drTestLunNames: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].NAME') }}"
           when: protectLevel|int == 3
 
-        # End Precheck_2
+        # End Precheck_3
       when:
-        - Precheck_2_Execute
+        - Precheck_3_Execute
         - drLunNames|length > 0
 
     - block:
@@ -394,11 +416,12 @@
                 msg:
                   params:
                     volumeNames: "{{ primaryLunNames + metroLunNames + drLunNames }}"
+                    volumeIds: "{{ primaryVolumeIds + metroVolumeIds + drVolumeIds }}"
                     addSize: "{{ expandSize }}"
 
-            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/expand_volumes.yml"
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/expand_volumes.yml"
               vars:
-                volumeNames: "{{ primaryLunNames + metroLunNames + drLunNames }}"
+                volumeIds: "{{ primaryVolumeIds + metroVolumeIds + drVolumeIds }}"
                 addSize: "{{ expandSize }}"
 
             - set_fact:
@@ -664,6 +687,7 @@
             msg:
               params:
                 volumeNames: "{{ primaryLunNames + metroLunNames + drLunNames }}"
+                volumeIds: "{{ primaryVolumeIds + metroVolumeIds + drVolumeIds }}"
                 addSize: "{{ expandSize }}"
               result:
                 succeeded: "{{ Step_1_3_Completed }}"

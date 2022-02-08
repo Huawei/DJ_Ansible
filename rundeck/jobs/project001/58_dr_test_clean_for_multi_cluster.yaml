@@ -41,7 +41,7 @@
     label: DR Hosts
     multivalued: true
     name: Select_DR_Test_Cluster
-    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/hostgroup?range=[0-100]&nameAttr=NAME&valueAttr=NAME&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Search.value}
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/hostgroup?range=[0-100]&nameAttr=NAME&valueAttr=NAME&matchAttr=NAME&match=_3&filter=NAME:${option.Country.value}_${option.OS_Type.value}_${option.Cluster_Search.value}
   - delimiter: ','
     enforced: true
     multivalued: true
