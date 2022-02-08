@@ -65,7 +65,7 @@
 
 - name: Wait create Complete
   uri:
-    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=%5B0-100%5D"
+    url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=%5B0-4096%5D"
     method: GET
     validate_certs: no
     headers:
@@ -76,12 +76,12 @@
   register: SNAPSHOTS
   retries: "20"
   delay: "5"
-  until: SNAPSHOTS.json.data|default([])|length != 0
+  until: SNAPSHOTS.json.data|default([])|length == snapNames|length
 
 - block:
     - name: Query Snapshots
       uri:
-        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=%5B0-100%5D"
+        url: "https://{{deviceHost}}:{{devicePort}}/deviceManager/rest/{{deviceSn}}/snapshot/associate?ASSOCIATEOBJTYPE=57646&ASSOCIATEOBJID={{newCgId}}&range=%5B0-4096%5D"
         method: GET
         validate_certs: no
         headers:

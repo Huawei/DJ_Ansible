@@ -69,7 +69,8 @@
     valuesUrl: http://localhost:26336/rest/data/v1/echo?host=1.%20Create%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"%20on%20storage:%20"${option.Storage.value}"&wwn=2.%20Add%20WWNs%20"${option.Host_WWN.value}"%20to%20host:%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"&cluster=3.%20Add%20host%20"${option.Country.value}_${option.OS_Type.value}_${option.Host_Name.value}_1"%20to%20cluster:%20"${option.Cluster_Name.value}"
     description: Select to confirm primary host result <BR><BR><h2>Protection Settings</h2>
   - name: Session_Name
-    description: Input Session Name used for CGs (optional, max 13 chars, '_' not permitted, default is Primary Host Name)
+    description: Input Session Name used for CGs (required, max 16 chars, '_' not permitted)
+    required: true
   - enforced: true
     name: Enable_HyperMetro
     value: 'N'

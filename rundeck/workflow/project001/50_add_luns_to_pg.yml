@@ -140,16 +140,16 @@
 
     - set_fact:
         lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s"
-        primaryLunPrefix: "{{primaryHostName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
-        primaryLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
+        primaryLunPrefix: "{{primaryHostName}}_{{protectType}}{{'M' if metroEnable == 'Y' else 'N'}}"
+        primaryLunSuffix: "{{ class1 }}_F0_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType + '1'}}"
         metroLunPrefix: "{{metroHostName}}_{{protectType}}M"
-        metroLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
+        metroLunSuffix: "{{ class1 }}_F0_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
         drLunPrefix: "{{drHostName}}_{{protectType}}N"
-        drLunSuffix: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2"
+        drLunSuffix: "{{ class2 }}_F0_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
         drTestLunPrefix: "{{drTestHostName}}_{{protectType}}N"
-        drTestLunSuffix: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3"
-        drTestCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
-        drStarCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}0"
+        drTestLunSuffix: "{{ class3 }}_F0_DR_{{drRoom}}_{{sessionName}}_{{protectType}}1"
+        drTestCgNameDefault: "DR_{{ drRoom }}_{{ sessionName }}_{{ protectType }}1"
+        drStarCgNameDefault: "H3_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}1"
 
     - set_fact:
         drTestCgName: "{{ DR_Test_CG if (DR_Test_CG is not none and DR_Test_CG != DEFAULT.noneValue) else drTestCgNameDefault }}"
@@ -159,14 +159,28 @@
 
     - set_fact:
         Precheck_1_Execute: True
-        Precheck_2_Execute: "{{ (metroEnable == 'Y') }}"
-        Precheck_3_Execute: "{{ (protectLevel|int >= 2) }}"
-        Precheck_4_Execute: "{{ (protectLevel|int == 3) }}"
+        Precheck_2_Execute: True
+        Precheck_3_Execute: "{{ (metroEnable == 'Y') }}"
+        Precheck_4_Execute: "{{ (protectLevel|int >= 2) }}"
+        Precheck_5_Execute: "{{ (protectLevel|int == 3) }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
     - block:
-        - name: Precheck_1 - Check Primary Host
+        - name: Precheck_1 - Check DJ Storages
+          debug:
+            msg:
+              primaryDeviceSn: "{{ primaryDeviceSn|default(none) }}"
+              metroDeviceSn: "{{ metroDeviceSn|default(none) }}"
+              drDeviceSn: "{{ drDeviceSn|default(none) }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+        # End Precheck_1
+      when: Precheck_1_Execute
+
+    - block:
+        - name: Precheck_2 - Check Primary Host
           debug:
             msg:
               host: "{{ primaryHostName }}"
@@ -287,6 +301,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ selectedLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
 
             - set_fact:
                 selectedLunsClass: "{{ selectedLunsClass + [ checkedVolumes[item.0].service_level_name ] }}"
@@ -313,12 +328,12 @@
           vars:
             lgNames: ["{{ primaryLgName }}", "{{ primaryLg00Name }}"]
 
-        # End Precheck_1
-      when: Precheck_1_Execute
+        # End Precheck_2
+      when: Precheck_2_Execute
 
 
     - block:
-        - name: Precheck_2 - Check Metro Host
+        - name: Precheck_3 - Check Metro Host
           debug:
             msg:
               host: "{{ metroHostName }}"
@@ -376,11 +391,11 @@
               when: item.lunGroupName|string == primaryLg00Name|string
               with_items: "{{ checkedLgs }}"
 
-        # End Precheck_2
-      when: Precheck_2_Execute
+        # End Precheck_3
+      when: Precheck_3_Execute
 
     - block:
-        - name: Precheck_3 - Check DR Host
+        - name: Precheck_4 - Check DR Host
           debug:
             msg:
               host: "{{ drHostName }}"
@@ -442,12 +457,12 @@
               when: item.lunGroupName|string == drLg00Name|string
               with_items: "{{ checkedLgs }}"
 
-        # End Precheck_3
-      when: Precheck_3_Execute
+        # End Precheck_4
+      when: Precheck_4_Execute
 
 
     - block:
-        - name: Precheck_4 - Check DR Test Host
+        - name: Precheck_5 - Check DR Test Host
           debug:
             msg:
               host: "{{ drTestHostName }}"
@@ -519,8 +534,8 @@
           loop_control:
             loop_var: checkedSnapshot
 
-        # End Precheck_4
-      when: Precheck_4_Execute
+        # End Precheck_5
+      when: Precheck_5_Execute
 
 
     - block:
@@ -535,24 +550,24 @@
             Step_1_1_Rollbacked: False
 
             # Modify Selected LUNs
-            Step_1_1_1_Execute: "{{ select_lun_params_exists }}"
-            Step_1_1_1_Completed: False
-            Step_1_1_1_Rollbacked: False
-
-            # Add Primary LUNs to Protection Group
-            Step_1_1_2_Execute: "{{ True }}"
-            Step_1_1_2_Completed: False
-            Step_1_1_2_Rollbacked: False
-
-            # Add Primary LUNs to LUN Group
-            Step_1_1_3_Execute: "{{ True }}"
-            Step_1_1_3_Completed: False
-            Step_1_1_3_Rollbacked: False
-
-            # Disable DR Star
-            Step_1_2_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') and (drStarCgName != '') }}"
+            Step_1_2_Execute: "{{ select_lun_params_exists }}"
             Step_1_2_Completed: False
             Step_1_2_Rollbacked: False
+
+            # Add Primary LUNs to Protection Group
+            Step_1_3_Execute: "{{ True }}"
+            Step_1_3_Completed: False
+            Step_1_3_Rollbacked: False
+
+            # Add Primary LUNs to LUN Group
+            Step_1_4_Execute: "{{ True }}"
+            Step_1_4_Completed: False
+            Step_1_4_Rollbacked: False
+
+            # Disable DR Star
+            Step_1_5_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') and (drStarCgName != '') }}"
+            Step_1_5_Completed: False
+            Step_1_5_Rollbacked: False
 
             # Create Metro LUNs
             Step_2_1_Execute: "{{ (metroEnable == 'Y') }}"
@@ -560,29 +575,29 @@
             Step_2_1_Rollbacked: False
 
             # Add Metro LUNs to Protection Group
-            Step_2_1_1_Execute: "{{ metroEnable == 'Y' }}"
-            Step_2_1_1_Completed: False
-            Step_2_1_1_Rollbacked: False
-
-            # Create Metro Pairs
-            Step_2_2_Execute: "{{ (metroEnable == 'Y') }}"
+            Step_2_2_Execute: "{{ metroEnable == 'Y' }}"
             Step_2_2_Completed: False
             Step_2_2_Rollbacked: False
 
-            # Create LUN Group for Metro Host
-            Step_2_3_0_Execute: "{{ (metroEnable == 'Y') and (metroLg00Exists|bool == False) }}"
-            Step_2_3_0_Completed: False
-            Step_2_3_0_Rollbacked: False
-
-            # Add Metro LUNs to LUN Group
+            # Create Metro Pairs
             Step_2_3_Execute: "{{ (metroEnable == 'Y') }}"
             Step_2_3_Completed: False
             Step_2_3_Rollbacked: False
 
-            # Add Metro Pairs to HyperMetro CG
-            Step_2_4_Execute: "{{ (metroEnable == 'Y') }}"
+            # Create LUN Group for Metro Host
+            Step_2_4_Execute: "{{ (metroEnable == 'Y') and (metroLg00Exists|bool == False) }}"
             Step_2_4_Completed: False
             Step_2_4_Rollbacked: False
+
+            # Add Metro LUNs to LUN Group
+            Step_2_5_Execute: "{{ (metroEnable == 'Y') }}"
+            Step_2_5_Completed: False
+            Step_2_5_Rollbacked: False
+
+            # Add Metro Pairs to HyperMetro CG
+            Step_2_6_Execute: "{{ (metroEnable == 'Y') }}"
+            Step_2_6_Completed: False
+            Step_2_6_Rollbacked: False
 
             # Create DR LUNs
             Step_3_1_Execute: "{{ (protectLevel|int >= 2) }}"
@@ -590,49 +605,49 @@
             Step_3_1_Rollbacked: False
 
             # Add DR LUNs to Protection Group
-            Step_3_1_1_Execute: "{{ (protectLevel|int >= 2) }}"
-            Step_3_1_1_Completed: False
-            Step_3_1_1_Rollbacked: False
-
-            # Create DR Pairs
             Step_3_2_Execute: "{{ (protectLevel|int >= 2) }}"
             Step_3_2_Completed: False
             Step_3_2_Rollbacked: False
 
-            # Create Standby DR Pairs
-            Step_3_3_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') }}"
+            # Create DR Pairs
+            Step_3_3_Execute: "{{ (protectLevel|int >= 2) }}"
             Step_3_3_Completed: False
             Step_3_3_Rollbacked: False
 
-            # Create LUN Group for DR Host
-            Step_3_3_1_Execute: "{{ (protectLevel|int >= 2) and (drLg00Exists|bool == False) }}"
-            Step_3_3_1_Completed: False
-            Step_3_3_1_Rollbacked: False
-
-            # Add DR LUNs to LUN Group
-            Step_3_4_Execute: "{{ (protectLevel|int >= 2) }}"
+            # Create Standby DR Pairs
+            Step_3_4_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') }}"
             Step_3_4_Completed: False
             Step_3_4_Rollbacked: False
 
-            # Add DR Pair to Replication CG
-            Step_3_5_Execute: "{{ (protectLevel|int >= 2) }}"
+            # Create LUN Group for DR Host
+            Step_3_5_Execute: "{{ (protectLevel|int >= 2) and (drLg00Exists|bool == False) }}"
             Step_3_5_Completed: False
             Step_3_5_Rollbacked: False
 
-            # Add Standby DR Pair to Standby Replication CG
-            Step_3_6_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') }}"
+            # Add DR LUNs to LUN Group
+            Step_3_6_Execute: "{{ (protectLevel|int >= 2) }}"
             Step_3_6_Completed: False
             Step_3_6_Rollbacked: False
 
-            # Create DR Star
-            Step_3_7_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') and (drStarCgName == '') }}"
+            # Add DR Pair to Replication CG
+            Step_3_7_Execute: "{{ (protectLevel|int >= 2) }}"
             Step_3_7_Completed: False
             Step_3_7_Rollbacked: False
 
-            # Enable DR Star
-            Step_3_8_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') and (drStarCgName != '') }}"
+            # Add Standby DR Pair to Standby Replication CG
+            Step_3_8_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') }}"
             Step_3_8_Completed: False
             Step_3_8_Rollbacked: False
+
+            # Create DR Star
+            Step_3_9_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') and (drStarCgName == '') }}"
+            Step_3_9_Completed: False
+            Step_3_9_Rollbacked: False
+
+            # Enable DR Star
+            Step_3_10_Execute: "{{ (protectLevel|int >= 2) and (metroEnable == 'Y') and (drStarCgName != '') }}"
+            Step_3_10_Completed: False
+            Step_3_10_Rollbacked: False
 
             # Create LUN Group for DR Test Host
             Step_4_0_Execute: "{{ (protectLevel|int == 3) and (drTestLg00Exists|bool == False) }}"
@@ -705,26 +720,26 @@
           debug:
             msg:
               Step_1_1: "[{{Step_1_1_Execute}}] Create Primary LUNs"
-              Step_1_1_1: "[{{Step_1_1_1_Execute}}] Modify Selected LUNs"
-              Step_1_1_2: "[{{Step_1_1_2_Execute}}] Add Primary LUNs to Protection Group"
-              Step_1_1_3: "[{{Step_1_1_3_Execute}}] Add Primary LUNs to LUN Group"
-              Step_1_2: "[{{Step_1_2_Execute}}] Disable DR Star"
+              Step_1_2: "[{{Step_1_2_Execute}}] Modify Selected LUNs"
+              Step_1_3: "[{{Step_1_3_Execute}}] Add Primary LUNs to Protection Group"
+              Step_1_4: "[{{Step_1_4_Execute}}] Add Primary LUNs to LUN Group"
+              Step_1_5: "[{{Step_1_5_Execute}}] Disable DR Star"
               Step_2_1: "[{{Step_2_1_Execute}}] Create Metro LUNs"
-              Step_2_1_1: "[{{Step_2_1_1_Execute}}] Add Metro LUNs to Protection Group"
-              Step_2_2: "[{{Step_2_2_Execute}}] Create Metro Pairs"
-              Step_2_3_0: "[{{Step_2_3_0_Execute}}] Create LUN Group for Metro Host"
-              Step_2_3: "[{{Step_2_3_Execute}}] Add Metro LUNs to LUN Group"
-              Step_2_4: "[{{Step_2_4_Execute}}] Add Metro Pairs to HyperMetro CG"
+              Step_2_2: "[{{Step_2_2_Execute}}] Add Metro LUNs to Protection Group"
+              Step_2_3: "[{{Step_2_3_Execute}}] Create Metro Pairs"
+              Step_2_4: "[{{Step_2_4_Execute}}] Create LUN Group for Metro Host"
+              Step_2_5: "[{{Step_2_5_Execute}}] Add Metro LUNs to LUN Group"
+              Step_2_6: "[{{Step_2_6_Execute}}] Add Metro Pairs to HyperMetro CG"
               Step_3_1: "[{{Step_3_1_Execute}}] Create DR LUNs"
-              Step_3_1_1: "[{{Step_3_1_1_Execute}}] Add DR LUNs to Protection Group"
-              Step_3_2: "[{{Step_3_2_Execute}}] Create DR Pairs"
-              Step_3_3: "[{{Step_3_3_Execute}}] Create Standby DR Pairs"
-              Step_3_3_1: "[{{Step_3_3_1_Execute}}] Create LUN Group for DR Host"
-              Step_3_4: "[{{Step_3_4_Execute}}] Add DR LUNs to LUN Group"
-              Step_3_5: "[{{Step_3_5_Execute}}] Add DR Pair to Replication CG"
-              Step_3_6: "[{{Step_3_6_Execute}}] Add Standby DR Pair to Standby Replication CG"
-              Step_3_7: "[{{Step_3_7_Execute}}] Create DR Star"
-              Step_3_8: "[{{Step_3_8_Execute}}] Enable DR Star"
+              Step_3_2: "[{{Step_3_2_Execute}}] Add DR LUNs to Protection Group"
+              Step_3_3: "[{{Step_3_3_Execute}}] Create DR Pairs"
+              Step_3_4: "[{{Step_3_4_Execute}}] Create Standby DR Pairs"
+              Step_3_5: "[{{Step_3_5_Execute}}] Create LUN Group for DR Host"
+              Step_3_6: "[{{Step_3_6_Execute}}] Add DR LUNs to LUN Group"
+              Step_3_7: "[{{Step_3_7_Execute}}] Add DR Pair to Replication CG"
+              Step_3_8: "[{{Step_3_8_Execute}}] Add Standby DR Pair to Standby Replication CG"
+              Step_3_9: "[{{Step_3_9_Execute}}] Create DR Star"
+              Step_3_10: "[{{Step_3_10_Execute}}] Enable DR Star"
               Step_4_0: "[{{Step_4_0_Execute}}] Create LUN Group for DR Test Host"
               Step_4_1: "[{{Step_4_1_Execute}}] Remove Existing DR Test LUNs from LUN Group"
               Step_4_2: "[{{Step_4_2_Execute}}] Delete Existing DR Test Snapshot CG"
@@ -781,7 +796,7 @@
           when: Step_1_1_Execute
 
         - block:
-            - name: Step_1_1_1 - Modify Selected LUNs
+            - name: Step_1_2 - Modify Selected LUNs
               debug:
                 msg:
                   params:
@@ -795,18 +810,18 @@
               vars:
                 volumeNames: "{{ selectedLunNames }}"
                 newVolumeNames: "{{ selectedLunNamesNew }}"
-                deviceSn: "{{ primaryDeviceSn }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
 
             - set_fact:
-                Step_1_1_1_Completed: True
+                Step_1_2_Completed: True
 
-            # End Step_1_1_1
+            # End Step_1_2
 
           # End block
-          when: Step_1_1_1_Execute
+          when: Step_1_2_Execute
 
         - block:
-            - name: Step_1_1_2 - Add Primary LUNs to Protection Group
+            - name: Step_1_3 - Add Primary LUNs to Protection Group
               debug:
                 msg:
                   params:
@@ -828,15 +843,15 @@
                 pgName: "{{ primaryPgName }}"
 
             - set_fact:
-                Step_1_1_2_Completed: True
+                Step_1_3_Completed: True
 
-            # End Step_1_1_2
+            # End Step_1_3
 
           # End block
-          when: Step_1_1_2_Execute
+          when: Step_1_3_Execute
 
         - block:
-            - name: Step_1_1_3 - Add Primary LUNs to LUN Group
+            - name: Step_1_4 - Add Primary LUNs to LUN Group
               debug:
                 msg:
                   params:
@@ -860,15 +875,15 @@
                 startScsiId: "{{ nextScsiId }}"
 
             - set_fact:
-                Step_1_1_3_Completed: True
+                Step_1_4_Completed: True
 
-            # End Step_1_1_3
+            # End Step_1_4
 
           # End block
-          when: Step_1_1_3_Execute
+          when: Step_1_4_Execute
 
         - block:
-            - name: Step_1_2 - Disable DR Star
+            - name: Step_1_5 - Disable DR Star
               debug:
                 msg:
                   params:
@@ -887,12 +902,12 @@
                 drStarName: "{{ drStarCgName }}"
 
             - set_fact:
-                Step_1_2_Completed: True
+                Step_1_5_Completed: True
 
-            # End Step_1_2
+            # End Step_1_5
 
           # End block
-          when: Step_1_2_Execute
+          when: Step_1_5_Execute
 
         - block:
             - name: Step_2_1 - Create Metro LUNs
@@ -938,7 +953,7 @@
           when: Step_2_1_Execute
 
         - block:
-            - name: Step_2_1_1 - Add Metro LUNs to Protection Group
+            - name: Step_2_2 - Add Metro LUNs to Protection Group
               debug:
                 msg:
                   params:
@@ -960,15 +975,15 @@
                 lunNames: "{{ metroLunNames }}"
 
             - set_fact:
-                Step_2_1_1_Completed: True
+                Step_2_2_Completed: True
 
-            # End Step_2_1_1
+            # End Step_2_2
 
           # End block
-          when: Step_2_1_1_Execute
+          when: Step_2_2_Execute
 
         - block:
-            - name: Step_2_2 - Create Metro Pairs
+            - name: Step_2_3 - Create Metro Pairs
               debug:
                 msg:
                   params:
@@ -992,15 +1007,15 @@
                 remoteSn: "{{ metroDeviceSn }}"
 
             - set_fact:
-                Step_2_2_Completed: True
+                Step_2_3_Completed: True
 
-            # End Step_2_2
+            # End Step_2_3
 
           # End block
-          when: Step_2_2_Execute
+          when: Step_2_3_Execute
 
         - block:
-            - name: Step_2_3_0 - Create LUN Group for Metro Host
+            - name: Step_2_4 - Create LUN Group for Metro Host
               debug:
                 msg:
                   params:
@@ -1028,15 +1043,15 @@
 
             - set_fact:
                 metroLgId: "{{ newLgId }}"
-                Step_2_3_0_Completed: True
+                Step_2_4_Completed: True
 
-            # End Step_2_3_0
+            # End Step_2_4
 
           # End block
-          when: Step_2_3_0_Execute
+          when: Step_2_4_Execute
 
         - block:
-            - name: Step_2_3 - Add Metro LUNs to LUN Group
+            - name: Step_2_5 - Add Metro LUNs to LUN Group
               debug:
                 msg:
                   params:
@@ -1059,15 +1074,15 @@
                 startScsiId: "{{ nextScsiId }}"
 
             - set_fact:
-                Step_2_3_Completed: True
+                Step_2_5_Completed: True
 
-            # End Step_2_3
+            # End Step_2_5
 
           # End block
-          when: Step_2_3_Execute
+          when: Step_2_5_Execute
 
         - block:
-            - name: Step_2_4 - Add Metro Pairs to HyperMetro CG
+            - name: Step_2_6 - Add Metro Pairs to HyperMetro CG
               debug:
                 msg:
                   params:
@@ -1092,12 +1107,12 @@
                 waitSync: True
 
             - set_fact:
-                Step_2_4_Completed: True
+                Step_2_6_Completed: True
 
-            # End Step_2_4
+            # End Step_2_6
 
           # End block
-          when: Step_2_4_Execute
+          when: Step_2_6_Execute
 
         - block:
             - name: Step_3_1 - Create DR LUNs
@@ -1143,7 +1158,7 @@
           when: Step_3_1_Execute
 
         - block:
-            - name: Step_3_1_1 - Add DR LUNs to Protection Group
+            - name: Step_3_2 - Add DR LUNs to Protection Group
               debug:
                 msg:
                   params:
@@ -1165,15 +1180,15 @@
                 lunNames: "{{ drLunNames }}"
 
             - set_fact:
-                Step_3_1_1_Completed: True
+                Step_3_2_Completed: True
 
-            # End Step_3_1_1
+            # End Step_3_2
 
           # End block
-          when: Step_3_1_1_Execute
+          when: Step_3_2_Execute
 
         - block:
-            - name: Step_3_2 - Create DR Pairs
+            - name: Step_3_3 - Create DR Pairs
               debug:
                 msg:
                   params:
@@ -1199,15 +1214,15 @@
                 mode: "{{ drCgModeEnum }}"
 
             - set_fact:
-                Step_3_2_Completed: True
+                Step_3_3_Completed: True
 
-            # End Step_3_2
+            # End Step_3_3
 
           # End block
-          when: Step_3_2_Execute
+          when: Step_3_3_Execute
 
         - block:
-            - name: Step_3_3 - Create Standby DR Pairs
+            - name: Step_3_4 - Create Standby DR Pairs
               debug:
                 msg:
                   params:
@@ -1235,15 +1250,15 @@
                 standby: True
 
             - set_fact:
-                Step_3_3_Completed: True
+                Step_3_4_Completed: True
 
-            # End Step_3_3
+            # End Step_3_4
 
           # End block
-          when: Step_3_3_Execute
+          when: Step_3_4_Execute
 
         - block:
-            - name: Step_3_3_1 - Create LUN Group for DR Host
+            - name: Step_3_5 - Create LUN Group for DR Host
               debug:
                 msg:
                   params:
@@ -1271,15 +1286,15 @@
 
             - set_fact:
                 drLgId: "{{ newLgId }}"
-                Step_3_3_1_Completed: True
+                Step_3_5_Completed: True
 
-            # End Step_3_3_1
+            # End Step_3_5
 
           # End block
-          when: Step_3_3_1_Execute
+          when: Step_3_5_Execute
 
         - block:
-            - name: Step_3_4 - Add DR LUNs to LUN Group
+            - name: Step_3_6 - Add DR LUNs to LUN Group
               debug:
                 msg:
                   params:
@@ -1302,15 +1317,15 @@
                 startScsiId: "{{ nextScsiId }}"
 
             - set_fact:
-                Step_3_4_Completed: True
+                Step_3_6_Completed: True
 
-            # End Step_3_4
+            # End Step_3_6
 
           # End block
-          when: Step_3_4_Execute
+          when: Step_3_6_Execute
 
         - block:
-            - name: Step_3_5 - Add DR Pairs to Replication CG
+            - name: Step_3_7 - Add DR Pairs to Replication CG
               debug:
                 msg:
                   params:
@@ -1335,15 +1350,15 @@
                 waitSync: True
 
             - set_fact:
-                Step_3_5_Completed: True
+                Step_3_7_Completed: True
 
-            # End Step_3_5
+            # End Step_3_7
 
           # End block
-          when: Step_3_5_Execute
+          when: Step_3_7_Execute
 
         - block:
-            - name: Step_3_6 - Add Standby DR Pairs to Standby Replication CG
+            - name: Step_3_8 - Add Standby DR Pairs to Standby Replication CG
               debug:
                 msg:
                   params:
@@ -1369,15 +1384,15 @@
                 standby: True
 
             - set_fact:
-                Step_3_6_Completed: True
+                Step_3_8_Completed: True
 
-            # End Step_3_6
+            # End Step_3_8
 
           # End block
-          when: Step_3_6_Execute
+          when: Step_3_8_Execute
 
         - block:
-            - name: Step_3_7 - Create DR Star
+            - name: Step_3_9 - Create DR Star
               debug:
                 msg:
                   params:
@@ -1405,15 +1420,15 @@
                 asyncId: "{{ standbyCgId }}"
 
             - set_fact:
-                Step_3_7_Completed: True
+                Step_3_9_Completed: True
 
-            # End Step_3_7
+            # End Step_3_9
 
           # End block
-          when: Step_3_7_Execute
+          when: Step_3_9_Execute
 
         - block:
-            - name: Step_3_8 - Enable DR Star
+            - name: Step_3_10 - Enable DR Star
               debug:
                 msg:
                   params:
@@ -1432,12 +1447,12 @@
                 drStarName: "{{ drStarCgName }}"
 
             - set_fact:
-                Step_3_8_Completed: True
+                Step_3_10_Completed: True
 
-            # End Step_3_8
+            # End Step_3_10
 
           # End block
-          when: Step_3_8_Execute
+          when: Step_3_10_Execute
 
         - block:
             - name: Step_4_0 - Create LUN Group for DR Test Host
@@ -1670,16 +1685,19 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunsInTier }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
               when: primaryLunsInTier|length > 0
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
@@ -1719,11 +1737,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
@@ -1763,11 +1783,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 tierName: "{{ class2 }}"
 
             - set_fact:
@@ -1993,6 +2015,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
 
             - set_fact:
                 Step_5_3_Rollbacked: True
@@ -2012,6 +2035,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
 
             - set_fact:
                 Step_5_2_Rollbacked: True
@@ -2031,16 +2055,19 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
 
             - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: ["{{ item.0 }}"]
                 tierName: "{{ item.1 }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
               with_together:
                 - "{{ primaryLunsInTier }}"
                 - "{{ primaryLunsInTierClass }}"
@@ -2170,7 +2197,7 @@
           when: Step_4_0_Completed
 
         - block:
-            - name: Rollback_3_8 - Disable DR Star
+            - name: Rollback_3_10 - Disable DR Star
               debug:
                 msg:
                   params:
@@ -2189,15 +2216,15 @@
                 drStarName: "{{ drStarCgName }}"
 
             - set_fact:
-                Step_3_8_Rollbacked: True
+                Step_3_10_Rollbacked: True
 
-            # End Rollback_3_8
+            # End Rollback_3_10
 
           # End block
-          when: Step_3_8_Completed
+          when: Step_3_10_Completed
 
         - block:
-            - name: Rollback_3_7 - Delete DR Star
+            - name: Rollback_3_9 - Delete DR Star
               debug:
                 msg:
                   params:
@@ -2216,16 +2243,16 @@
                 drStarName: "{{ drStarCgNameDefault }}"
 
             - set_fact:
-                Step_3_7_Rollbacked: True
+                Step_3_9_Rollbacked: True
 
-            # End Rollback_3_7
+            # End Rollback_3_9
 
           # End block
-          when: Step_3_7_Completed
+          when: Step_3_9_Completed
 
 
         - block:
-            - name: Rollback_3_4 - Remove DR LUNs from LUN Group
+            - name: Rollback_3_6 - Remove DR LUNs from LUN Group
               debug:
                 msg:
                   params:
@@ -2246,15 +2273,15 @@
                 lunNames: "{{ drLunNames }}"
 
             - set_fact:
-                Step_3_4_Rollbacked: True
+                Step_3_6_Rollbacked: True
 
-            # End Rollback_3_4
+            # End Rollback_3_6
 
           # End block
-          when: Step_3_4_Completed
+          when: Step_3_6_Completed
 
         - block:
-            - name: Rollback_3_3_1 - Delete LUN Group for DR Host
+            - name: Rollback_3_5 - Delete LUN Group for DR Host
               debug:
                 msg:
                   params:
@@ -2274,15 +2301,15 @@
                 unmap: True
 
             - set_fact:
-                Step_3_3_1_Rollbacked: True
+                Step_3_5_Rollbacked: True
 
-            # End Rollback_3_4
+            # End Rollback_3_5
 
           # End block
-          when: Step_3_3_1_Completed
+          when: Step_3_5_Completed
 
         - block:
-            - name: Rollback_3_1_1 - Remove DR LUNs from Protection Group
+            - name: Rollback_3_2 - Remove DR LUNs from Protection Group
               debug:
                 msg:
                   params:
@@ -2303,15 +2330,15 @@
                 lunNames: "{{ drLunNames }}"
 
             - set_fact:
-                Step_3_1_1_Rollbacked: True
+                Step_3_2_Rollbacked: True
 
-            # End Rollback_3_1_1
+            # End Rollback_3_2
 
           # End block
-          when: Step_3_1_1_Completed
+          when: Step_3_2_Completed
 
         - block:
-            - name: Rollback_2_3 - Remove Metro LUNs from LUN Group
+            - name: Rollback_2_5 - Remove Metro LUNs from LUN Group
               debug:
                 msg:
                   params:
@@ -2332,15 +2359,15 @@
                 lunNames: "{{ metroLunNames }}"
 
             - set_fact:
-                Step_2_3_Rollbacked: True
+                Step_2_5_Rollbacked: True
 
-            # End Rollback_2_3
+            # End Rollback_2_5
 
           # End block
-          when: Step_2_3_Completed
+          when: Step_2_5_Completed
 
         - block:
-            - name: Rollback_2_3_0 - Delete LUN Group for Metro Host
+            - name: Rollback_2_4 - Delete LUN Group for Metro Host
               debug:
                 msg:
                   params:
@@ -2360,16 +2387,16 @@
                 unmap: True
 
             - set_fact:
-                Step_2_3_Rollbacked: True
+                Step_2_4_Rollbacked: True
 
-            # End Rollback_2_3_0
+            # End Rollback_2_4
 
           # End block
-          when: Step_2_3_0_Completed
+          when: Step_2_4_Completed
 
 
         - block:
-            - name: Rollback_2_1_1 - Remove Metro LUNs from Protection Group
+            - name: Rollback_2_2 - Remove Metro LUNs from Protection Group
               debug:
                 msg:
                   params:
@@ -2391,15 +2418,15 @@
                 lunNames: "{{ metroLunNames }}"
 
             - set_fact:
-                Step_2_1_1_Rollbacked: True
+                Step_2_2_Rollbacked: True
 
-            # End Rollback_2_1_1
+            # End Rollback_2_2
 
           # End block
-          when: Step_2_1_1_Completed
+          when: Step_2_2_Completed
 
         - block:
-            - name: Rollback_1_1_3 - Remove Primary LUNs from LUN Group
+            - name: Rollback_1_4 - Remove Primary LUNs from LUN Group
               debug:
                 msg:
                   params:
@@ -2421,13 +2448,13 @@
                 lgName: "{{ primaryLg00Name }}"
                 lunNames: "{{ primaryLunNames }}"
 
-            # End Rollback_1_1_3
+            # End Rollback_1_4
 
           # End block
-          when: Step_1_1_3_Completed
+          when: Step_1_4_Completed
 
         - block:
-            - name: Rollback_1_1_2 - Remove Primary LUNs from Protection Group
+            - name: Rollback_1_3 - Remove Primary LUNs from Protection Group
               debug:
                 msg:
                   params:
@@ -2448,15 +2475,15 @@
                 lunNames: "{{ primaryLunNames }}"
 
             - set_fact:
-                Step_1_1_2_Rollbacked: True
+                Step_1_3_Rollbacked: True
 
-            # End Rollback_1_1_2
+            # End Rollback_1_3
 
           # End block
-          when: Step_1_1_2_Completed
+          when: Step_1_3_Completed
 
         - block:
-            - name: Rollback_1_1_1 - Modify Selected LUNs
+            - name: Rollback_1_2 - Modify Selected LUNs
               debug:
                 msg:
                   params:
@@ -2470,17 +2497,18 @@
               vars:
                 volumeNames: "{{ selectedLunNamesNew }}"
                 newVolumeNames: "{{ selectedLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
 
             - set_fact:
-                Step_1_1_1_Rollbacked: True
+                Step_1_2_Rollbacked: True
 
-            # End Rollback_1_1_1
+            # End Rollback_1_2
 
           # End block
-          when: Step_1_1_1_Completed
+          when: Step_1_2_Completed
 
         - block:
-            - name: Rollback_3_6 - Remove Standby DR Pairs from Standby Replication CG
+            - name: Rollback_3_8 - Remove Standby DR Pairs from Standby Replication CG
               debug:
                 msg:
                   params:
@@ -2504,16 +2532,16 @@
                 remoteLunIds: "{{ drLunIds }}"
 
             - set_fact:
-                Step_3_6_Rollbacked: True
-                Step_3_3_Rollbacked: True
+                Step_3_8_Rollbacked: True
+                Step_3_4_Rollbacked: True
 
-            # End Rollback_3_6
+            # End Rollback_3_8
 
           # End block
-          when: Step_3_6_Completed
+          when: Step_3_8_Completed
 
         - block:
-            - name: Rollback_3_5 - Remove DR Pairs from Replication CG
+            - name: Rollback_3_7 - Remove DR Pairs from Replication CG
               debug:
                 msg:
                   params:
@@ -2537,17 +2565,17 @@
                 remoteLunIds: "{{ drLunIds }}"
 
             - set_fact:
-                Step_3_5_Rollbacked: True
-                Step_3_2_Rollbacked: True
+                Step_3_7_Rollbacked: True
+                Step_3_3_Rollbacked: True
 
 
-            # End Rollback_3_5
+            # End Rollback_3_7
 
           # End block
-          when: Step_3_5_Completed
+          when: Step_3_7_Completed
 
         - block:
-            - name: Rollback_3_3 - Delete Standby DR Pairs
+            - name: Rollback_3_4 - Delete Standby DR Pairs
               debug:
                 msg:
                   params:
@@ -2571,17 +2599,17 @@
                 remoteSn: "{{ drDeviceSn }}"
 
             - set_fact:
-                Step_3_3_Rollbacked: True
+                Step_3_4_Rollbacked: True
 
-            # End Rollback_3_3
+            # End Rollback_3_4
 
           # End block
           when:
-            - Step_3_3_Completed
-            - Step_3_3_Rollbacked|bool == False
+            - Step_3_4_Completed
+            - Step_3_4_Rollbacked|bool == False
 
         - block:
-            - name: Rollback_3_2 - Delete DR Pairs
+            - name: Rollback_3_3 - Delete DR Pairs
               debug:
                 msg:
                   params:
@@ -2605,14 +2633,14 @@
                 remoteSn: "{{ drDeviceSn }}"
 
             - set_fact:
-                Step_3_2_Rollbacked: True
+                Step_3_3_Rollbacked: True
 
-            # End Rollback_3_2
+            # End Rollback_3_3
 
           # End block
           when:
-            - Step_3_2_Completed
-            - Step_3_2_Rollbacked|bool == False
+            - Step_3_3_Completed
+            - Step_3_3_Rollbacked|bool == False
 
         - block:
             - name: Rollback_3_1 - Delete DR LUNs
@@ -2642,7 +2670,7 @@
           when: Step_3_1_Completed
 
         - block:
-            - name: Rollback_2_4 - Remove Metro Pairs from HyperMetro CG
+            - name: Rollback_2_6 - Remove Metro Pairs from HyperMetro CG
               debug:
                 msg:
                   params:
@@ -2666,16 +2694,15 @@
                 remoteLunIds: "{{ metroLunIds }}"
 
             - set_fact:
-                Step_2_4_Rollbacked: True
-                Step_2_2_Rollbacked: True
+                Step_2_6_Rollbacked: True
 
-            # End Rollback_2_4
+            # End Rollback_2_6
 
           # End block
-          when: Step_2_4_Completed
+          when: Step_2_6_Completed
 
         - block:
-            - name: Rollback_2_2 - Delete Metro Pairs
+            - name: Rollback_2_3 - Delete Metro Pairs
               debug:
                 msg:
                   params:
@@ -2699,14 +2726,13 @@
                 remoteSn: "{{ metroDeviceSn }}"
 
             - set_fact:
-                Step_2_2_Rollbacked: True
+                Step_2_3_Rollbacked: True
 
-            # End Rollback_2_2
+            # End Rollback_2_3
 
           # End block
           when:
-            - Step_2_2_Completed
-            - Step_2_2_Rollbacked|bool == False
+            - Step_2_3_Completed
 
         - block:
             - name: Rollback_2_1 - Delete Metro LUNs
@@ -2736,7 +2762,7 @@
           when: Step_2_1_Completed
 
         - block:
-            - name: Rollback_1_2 - Enable DR Star
+            - name: Rollback_1_5 - Enable DR Star
               debug:
                 msg:
                   params:
@@ -2755,12 +2781,12 @@
                 drStarName: "{{ drStarCgName }}"
 
             - set_fact:
-                Step_1_2_Rollbacked: True
+                Step_1_5_Rollbacked: True
 
             # End Rollback_1_2
 
           # End block
-          when: Step_1_2_Completed
+          when: Step_1_5_Completed
 
         - block:
             - name: Rollback_1_1 - Delete Primary LUNs
@@ -2896,7 +2922,7 @@
           failed_when: Step_1_1_Completed|bool == False
           when: Step_1_1_Execute
 
-        - name: Result_1_1_1 - Modify Selected LUNs
+        - name: Result_1_2 - Modify Selected LUNs
           debug:
             msg:
               params:
@@ -2906,12 +2932,12 @@
                     old: "{{ selectedLunNamesNew }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_1_1_1_Completed }}"
-                rollbacked: "{{ Step_1_1_1_Rollbacked }}"
-          failed_when: Step_1_1_1_Completed|bool == False
-          when: Step_1_1_1_Execute
+                succeeded: "{{ Step_1_2_Completed }}"
+                rollbacked: "{{ Step_1_2_Rollbacked }}"
+          failed_when: Step_1_2_Completed|bool == False
+          when: Step_1_2_Execute
 
-        - name: Result_1_1_2 - Add Primary LUNs to Protection Group
+        - name: Result_1_3 - Add Primary LUNs to Protection Group
           debug:
             msg:
               params:
@@ -2920,12 +2946,12 @@
                   pgName: "{{ primaryPgName }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_1_1_2_Completed }}"
-                rollbacked: "{{ Step_1_1_2_Rollbacked }}"
-          failed_when: Step_1_1_2_Completed|bool == False
-          when: Step_1_1_2_Execute
+                succeeded: "{{ Step_1_3_Completed }}"
+                rollbacked: "{{ Step_1_3_Rollbacked }}"
+          failed_when: Step_1_3_Completed|bool == False
+          when: Step_1_3_Execute
 
-        - name: Result_1_1_3 - Add Primary LUNs to LUN Group
+        - name: Result_1_4 - Add Primary LUNs to LUN Group
           debug:
             msg:
               params:
@@ -2938,22 +2964,22 @@
                   startScsiId: "{{ nextScsiId }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_1_1_3_Completed }}"
-                rollbacked: "{{ Step_1_1_3_Rollbacked }}"
-          failed_when: Step_1_1_3_Completed|bool == False
-          when: Step_1_1_3_Execute
+                succeeded: "{{ Step_1_4_Completed }}"
+                rollbacked: "{{ Step_1_4_Rollbacked }}"
+          failed_when: Step_1_4_Completed|bool == False
+          when: Step_1_4_Execute
 
-        - name: Result_1_3 - Disable DR Star
+        - name: Result_1_5 - Disable DR Star
           debug:
             msg:
               params:
                 drStarName: "{{ drStarCgName }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_1_2_Completed }}"
-                rollbacked: "{{ Step_1_2_Rollbacked }}"
-          failed_when: Step_1_2_Completed|bool == False
-          when: Step_1_2_Execute
+                succeeded: "{{ Step_1_5_Completed }}"
+                rollbacked: "{{ Step_1_5_Rollbacked }}"
+          failed_when: Step_1_5_Completed|bool == False
+          when: Step_1_5_Execute
 
         - name: Result_2_1 - Create Metro LUNs
           debug:
@@ -2971,7 +2997,7 @@
           failed_when: Step_2_1_Completed|bool == False
           when: Step_2_1_Execute
 
-        - name: Result_2_1_1 - Add Metro LUNs to Protection Group
+        - name: Result_2_2 - Add Metro LUNs to Protection Group
           debug:
             msg:
               params:
@@ -2981,12 +3007,12 @@
                   pgName: "{{ primaryPgName }}"
                 device: "{{ metroDeviceName }}"
               result:
-                succeeded: "{{ Step_2_1_1_Completed }}"
-                rollbacked: "{{ Step_2_1_1_Rollbacked }}"
-          failed_when: Step_2_1_1_Completed|bool == False
-          when: Step_2_1_1_Execute
+                succeeded: "{{ Step_2_2_Completed }}"
+                rollbacked: "{{ Step_2_2_Rollbacked }}"
+          failed_when: Step_2_2_Completed|bool == False
+          when: Step_2_2_Execute
 
-        - name: Result_2_2 - Create Metro Pairs
+        - name: Result_2_3 - Create Metro Pairs
           debug:
             msg:
               params:
@@ -2996,12 +3022,12 @@
                   remoteSn: "{{ metroDeviceSn }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_2_2_Completed }}"
-                rollbacked: "{{ Step_2_2_Rollbacked }}"
-          failed_when: Step_2_2_Completed|bool == False
-          when: Step_2_2_Execute
+                succeeded: "{{ Step_2_3_Completed }}"
+                rollbacked: "{{ Step_2_3_Rollbacked }}"
+          failed_when: Step_2_3_Completed|bool == False
+          when: Step_2_3_Execute
 
-        - name: Result_2_3_0 - Create LUN Group for Metro Host
+        - name: Result_2_4 - Create LUN Group for Metro Host
           debug:
             msg:
               params:
@@ -3010,12 +3036,12 @@
                 desc: "{{ primaryLg00Desc }}"
                 device: "{{ metroDeviceName }}"
               result:
-                succeeded: "{{ Step_2_3_0_Completed }}"
-                rollbacked: "{{ Step_2_3_0_Rollbacked }}"
-          failed_when: Step_2_3_0_Completed|bool == False
-          when: Step_2_3_0_Execute
+                succeeded: "{{ Step_2_4_Completed }}"
+                rollbacked: "{{ Step_2_4_Rollbacked }}"
+          failed_when: Step_2_4_Completed|bool == False
+          when: Step_2_4_Execute
 
-        - name: Result_2_3 - Add Metro LUNs to LUN Group
+        - name: Result_2_5 - Add Metro LUNs to LUN Group
           debug:
             msg:
               params:
@@ -3024,12 +3050,12 @@
                 startScsiId: "{{ nextScsiId }}"
                 device: "{{ metroDeviceName }}"
               result:
-                succeeded: "{{ Step_2_3_Completed }}"
-                rollbacked: "{{ Step_2_3_Rollbacked }}"
-          failed_when: Step_2_3_Completed|bool == False
-          when: Step_2_3_Execute
+                succeeded: "{{ Step_2_5_Completed }}"
+                rollbacked: "{{ Step_2_5_Rollbacked }}"
+          failed_when: Step_2_5_Completed|bool == False
+          when: Step_2_5_Execute
 
-        - name: Result_2_4 - Add Metro Pairs to HyperMetro CG
+        - name: Result_2_6 - Add Metro Pairs to HyperMetro CG
           debug:
             msg:
               params:
@@ -3039,10 +3065,10 @@
                 cgName: "{{ metroCgName }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_2_4_Completed }}"
-                rollbacked: "{{ Step_2_4_Rollbacked }}"
-          failed_when: Step_2_4_Completed|bool == False
-          when: Step_2_4_Execute
+                succeeded: "{{ Step_2_6_Completed }}"
+                rollbacked: "{{ Step_2_6_Rollbacked }}"
+          failed_when: Step_2_6_Completed|bool == False
+          when: Step_2_6_Execute
 
         - name: Result_3_1 - Create DR LUNs
           debug:
@@ -3060,7 +3086,7 @@
           failed_when: Step_3_1_Completed|bool == False
           when: Step_3_1_Execute
 
-        - name: Result_3_1_1 - Add DR LUNs to Protection Group
+        - name: Result_3_2 - Add DR LUNs to Protection Group
           debug:
             msg:
               params:
@@ -3069,12 +3095,12 @@
                 pgName: "{{ drPgName }}"
                 device: "{{ drDeviceName }}"
               result:
-                succeeded: "{{ Step_3_1_1_Completed }}"
-                rollbacked: "{{ Step_3_1_1_Rollbacked }}"
-          failed_when: Step_3_1_1_Completed|bool == False
-          when: Step_3_1_1_Execute
+                succeeded: "{{ Step_3_2_Completed }}"
+                rollbacked: "{{ Step_3_2_Rollbacked }}"
+          failed_when: Step_3_2_Completed|bool == False
+          when: Step_3_2_Execute
 
-        - name: Result_3_2 - Create DR Pairs
+        - name: Result_3_3 - Create DR Pairs
           debug:
             msg:
               params:
@@ -3085,12 +3111,12 @@
                   mode: "{{ drCgModeEnum }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_3_2_Completed }}"
-                rollbacked: "{{ Step_3_2_Rollbacked }}"
-          failed_when: Step_3_2_Completed|bool == False
-          when: Step_3_2_Execute
+                succeeded: "{{ Step_3_3_Completed }}"
+                rollbacked: "{{ Step_3_3_Rollbacked }}"
+          failed_when: Step_3_3_Completed|bool == False
+          when: Step_3_3_Execute
 
-        - name: Result_3_3 - Create Standby DR Pairs
+        - name: Result_3_4 - Create Standby DR Pairs
           debug:
             msg:
               params:
@@ -3102,13 +3128,13 @@
                   standby: True
                 device: "{{ metroDeviceName }}"
               result:
-                succeeded: "{{ Step_3_3_Completed }}"
-                rollbacked: "{{ Step_3_3_Rollbacked }}"
-          failed_when: Step_3_3_Completed|bool == False
-          when: Step_3_3_Execute
+                succeeded: "{{ Step_3_4_Completed }}"
+                rollbacked: "{{ Step_3_4_Rollbacked }}"
+          failed_when: Step_3_4_Completed|bool == False
+          when: Step_3_4_Execute
 
 
-        - name: Result_3_3_1 - Create LUN Group for DR Host
+        - name: Result_3_5 - Create LUN Group for DR Host
           debug:
             msg:
               params:
@@ -3117,12 +3143,12 @@
                 desc: "{{ drLg00Desc }}"
                 device: "{{ drDeviceName }}"
               result:
-                succeeded: "{{ Step_3_3_1_Completed }}"
-                rollbacked: "{{ Step_3_3_1_Rollbacked }}"
-          failed_when: Step_3_3_1_Completed|bool == False
-          when: Step_3_3_1_Execute
+                succeeded: "{{ Step_3_5_Completed }}"
+                rollbacked: "{{ Step_3_5_Rollbacked }}"
+          failed_when: Step_3_5_Completed|bool == False
+          when: Step_3_5_Execute
 
-        - name: Result_3_4 - Add DR LUNs to LUN Group
+        - name: Result_3_6 - Add DR LUNs to LUN Group
           debug:
             msg:
               params:
@@ -3131,12 +3157,12 @@
                 startScsiId: "{{ nextScsiId }}"
                 device: "{{ drDeviceName }}"
               result:
-                succeeded: "{{ Step_3_4_Completed }}"
-                rollbacked: "{{ Step_3_4_Rollbacked }}"
-          failed_when: Step_3_4_Completed|bool == False
-          when: Step_3_4_Execute
+                succeeded: "{{ Step_3_6_Completed }}"
+                rollbacked: "{{ Step_3_6_Rollbacked }}"
+          failed_when: Step_3_6_Completed|bool == False
+          when: Step_3_6_Execute
 
-        - name: Result_3_5 - Add DR Pairs to Replication CG
+        - name: Result_3_7 - Add DR Pairs to Replication CG
           debug:
             msg:
               params:
@@ -3146,12 +3172,12 @@
                 cgName: "{{ drCgName }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_3_5_Completed }}"
-                rollbacked: "{{ Step_3_5_Rollbacked }}"
-          failed_when: Step_3_5_Completed|bool == False
-          when: Step_3_5_Execute
+                succeeded: "{{ Step_3_7_Completed }}"
+                rollbacked: "{{ Step_3_7_Rollbacked }}"
+          failed_when: Step_3_7_Completed|bool == False
+          when: Step_3_7_Execute
 
-        - name: Result_3_6 - Add Standby DR Pairs to Standby Replication CG
+        - name: Result_3_8 - Add Standby DR Pairs to Standby Replication CG
           debug:
             msg:
               params:
@@ -3162,13 +3188,13 @@
                 cgName: "{{ standbyCgName }}"
                 device: "{{ metroDeviceName }}"
               result:
-                succeeded: "{{ Step_3_6_Completed }}"
-                rollbacked: "{{ Step_3_6_Rollbacked }}"
-          failed_when: Step_3_6_Completed|bool == False
-          when: Step_3_6_Execute
+                succeeded: "{{ Step_3_8_Completed }}"
+                rollbacked: "{{ Step_3_8_Rollbacked }}"
+          failed_when: Step_3_8_Completed|bool == False
+          when: Step_3_8_Execute
 
 
-        - name: Result_3_7 - Create DR Star
+        - name: Result_3_9 - Create DR Star
           debug:
             msg:
               params:
@@ -3180,22 +3206,22 @@
                   asyncId: "{{ standbyCgId }}"
                 device: "{{ metroDeviceName }}"
               result:
-                succeeded: "{{ Step_3_7_Completed }}"
-                rollbacked: "{{ Step_3_7_Rollbacked }}"
-          failed_when: Step_3_7_Completed|bool == False
-          when: Step_3_7_Execute
+                succeeded: "{{ Step_3_9_Completed }}"
+                rollbacked: "{{ Step_3_9_Rollbacked }}"
+          failed_when: Step_3_9_Completed|bool == False
+          when: Step_3_9_Execute
 
-        - name: Result_3_8 - Enable DR Star
+        - name: Result_3_10 - Enable DR Star
           debug:
             msg:
               params:
                 drStarName: "{{ drStarCgName }}"
                 device: "{{ primaryDeviceName }}"
               result:
-                succeeded: "{{ Step_3_8_Completed }}"
-                rollbacked: "{{ Step_3_8_Rollbacked }}"
-          failed_when: Step_3_8_Completed|bool == False
-          when: Step_3_8_Execute
+                succeeded: "{{ Step_3_10_Completed }}"
+                rollbacked: "{{ Step_3_10_Rollbacked }}"
+          failed_when: Step_3_10_Completed|bool == False
+          when: Step_3_10_Execute
 
         - name: Result_4_0 - Create LUN Group for DR Test Host
           debug:

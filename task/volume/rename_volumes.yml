@@ -6,14 +6,22 @@
 #   volumeIds:       a list of volume IDs
 #   volumePrefix:    new volume name prefix
 #   startSuffix:     start suffix, default 0
+#   filterDeviceId:  query volume filter parameters
 
 - block:
     - set_fact:
         volumeIds: []
+        filterByStorage: ""
+
+    - set_fact:
+        filterByStorage: "&storage_id={{filterDeviceId}}"
+      when:
+        - filterDeviceId is defined
+        - filterDeviceId is not none
 
     - name: Query Volumes by Name
       uri:
-        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}{{filterByStorage}}"
         method: GET
         validate_certs: no
         headers:

@@ -42,7 +42,7 @@
     valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
   - name: Session_Name
     required: true
-    description: Input Session Name used for CGs (max 13 chars, '_' not permitted)
+    description: Input Session Name used for CGs (max 16 chars, '_' not permitted)
   - enforced: true
     name: Enable_HyperMetro
     value: 'N'

@@ -46,18 +46,25 @@
   - enforced: true
     name: Source_LUN_Group
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=lunGroupName&valueAttr=lunGroupName&range=[0-100]&obj=hostgroup&filter=NAME::${option.Source_Cluster.value}
-    description: Select a LUN Group to list the snapshot CGs on it <BR><BR><h2>Select Snapshot CG</h2>
+    description: Select a LUN Group to list the snapshot CGs on it
+  - enforced: true
+    name: Source_Enable_HyperMetro
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:0:1&valueAttr=DESCRIPTION:0:0:1&filter=NAME::${option.Source_LUN_Group.value}
+  - enforced: true
+    name: Source_Protection_Level
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/lungroup?range=[0-100]&nameAttr=DESCRIPTION:0:1:2&valueAttr=DESCRIPTION:0:1:2&filter=NAME::${option.Source_LUN_Group.value}
+    description: <BR><BR><h2>Select Snapshot CG</h2>
   - enforced: true
     required: true
     name: Snapshot_CG
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/snapshot_consistency_group?nameAttr=NAME&valueAttr=NAME&nameDefault=&valueDefault=&range=[0-4096]&obj=protectgroup&objIdAttr=protectGroupId&filter=protectGroupName::${option.Source_Protection_Group.value}
   - enforced: true
     required: true
-    name: Target_Cluster
-    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=hostGroupName&valueAttr=hostGroupName&range=[0-100]&obj=lungroup&filter=NAME::${option.Target_LUN_Group.value}
+    name: Target_Host
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/mapping?nameAttr=hostName&valueAttr=hostName&range=[0-100]&obj=lungroup&filter=NAME::${option.Target_LUN_Group.value}
   - enforced: true
     name: Target_LUN_Group
-    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/split/snapshot_consistency_group?valueAttr=NAME&valueSplit=_SNAP_&match=LG&filter=NAME::${option.Snapshot_CG.value}
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/associate/lungroup?obj=snapshot_consistency_group&filter=NAME::${option.Snapshot_CG.value}&valueAttr=NAME
   - enforced: true
     name: Snapshot_CG_Status
     valuesUrl: http://localhost:26336/rest/data/v1/enum/SNAPCG?nameAttr=desc&valueAttr=enum&filter={"enum":${option.Snapshot_CG_Status_Enum.value}}
@@ -89,6 +96,12 @@
   - enforced: true
     name: Snapshot_CG_Status_Enum
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/snapshot_consistency_group?nameAttr=RUNNINGSTATUS&valueAttr=RUNNINGSTATUS&filter=NAME::${option.Snapshot_CG.value}
+  - enforced: true
+    name: Source_Metro_Domain
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/hypermetro_consistentgroup?nameAttr=DOMAINNAME&valueAttr=DOMAINID&range=[0-100]&filter=localPgName::${option.Source_Protection_Group.value}
+  - enforced: true
+    name: Source_Metro_Storage
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/detail/HyperMetroDomain?ID=${option.Source_Metro_Domain.value}&nameAttr=REMOTEDEVICES:11&nameSplit="&valueAttr=REMOTEDEVICES:7&valueSplit="
   scheduleEnabled: true
   sequence:
     commands:
@@ -106,13 +119,18 @@
           Source_Cluster: ${option.Source_Cluster}
           Source_LUN_Group: ${option.Source_LUN_Group}
           Source_Protection_Group: ${option.Source_Protection_Group}
+          Source_Enable_HyperMetro: ${option.Source_Enable_HyperMetro}
+          Source_Protection_Level: ${option.Source_Protection_Level}
+
+          Source_Metro_Domain: ${option.Source_Metro_Domain}
+          Source_Metro_Storage: ${option.Source_Metro_Storage}
 
           WBE_CODE: ${option.WBE_CODE}
           TICKET_NUMBER: ${option.TICKET_NUMBER}
           Country: ${option.Country}
           Job_User: ${job.user.name}
 
-          Target_Cluster: ${option.Target_Cluster}
+          Target_Host: ${option.Target_Host}
           Target_LUN_Group: ${option.Target_LUN_Group}
           Storage: ${option.Storage}
           Storage_Room: ${option.Storage_Room}

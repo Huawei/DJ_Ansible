@@ -126,15 +126,15 @@
 
     - set_fact:
         lunNameTemplate: "%s%0{{DEFAULT.suffixDigits}}d_%s"
-        primaryLunPrefix: "{{primaryHostName}}_{{protectType}}{{'S' if metroEnable == 'Y' else 'N'}}"
-        primaryLunSuffix: "{{ class1 }}_00_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'0' if replicaType == '00' else protectType}}1"
+        primaryLunPrefix: "{{primaryHostName}}_{{protectType}}{{'M' if metroEnable == 'Y' else 'N'}}"
+        primaryLunSuffix: "{{ class1 }}_F0_{{replicaType}}_{{'00' if replicaType == '00' else primaryRoom}}_{{'0000000000000000' if replicaType == '00' else sessionName}}_{{'00' if replicaType == '00' else protectType + '1'}}"
         metroLunPrefix: "{{metroHostName}}_{{protectType}}M"
         drLunPrefix: "{{drHostName}}_{{protectType}}N"
-        drLunSuffix: "{{ class2 }}_00_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}2"
+        drLunSuffix: "{{ class2 }}_F0_{{replicaType}}_{{primaryRoom}}_{{sessionName}}_{{protectType}}1"
         drTestLunPrefix: "{{drTestHostName}}_{{protectType}}N"
-        drTestLunSuffix: "{{ class3 }}_00_00_{{primaryRoom}}_{{sessionName}}_{{protectType}}3"
-        drTestCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
-        drStarCgNameDefault: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}0"
+        drTestLunSuffix: "{{ class3 }}_F0_DR_{{drRoom}}_{{sessionName}}_{{protectType}}1"
+        drTestCgNameDefault: "DR_{{ drRoom }}_{{ sessionName }}_{{ protectType }}1"
+        drStarCgNameDefault: "H3_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}1"
 
     - set_fact:
         drTestCgName: "{{ DR_Test_CG if (DR_Test_CG is not none and DR_Test_CG != DEFAULT.noneValue) else drTestCgNameDefault }}"
@@ -145,6 +145,7 @@
         Precheck_2_Execute: "{{ (metroEnable == 'Y') }}"
         Precheck_3_Execute: "{{ (protectLevel|int >= 2) }}"
         Precheck_4_Execute: "{{ (protectLevel|int == 3) }}"
+        Precheck_5_Execute: True
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
@@ -381,6 +382,17 @@
         # End Precheck_4
       when: Precheck_4_Execute
 
+    - block:
+        - name: Precheck_5 - Check DJ Storages
+          debug:
+            msg:
+              primaryDeviceSn: "{{ primaryDeviceSn }}"
+              metroDeviceSn: "{{ metroDeviceSn }}"
+              drDeviceSn: "{{ drDeviceSn }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_storages.yml"
+
+      when: Precheck_5_Execute
 
     - block:
 
@@ -1208,11 +1220,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
@@ -1252,11 +1266,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
                 tierName: "{{ class1 }}"
 
             - set_fact:
@@ -1296,11 +1312,13 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 waitExist: True
 
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
               vars:
                 volumeNames: "{{ drLunNames }}"
+                filterDeviceId: "{{ drDeviceId }}"
                 tierName: "{{ class2 }}"
 
             - set_fact:
@@ -1515,6 +1533,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ metroLunNames }}"
+                filterDeviceId: "{{ metroDeviceId }}"
 
             - set_fact:
                 Step_5_2_Rollbacked: True
@@ -1534,6 +1553,7 @@
             - import_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
               vars:
                 volumeNames: "{{ primaryLunNames }}"
+                filterDeviceId: "{{ primaryDeviceId }}"
 
             - set_fact:
                 Step_5_1_Rollbacked: True

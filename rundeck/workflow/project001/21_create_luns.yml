@@ -45,7 +45,7 @@
             lunNum: "{{ LUN_Num|int if (LUN_Num is not none) else 0 }}"
             lunDesc: "{{ LUN_Description|string if (LUN_Description is not none) else '' }}"
             startSuffix: "{{ Start_Suffix if (Start_Suffix is not none) else 0 }}"
-            lunNameTemplate: "%s_NN%0{{DEFAULT.suffixDigits}}d_{{Class}}_00_00_00_0000000000000000_01"
+            lunNameTemplate: "%s_NN%0{{DEFAULT.suffixDigits}}d_{{Class}}_F0_00_00_0000000000000000_00"
             lunNames: []
             lunDescs: []
             lunSizes: []

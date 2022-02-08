@@ -58,8 +58,10 @@
         drTestHostNames: []
 
     - set_fact:
-        drHostNames: "{{ drHostNames + [item[:-6]] }}"
-        drTestHostNames: "{{ drTestHostNames + [item[:-7] + '3'] }}"
+        drHostNames: "{{ drHostNames + [hostNamePrefix + '_2'] }}"
+        drTestHostNames: "{{ drTestHostNames + [hostNamePrefix + '_3'] }}"
+      vars:
+        hostNamePrefix: "{{'_'.join(item.split('_')[:3])}}"
       with_items: "{{ drLunNames }}"
 
     - set_fact:

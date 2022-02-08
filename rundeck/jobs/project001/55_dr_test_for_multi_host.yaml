@@ -41,7 +41,7 @@
     label: DR Hosts
     multivalued: true
     name: Select_DR_Host
-    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_2"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}
+    valuesUrl: http://localhost:26336/rest/data/v1/search/storagehost?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&valueUnique=true&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.Host_Search.value}"}},{"logOp":"and","simple":{"name":"name","operator":"end%20with","value":"_2"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}},{"logOp":"and","simple":{"name":"storageDeviceId","operator":"equal","value":"${option.DR_Storage_ID.value}"}}]}
   - name: Designate_Class_3
     valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
   - delimiter: ','
@@ -50,6 +50,10 @@
     name: Check_Result_1
     required: true
     valuesUrl: http://localhost:26336/rest/data/v1/echo?host=Move%20WWNs%20from%20DR%20Hosts%20"${option.Select_DR_Host.value}"%20to%20DR%20Test%20Hosts%20"${option.Select_DR_Host.value}"
+    description: Select to confirm the result <BR><BR><h2>Additional Info</h2>
+  - enforced: true
+    name: DR_Storage_ID
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=id&valueAttr=id&condition={"constraint":[{"logOp":"and","simple":{"name":"sn","operator":"equal","value":"${option.DR_Storage.value}"}}]}
   scheduleEnabled: true
   sequence:
     commands:
@@ -69,6 +73,7 @@
           DR_Storage: ${option.DR_Storage}
           DR_Storage_Room: ${option.DR_Storage_Room}
           Select_DR_Host: ${option.Select_DR_Host}
+          Designate_Class_3: ${option.Designate_Class_3}
           Check_Result_1: ${option.Check_Result_1}
         ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/55_dr_test_for_multi_host.yml
       nodeStep: false

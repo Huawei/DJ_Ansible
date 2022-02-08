@@ -92,6 +92,8 @@
         drCgName: "{{ DR_CG }}"
         drCgId: "{{ DR_CG_ID }}"
         drDeviceSn: "{{ DR_Storage|string }}"
+        drStorageRoom: "{{ DR_Storage_Room }}"
+        drTestCgName: "{{ DR_Test_CG }}"
         drClusterName: "{{ DR_Cluster }}"
         drClusterNetName: "{{ DR_Cluster_Name }}"
         drClusterDesc: "{{ DR_Cluster_Description if (DR_Cluster_Description != DEFAULT.noneValue) else '' }}"
@@ -106,17 +108,12 @@
         standbyCgId: "{{ Standby_CG_ID }}"
 
     - set_fact:
-        protectType: "{{ REPTYPE[metroEnable+protectLevel|string]['enum'] }}"              # See ../../config/project001.yml
-        replicaType: "{{ REPTYPE[metroEnable+protectLevel|string]['type'] }}"              # See ../../config/project001.yml
-
-    - set_fact:
         primaryClusterNetNameNew: "{{ Modify_Cluster_Name if (Modify_Cluster_Name is not none) else primaryClusterNetName }}"
         sessionNameNew: "{{ Modify_Session_Name if( Modify_Session_Name is not none ) else sessionName }}"
         class1New: "{{ Modify_Class_1 if (Modify_Class_1 is not none) else class1 }}"
         class2New: "{{ Modify_Class_2 if (Modify_Class_2 is not none) else class2 }}"
         class3New: "{{ Modify_Class_3 if (Modify_Class_3 is not none) else class3 }}"
         drClusterNetNameNew: "{{ Modify_DR_Cluster_Name if (Modify_DR_Cluster_Name is not none) else drClusterNetName }}"
-        drTestCgName: "{{ replicaType }}_{{ primaryRoom }}_{{ sessionName }}_{{ protectType }}3"
 
     - set_fact:
         primaryClusterNameNew: "{{ primaryClusterName | replace(primaryClusterNetName, primaryClusterNetNameNew) }}"
@@ -348,12 +345,12 @@
               Content-Type: "application/json;charset=utf8"
               iBaseToken: "{{ deviceToken }}"
               Cookie: "session={{ deviceSession }}"
-          register: DR_TEST_CG
-          failed_when: (DR_TEST_CG.json.error.code|int != 0) or ('data' not in DR_TEST_CG.json) or (DR_TEST_CG.json.data|length != 1)
+          register: SNAPSHOT_CG
+          failed_when: (SNAPSHOT_CG.json.error.code|int != 0) or ('data' not in SNAPSHOT_CG.json) or (SNAPSHOT_CG.json.data|length != 1)
           when: drTestLunIds|length > 0
 
         - set_fact:
-            drTestCgId: "{{ DR_TEST_CG.json.data[0].ID }}"
+            drTestCgId: "{{ SNAPSHOT_CG.json.data[0].ID }}"
           when: drTestLunIds|length > 0
 
         # End Precheck_4

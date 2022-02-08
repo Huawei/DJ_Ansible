@@ -30,7 +30,10 @@
         sourceLgName: "{{ Source_LUN_Group }}"
         sourcePgName: "{{ Source_Protection_Group }}"
         osType: "{{ Target_Host.split('_')[1] }}"
-        deviceSn: "{{ Storage|string }}"
+        primaryDeviceSn: "{{ Storage|string }}"
+        metroEnable: "{{ Source_Enable_HyperMetro }}"
+        metroDeviceSn: "{{ Metro_Storage | string }}"
+        metroPgName: "{{ Metro_Protection_Group }}"
         room: "{{ Storage_Room }}"
         site: "{{ AZ[Storage_Room]['dc'] }}"
         targetHostName: "{{ Target_Host }}"
@@ -40,10 +43,8 @@
         timestamp: "{{ansible_date_time.year}}{{ansible_date_time.month}}{{ansible_date_time.day}}{{ansible_date_time.hour}}{{ansible_date_time.minute}}{{ansible_date_time.second}}"
 
     - set_fact:
-        snapCgNameNew: "{{targetLgName}}_SNAP_{{timestamp}}"
-
-    - set_fact:
         Precheck_1_Execute: True
+        Precheck_2_Execute: "{{ Operation == 'delete' }}"
 
     - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
 
@@ -53,9 +54,20 @@
           debug:
             msg:
               host: "{{ targetHostName }}"
-              device: "{{ deviceSn }}"
+              device: "{{ primaryDeviceSn }}"
+
+        - name: Login Device
+          set_fact:
+            deviceSn: "{{ primaryDeviceSn }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+        - set_fact:
+            primaryDeviceName: "{{ deviceName }}"
+            primaryDeviceHost: "{{ deviceHost }}"
+            primaryDevicePort: "{{ devicePort }}"
+            primaryDeviceToken: "{{ deviceToken }}"
+            primaryDeviceSession: "{{ deviceSession }}"
 
         - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_lgs.yml"
           vars:
@@ -81,6 +93,8 @@
             snapIds: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].ID') }}"
             snapNames: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].NAME') }}"
             snapSectors: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].USERCAPACITY') }}"
+            snapRemarks: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].DESCRIPTION') }}"
+            snapSourceLunNames: "{{ SNAPSHOTS.json.data | default([]) | json_query('[*].SOURCELUNNAME') }}"
 
         - name: Check Number of Source LUNs same as Target Snapshots
           debug:
@@ -97,7 +111,7 @@
         - set_fact:
             snapClass: []
             snapsInTier: {}
-            tierNames: "{{ checkedVolumes | json_query('[*].service_level_name') | unique }}"
+            tierNames: "{{ checkedVolumes | json_query('[*].service_level_name') | unique | select() | list }}"
 
         - set_fact:
             snapClass: "{{ snapClass + [ checkedVolumes[item.0].service_level_name ] }}"
@@ -109,119 +123,775 @@
             queryVolumesInTier: "[? service_level_name == '{{ item }}' ].id"
           with_items: "{{ tierNames }}"
 
-        # End Precheck_1
       when: Precheck_1_Execute
 
     - block:
-        - name: Step_1_1 - Remove Snapshot from Class
+        - name: Precheck_2 - Check Delete Operation
           debug:
             msg:
-              params:
-                snapsInTier: "{{snapsInTier}}"
+              device: "{{ deviceSn }}"
 
-        - include_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+        - set_fact:
+            snapSourceLunNewNames: []
+
+        - set_fact:
+            snapSourceLunNewNames: "{{ snapSourceLunNewNames + [ item|regex_replace('(?P<p1>.*_F)\\d(?P<p2>_.*)', '\\g<p1>'+fcNo+'\\g<p2>') ] }}"
           vars:
-            volumeIds: "{{ snapsInTier[tierName] }}"
-          loop: "{{ tierNames }}"
+            tmpFcNo: "{{ item|regex_search('.*_F(\\d)_.*', '\\1')|first|int - 1 }}"
+            fcNo: "{{ tmpFcNo if tmpFcNo|int > 0 else 0 }}"
+          with_items: "{{ snapSourceLunNames }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_luns.yml"
+          vars:
+            lunNames: "{{ snapSourceLunNewNames }}"
+            checkExist: False
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_snapshot_cgs_by_pg.yml"
+          vars:
+            pgName: "{{ sourcePgName }}"
+
+        - set_fact:
+            snapCgNames: "{{ checkedSnapCgs|json_query('[*].NAME')|sort }}"
+            snapCgNo: "{{ snapCgName[-1] }}"
+
+        - set_fact:
+            misalignedSnapCgNames: "{{ snapCgNames[snapCgNo|int:] }}"
+            misalignedSnapCgNewNames: [ ]
+
+        - set_fact:
+            misalignedSnapCgNewNames: "{{ misalignedSnapCgNewNames + [ item[:-1] + curSnapCgNo ] }}"
+          vars:
+            curSnapCgNo: "{{ item[-1]|int -1 }}"
+          with_items: "{{ misalignedSnapCgNames }}"
+
+        - set_fact:
+            checkedCgSnapshots: [ ]
+
+        - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_snapshots_by_cg_loop_helper.yml"
+          vars:
+            cgName: "{{ misalignedSnapCgName }}"
+          loop: "{{ misalignedSnapCgNames }}"
           loop_control:
-            loop_var: tierName
+            loop_var: misalignedSnapCgName
 
-        - name: Step_1_2 - Remove Source Snapshots from Target LUN Group
-          debug:
-            msg:
-              params:
-                luns:
-                  lunNames: "{{ snapNames }}"
-                  lgName: "{{ targetLgName }}"
+        - set_fact:
+            misalignedSnapNames: "{{ checkedCgSnapshots|json_query('[*][*].NAME')|flatten(levels=1) }}"
+            misalignedSnapIds: "{{ checkedCgSnapshots|json_query('[*][*].ID')|flatten(levels=1) }}"
+            misalignedSnapNewNames: [ ]
 
-        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_luns_from_lg.yml"
+        - set_fact:
+            misalignedSnapNewNames: "{{ misalignedSnapNewNames + [ item|regex_replace('^(?P<p1>.+_T)\\d(?P<p2>_.+_N)\\d$', '\\g<p1>'+curSnapNo+'\\g<p2>'+curSnapNo) ] }}"
           vars:
-            lgName: "{{ targetLgName }}"
-            lunNames: "{{ snapNames }}"
+            curSnapNo: "{{ item[-1]|int -1 }}"
+          with_items: "{{ misalignedSnapNames }}"
 
-        - name: Step_1_3 - Update KPI Table
-          debug:
-            msg:
-              params:
-                snapIds: "{{snapIds}}"
-
-        - include_tasks: "update_lun_kpi_table.yml"
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_host_lun_id.yml"
           vars:
-            TYPE_OF_OPERATION: "delete"
-            WBE_CODE: "{{ WBE_CODE }}"
-            TICKET_NUMBER: "{{ TICKET_NUMBER }}"
-            SYSTEM_NAME: "{{ targetHostName }}"
-            SITE: "{{ site }}"
-            ENVIRONMENT: "{{ osType }}"
-            STORAGE_CLASS: "{{ snapClass[item.0] }}"
-            CAPACITY_GB: "-{{ ( snapSectors[item.0]|int / 1024 / 1024 / 2 ) | int }}"
-            STORAGE: "{{ deviceName }}"
-            VDISK_UID: "{{ item.1 }}"
-          with_indexed_items: "{{ snapIds }}"
+            hostName: "{{ targetHostName }}"
 
-      when: Operation == 'delete'
+        - set_fact:
+            checkedSnapScsiIds: "{{ checkedLuns[targetLgName] | json_query('[*].hostLunId') }}"
+            checkedSnapNames: "{{ checkedLuns[targetLgName] | json_query('[*].lunName') }}"
+
+        - set_fact:
+            snapName2ScsiId: "{{ dict(checkedSnapNames | zip(checkedSnapScsiIds)) }}"
+            snapScsiIds: [ ]
+
+        - set_fact:
+            snapScsiIds: "{{ snapScsiIds + [ snapName2ScsiId[item] ] }}"
+          with_items: "{{ snapNames }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/check_snapshot_cgs.yml"
+          vars:
+            cgNames: [ "{{ snapCgName }}" ]
+            checkExist: True
+
+        - set_fact:
+            snapActivate: "{{ checkedSnapCgs[0]['RUNNINGSTATUS'] == SNAPCG.activated.enum }}"
+
+        # End Precheck_2
+      when: Precheck_2_Execute
 
     - block:
-        - name: "Step_2_1 - {{Operation}} snapshot CG"
+        # Begin work flow
+
+        - set_fact:
+
+            # Remove Snapshot from Class
+            Step_1_1_Execute: "{{ Operation == 'delete' }}"
+            Step_1_1_Completed: False
+            Step_1_1_Rollbacked: False
+
+            # Remove Source Snapshots from Target LUN Group
+            Step_1_2_Execute: "{{ Operation == 'delete' }}"
+            Step_1_2_Completed: False
+            Step_1_2_Rollbacked: False
+
+            # Delete snapshot CG
+            Step_1_3_Execute: "{{ Operation == 'delete' }}"
+            Step_1_3_Completed: False
+            Step_1_3_Rollbacked: False
+
+            # Modify Source LUN Name
+            Step_1_4_Execute: "{{ Operation == 'delete' }}"
+            Step_1_4_Completed: False
+            Step_1_4_Rollbacked: False
+
+            # Modify Source Metro LUN Name
+            Step_1_5_Execute: "{{ (Operation == 'delete') and (metroEnable == 'Y') }}"
+            Step_1_5_Completed: False
+            Step_1_5_Rollbacked: False
+
+            # Rename Misaligned Snapshot CGs
+            Step_1_6_Execute: "{{ (Operation == 'delete') and (misalignedSnapCgNames|length > 0) }}"
+            Step_1_6_Completed: False
+            Step_1_6_Rollbacked: False
+
+            # Rename Misaligned Snapshots
+            Step_1_7_Execute: "{{ (Operation == 'delete') and (misalignedSnapNames|length > 0) }}"
+            Step_1_7_Completed: False
+            Step_1_7_Rollbacked: False
+
+            # Update KPI Table For Delete Snapshot CG
+            Step_1_8_Execute: "{{ Operation == 'delete' }}"
+            Step_1_8_Completed: False
+            Step_1_8_Rollbacked: False
+
+            # Activate/Deactivate/Reactivate Snapshot CG
+            Step_2_1_Execute: "{{ Operation in ['deactivate', 'reactivate','activate'] }}"
+            Step_2_1_Completed: False
+            Step_2_1_Rollbacked: False
+
+            # Update QoS of Snapshots
+            Step_3_1_Execute: "{{ Operation in ['reactivate','activate'] }}"
+            Step_3_1_Completed: False
+            Step_3_1_Rollbacked: False
+
+            # Update KPI Table For Reactivate/Activate Snapshot CG
+            Step_3_2_Execute: "{{ Operation in ['reactivate','activate'] }}"
+            Step_3_2_Completed: False
+            Step_3_2_Rollbacked: False
+
+        - name: "Workflow - {{Operation}} Snapshot CG"
+          debug:
+            msg:
+              Step_1_1: "[{{Step_1_1_Execute}}] Remove Snapshot from Class"
+              Step_1_2: "[{{Step_1_2_Execute}}] Remove Source Snapshots from Target LUN Group"
+              Step_1_3: "[{{Step_1_3_Execute}}] Delete snapshot CG"
+              Step_1_4: "[{{Step_1_4_Execute}}] Modify Source LUN Name"
+              Step_1_5: "[{{Step_1_5_Execute}}] Modify Source Metro LUN Names"
+              Step_1_6: "[{{Step_1_6_Execute}}] Rename Misaligned Snapshot CGs"
+              Step_1_7: "[{{Step_1_7_Execute}}] Rename Misaligned Snapshots"
+              Step_1_8: "[{{Step_1_8_Execute}}] Update KPI Table For Delete Snapshot CG"
+
+              Step_2_1: "[{{Step_2_1_Execute}}] Activate/Deactivate/Reactivate Snapshot CG"
+
+              Step_3_1: "[{{Step_3_1_Execute}}] Update QoS of Snapshots"
+              Step_3_2: "[{{Step_3_2_Execute}}] Update KPI Table For Reactivate/Activate Snapshot CG"
+
+        - block:
+            - name: Step_1_1 - Remove Snapshot from Class
+              debug:
+                msg:
+                  params:
+                    snapsInTier: "{{snapsInTier}}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/remove_volumes_from_tier.yml"
+              vars:
+                volumeIds: "{{ snapsInTier[tierName] }}"
+              loop: "{{ tierNames }}"
+              loop_control:
+                loop_var: tierName
+
+            - set_fact:
+                Step_1_1_Completed: True
+
+          when: Step_1_1_Execute
+
+        - block:
+            - name: Step_1_2 - Remove Source Snapshots from Target LUN Group
+              debug:
+                msg:
+                  params:
+                    luns:
+                      lunNames: "{{ snapNames }}"
+                      lgName: "{{ targetLgName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/remove_luns_from_lg.yml"
+              vars:
+                lgName: "{{ targetLgName }}"
+                lunNames: "{{ snapNames }}"
+
+            - set_fact:
+                Step_1_2_Completed: True
+
+          when: Step_1_2_Execute
+
+        - block:
+            - name: Step_1_3 - Delete snapshot CG
+              debug:
+                msg:
+                  params:
+                    cgName: "{{ snapCgName }}"
+                    operation: "Delete"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/delete_snapshot_cg.yml"
+              vars:
+                cgName: "{{ snapCgName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+            - set_fact:
+                Step_1_3_Completed: True
+
+          when: Step_1_3_Execute
+
+
+        - block:
+            - name: Step_1_4 - Modify Source LUN Name
+              debug:
+                msg:
+                  params:
+                    lunNames: "{{ snapSourceLunNames }}"
+                    newLunNames: "{{ snapSourceLunNewNames }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ snapSourceLunNames[i] }}"
+                newLunName: "{{ snapSourceLunNewNames[i] }}"
+              loop: "{{ range(0, snapSourceLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_4_Completed: True
+
+          when: Step_1_4_Execute
+
+        - block:
+            - name: Step_1_5 - Modify Source Metro LUN Name
+              debug:
+                msg:
+                  metroDeviceSn: "{{ metroDeviceSn }}"
+                  metroPgName: "{{ metroPgName }}"
+
+            - name: Login Metro Device
+              set_fact:
+                deviceSn: "{{ metroDeviceSn }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/get_luns_by_pg.yml"
+              vars:
+                pgName: "{{ metroPgName }}"
+
+            - set_fact:
+                metroSourceLunNames: "{{ checkedLuns | json_query('[*].NAME') }}"
+                metroLunNum: "{{ checkedLuns | json_query('[*].NAME') | length }}"
+
+            - set_fact:
+                metroSourceLunNewNames: [ ]
+                metroSourceLunNewNameFormats: [ ]
+                snapCounts: [ ]
+                metroSourceLunNewNameTemplate: "%s%d%s"
+
+            - set_fact:
+                snapCounts: "{{ snapCounts + [item|regex_replace('.*_F(\\d)_.*', '\\1')] }}"
+                metroSourceLunNewNameFormats: "{{ metroSourceLunNewNameFormats + [[ item|regex_replace('(.*_F)\\d(_.*)', '\\1'), item|regex_replace('(.*_F)\\d(_.*)', '\\2') ]] }}"
+              with_items: "{{ metroSourceLunNames }}"
+
+            - set_fact:
+                metroSourceLunNewNames: "{{ metroSourceLunNewNames + [ metroSourceLunNewNameTemplate | format(metroSourceLunNewNameFormats[item|int][0], snapCounts[item|int]|int - 1, metroSourceLunNewNameFormats[item|int][1]) ] }}"
+              with_sequence: start=0 count="{{metroLunNum}}"
+
+            - name: Modify Metro LUN Names
+              debug:
+                msg:
+                  params:
+                    lunNames: "{{ metroSourceLunNames }}"
+                    newLunNames: "{{ metroSourceLunNewNames }}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ metroSourceLunNames[i] }}"
+                newLunName: "{{ metroSourceLunNewNames[i] }}"
+              loop: "{{ range(0, sourceLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_5_Completed: True
+
+          when: Step_1_5_Execute
+
+        - block:
+            - name: Step_1_6 - Rename Misaligned Snapshot CGs
+              debug:
+                msg:
+                  params:
+                    snapCgName:
+                      old: "{{misalignedSnapCgNames}}"
+                      new: "{{misalignedSnapCgNewNames}}"
+
+            - name: Login Device
+              set_fact:
+                deviceSn: "{{ primaryDeviceSn }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_snapshot_cg.yml"
+              vars:
+                cgName: "{{ item.0 }}"
+                newCgName: "{{ item.1 }}"
+              with_together:
+                - "{{ misalignedSnapCgNames }}"
+                - "{{ misalignedSnapCgNewNames }}"
+
+            - set_fact:
+                Step_1_6_Completed: True
+
+          when: Step_1_6_Execute
+
+        - block:
+            - name: Step_1_7 - Rename Misaligned Snapshots
+              debug:
+                msg:
+                  params:
+                    snapCgName:
+                      old: "{{misalignedSnapNames}}"
+                      new: "{{misalignedSnapNewNames}}"
+                      lunId: "{{misalignedSnapIds}}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ item.0 }}"
+                newLunName: "{{ item.1 }}"
+              with_together:
+                - "{{ misalignedSnapIds }}"
+                - "{{ misalignedSnapNewNames }}"
+
+            - set_fact:
+                Step_1_7_Completed: True
+
+          when: Step_1_7_Execute
+
+        - block:
+            - name: Step_1_8 - Update KPI Table For Delete Snapshot CG
+              debug:
+                msg:
+                  params:
+                    snapIds: "{{snapIds}}"
+
+            - include_tasks: "update_lun_kpi_table.yml"
+              vars:
+                TYPE_OF_OPERATION: "delete"
+                WBE_CODE: "{{ WBE_CODE }}"
+                TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+                SYSTEM_NAME: "{{ targetHostName }}"
+                SITE: "{{ site }}"
+                ENVIRONMENT: "{{ osType }}"
+                STORAGE_CLASS: "{{ snapClass[item.0] }}"
+                CAPACITY_GB: "-{{ ( snapSectors[item.0]|int / 1024 / 1024 / 2 ) | int }}"
+                STORAGE: "{{ deviceName }}"
+                VDISK_UID: "{{ item.1 }}"
+              with_indexed_items: "{{ snapIds }}"
+
+            - set_fact:
+                Step_1_8_Completed: True
+
+          when: Step_1_8_Execute
+
+        - block:
+            - name: "Step_2_1 - Activate/Deactivate/Reactivate snapshot CG"
+              debug:
+                msg:
+                  params:
+                    device: "{{ deviceName }}"
+                    cgName: "{{ snapCgName }}"
+                    operation: "{{ Operation }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/{{Operation}}_snapshot_cg.yml"
+              vars:
+                cgName: "{{ snapCgName }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+            - set_fact:
+                Step_2_1_Completed: True
+
+          when: Step_2_1_Execute
+
+        - block:
+            - name: Step_3_1 - Update QoS of Snapshots
+              debug:
+                msg:
+                  params:
+                    snapsInTier: "{{snapsInTier}}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/comply_volumes_with_tier.yml"
+              vars:
+                volumeIds: "{{ snapsInTier[tierName] }}"
+              loop: "{{ tierNames }}"
+              loop_control:
+                loop_var: tierName
+
+            - set_fact:
+                Step_3_1_Completed: True
+
+          when: Step_3_1_Execute
+
+        - block:
+            - name: Step_3_2 - Update KPI Table for Activate/Deactivate/Reactivate snapshot CG
+              debug:
+                msg:
+                  params:
+                    snapIds: "{{snapIds}}"
+
+            - include_tasks: "update_lun_kpi_table.yml"
+              vars:
+                TYPE_OF_OPERATION: "modify"
+                WBE_CODE: "{{ WBE_CODE }}"
+                TICKET_NUMBER: "{{ TICKET_NUMBER }}"
+                SYSTEM_NAME: "{{ targetHostName }}"
+                SITE: "{{ site }}"
+                ENVIRONMENT: "{{ osType }}"
+                STORAGE_CLASS: "{{ snapClass[item.0] }}"
+                CAPACITY_GB: "{{ ( (sourceLunSectors[item.0]|int - snapSectors[item.0]|int)/1024/1024/2 ) | int }}"
+                STORAGE: "{{ deviceName }}"
+                VDISK_UID: "{{ item.1 }}"
+              when: sourceLunSectors[item.0] != snapSectors[item.0]
+              with_indexed_items: "{{ snapIds }}"
+
+            - set_fact:
+                Step_3_3_Completed: True
+
+          when: Step_3_2_Execute
+
+      rescue:
+        - block:
+            - name: Rollback_1_7 -  Rename Snapshots Back
+              debug:
+                msg:
+                  params:
+                    snapCgName:
+                      old: "{{misalignedSnapNames}}"
+                      new: "{{misalignedSnapNewNames}}"
+                      lunId: "{{misalignedSnapIds}}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                modifyLunId: "{{ item.0 }}"
+                newLunName: "{{ item.1 }}"
+              with_together:
+                - "{{ misalignedSnapIds }}"
+                - "{{ misalignedSnapNames }}"
+
+            - set_fact:
+                Step_1_7_Rollbacked: True
+
+          when: Step_1_7_Completed
+
+        - block:
+            - name: Rollback_1_6 - Rename Snapshot CGs Back
+              debug:
+                msg:
+                  params:
+                    snapCgName:
+                      old: "{{misalignedSnapCgNames}}"
+                      new: "{{misalignedSnapCgNewNames}}"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_snapshot_cg.yml"
+              vars:
+                cgName: "{{ item.0 }}"
+                newCgName: "{{ item.1 }}"
+              with_together:
+                - "{{ misalignedSnapCgNewNames}}"
+                - "{{ misalignedSnapCgNames }}"
+
+            - set_fact:
+                Step_1_6_Rollbacked: True
+
+          when: Step_1_6_Completed
+
+        - block:
+            - name: Rollback_1_4 - Modify Source Metro LUN Name Back
+              debug:
+                msg:
+                  params:
+                    currentLunNames: "{{ metroSourceLunNewNames }}"
+                    originlunNames: "{{ metroSourceLunNames }}"
+
+            - name: Login Metro Device
+              set_fact:
+                deviceSn: "{{ metroDeviceSn }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ metroSourceLunNewNames[i] }}"
+                newLunName: "{{ metroSourceLunNames[i] }}"
+              loop: "{{ range(0, snapSourceLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_5_Rollbacked: True
+
+          when: Step_1_5_Completed
+
+        - block:
+            - name: Rollback_1_4 - Modify Source LUN Name Back
+              debug:
+                msg:
+                  params:
+                    currentLunNames: "{{ snapSourceLunNewNames }}"
+                    originlunNames: "{{ snapSourceLunNames }}"
+
+            - name: Login Device
+              set_fact:
+                deviceSn: "{{ primaryDeviceSn }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/login_storage.yml"
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_lun.yml"
+              vars:
+                lunName: "{{ snapSourceLunNewNames[i] }}"
+                newLunName: "{{ snapSourceLunNames[i] }}"
+              loop: "{{ range(0, snapSourceLunNames|length) | list }}"
+              loop_control:
+                loop_var: i
+
+            - set_fact:
+                Step_1_4_Rollbacked: True
+
+          when: Step_1_4_Complete
+
+        - block:
+            - name: Rollback_1_3 -  Create Snapshot CG
+              debug:
+                msg:
+                  params:
+                    snapCg:
+                      pgName: "{{ sourcePgName }}"
+                      cgName: "{{ snapCgName }}"
+                      snapNames: "{{ snapNames }}"
+                      activate: "{{ snapActivate }}"
+                      snapDesc: "{{ snapRemarks }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/create_snapshot_cg.yml"
+              vars:
+                pgName: "{{ sourcePgName }}"
+                cgName: "{{ snapCgName }}"
+                snapNames: "{{ snapNames }}"
+                activate: "{{ snapActivate }}"
+                snapDesc: "{{ snapRemarks }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+
+            - set_fact:
+                deviceSynced: True
+
+            - set_fact:
+                Step_1_3_Rollbacked: True
+
+          when: Step_1_3_Completed
+
+        - block:
+            - name: Rollback_1_2 -  Add Source Snapshots from Target LUN Group
+              debug:
+                msg:
+                  params:
+                    luns:
+                      lgName: "{{ targetLgName }}"
+                      lunNames: "{{ snapNames }}"
+                      lunIds: "{{ snapIds }}"
+                      startScsiId: "{{ nextScsiId }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/add_luns_to_lg.yml"
+              vars:
+                lgName: "{{ targetLgName }}"
+                addLunIds: "{{ snapIds }}"
+                addLunScsiIds: "{{ snapScsiIds }}"
+
+            - set_fact:
+                Step_1_2_Rollbacked: True
+
+          when: Step_1_2_Completed
+
+        - block:
+            - name: Rollback_1_1 -  Set Class for Target LUNs
+              debug:
+                msg:
+                  params:
+                    snapsInTier: "{{ snapsInTier }}"
+                    snapNames: "{{ snapNames }}"
+
+            - import_tasks: "{{GLOBAL.baseDir}}/task/volume/check_volumes.yml"
+              vars:
+                volumeNames: "{{ snapNames }}"
+                waitExist: True
+
+            - include_tasks: "{{GLOBAL.baseDir}}/task/volume/add_volumes_to_tier.yml"
+              vars:
+                volumeNames: "{{ snapsInTier[tierName] }}"
+                tierName: "{{ tierName }}"
+              loop: "{{ tierNames }}"
+              loop_control:
+                loop_var: tierName
+
+            - set_fact:
+                Step_1_1_Rollbacked: True
+
+          when: Step_1_1_Completed
+
+      always:
+        - name: Final_Step_1 - Sync Devices
+          set_fact:
+            deviceSynced: [ ]
+            primaryDeviceNeedSync: "{{ (Step_1_6_Completed|bool == True and Step_1_6_Rollbacked|bool == False) }}"
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/user/login.yml"
+
+        - name: Final_Step_1_1 - Sync Primary Device
+          debug:
+            msg:
+              device: "{{ primaryDeviceName }}"
+          when:
+
+        - set_fact:
+            deviceName: "{{ primaryDeviceName }}"
+          when: primaryDeviceNeedSync
+
+        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
+          when: primaryDeviceNeedSync
+
+    - block:
+        - name: Result_1_1 - Remove Snapshot from Class
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                snapsInTier: "{{snapsInTier}}"
+              result:
+                succeeded: "{{ Step_1_1_Completed }}"
+                rollbacked: "{{ Step_1_1_Rollbacked }}"
+          failed_when: Step_1_1_Completed|bool == False
+          when: Step_1_1_Execute
+
+        - name: Result_1_2 - Remove Source Snapshots from Target LUN Group
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                luns:
+                  lgName: "{{ targetLgName }}"
+                  lunNames: "{{ snapNames }}"
+              result:
+                succeeded: "{{ Step_1_2_Completed }}"
+                rollbacked: "{{ Step_1_2_Rollbacked }}"
+          failed_when: Step_1_2_Completed|bool == False
+          when: Step_1_2_Execute
+
+        - name: Result_1_3 - Delete snapshot CG
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                cgName: "{{ snapCgName }}"
+                operation: "Delete"
+              result:
+                succeeded: "{{ Step_1_3_Completed }}"
+                rollbacked: "{{ Step_1_3_Rollbacked }}"
+          failed_when: Step_1_3_Completed|bool == False
+          when: Step_1_3_Execute
+
+        - name: Result_1_4 - Modify Source LUN Name
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                lunNames: "{{ snapSourceLunNames }}"
+                newLunNames: "{{ snapSourceLunNewNames }}"
+              result:
+                succeeded: "{{ Step_1_4_Completed }}"
+                rollbacked: "{{ Step_1_4_Rollbacked }}"
+          failed_when: Step_1_4_Completed|bool == False
+          when: Step_1_4_Execute
+
+        - name: Result_1_6 - Rename Misaligned Snapshot CGs
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                snapCgName:
+                  old: "{{misalignedSnapCgNames}}"
+                  new: "{{misalignedSnapCgNewNames}}"
+              result:
+                succeeded: "{{ Step_1_6_Completed }}"
+                rollbacked: "{{ Step_1_6_Rollbacked }}"
+          failed_when: Step_1_6_Completed|bool == False
+          when: Step_1_6_Execute
+
+        - name: Result_1_7 - Rename Misaligned Snapshots
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                snapCgName:
+                  old: "{{misalignedSnapNames}}"
+                  new: "{{misalignedSnapNewNames}}"
+                  lunId: "{{misalignedSnapIds}}"
+              result:
+                succeeded: "{{ Step_1_6_Completed }}"
+                rollbacked: "{{ Step_1_6_Rollbacked }}"
+          failed_when: Step_1_7_Completed|bool == False
+          when: Step_1_7_Execute
+
+        - name: Result_1_8 - Update KPI Table For Delete Snapshot CG
+          debug:
+            msg:
+              params:
+                device: "{{ deviceName }}"
+                snapIds: "{{snapIds}}"
+              result:
+                succeeded: "{{ Step_1_8_Completed }}"
+                rollbacked: "{{ Step_1_8_Rollbacked }}"
+          failed_when: Step_1_8_Completed|bool == False
+          when: Step_1_8_Execute
+
+        - name: Result_2_1 - Activate/Deactivate/Reactivate Snapshot CG
           debug:
             msg:
               params:
                 device: "{{ deviceName }}"
                 cgName: "{{ snapCgName }}"
                 operation: "{{ Operation }}"
+              result:
+                succeeded: "{{ Step_2_1_Completed }}"
+                rollbacked: "{{ Step_2_1_Rollbacked }}"
+          failed_when: Step_2_1_Completed|bool == False
+          when: Step_2_1_Execute
 
-        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/{{Operation}}_snapshot_cg.yml"
-          vars:
-            cgName: "{{ snapCgName }}"
-
-        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/sync_storage.yml"
-
-    - block:
-        - name: Step_3_1 - Update Snapshot CG Name
+        - name: Result_3_1 - Update QoS of Snapshots
           debug:
             msg:
               params:
-                snapCgName:
-                  old: "{{snapCgName}}"
-                  new: "{{snapCgNameNew}}"
-
-        - import_tasks: "{{GLOBAL.baseDir}}/task/storage/oceanstor/modify_snapshot_cg.yml"
-          vars:
-            cgName: "{{ snapCgName }}"
-            newCgName: "{{ snapCgNameNew }}"
-
-        - name: Step_3_2 - Update QoS of Snapshots
-          debug:
-            msg:
-              params:
+                device: "{{ deviceName }}"
                 snapsInTier: "{{snapsInTier}}"
+              result:
+                succeeded: "{{ Step_3_1_Completed }}"
+                rollbacked: "{{ Step_3_1_Rollbacked }}"
+          failed_when: Step_3_1_Completed|bool == False
+          when: Step_3_1_Execute
 
-        - include_tasks: "{{GLOBAL.baseDir}}/task/volume/comply_volumes_with_tier.yml"
-          vars:
-            volumeIds: "{{ snapsInTier[tierName] }}"
-          loop: "{{ tierNames }}"
-          loop_control:
-            loop_var: tierName
-
-        - name: Step_3_3 - Update KPI Table
+        - name: Result_3_2 - Update KPI Table For Reactivate/Activate Snapshot CG
           debug:
             msg:
               params:
                 snapIds: "{{snapIds}}"
-
-        - include_tasks: "update_lun_kpi_table.yml"
-          vars:
-            TYPE_OF_OPERATION: "modify"
-            WBE_CODE: "{{ WBE_CODE }}"
-            TICKET_NUMBER: "{{ TICKET_NUMBER }}"
-            SYSTEM_NAME: "{{ targetHostName }}"
-            SITE: "{{ site }}"
-            ENVIRONMENT: "{{ osType }}"
-            STORAGE_CLASS: "{{ snapClass[item.0] }}"
-            CAPACITY_GB: "{{ ( (sourceLunSectors[item.0]|int - snapSectors[item.0]|int)/1024/1024/2 ) | int }}"
-            STORAGE: "{{ deviceName }}"
-            VDISK_UID: "{{ item.1 }}"
-          when: sourceLunSectors[item.0] != snapSectors[item.0]
-          with_indexed_items: "{{ snapIds }}"
-
-      when: Operation in ['reactivate','activate']
+              result:
+                succeeded: "{{ Step_3_2_Completed }}"
+                rollbacked: "{{ Step_3_2_Rollbacked }}"
+          failed_when: Step_3_2_Completed|bool == False
+          when: Step_3_2_Execute

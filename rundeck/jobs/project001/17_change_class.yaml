@@ -30,13 +30,18 @@
       - 'true'
   - name: Class
     valuesUrl: http://localhost:26336/rest/data/v1/search/tier?valueAttr=name
+  - name: Storage
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=deviceName&valueAttr=id&condition={"constraint":[{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"az","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal"}}]}}]
+  - enforced: true
+    name: Storage_Sn
+    valuesUrl: http://localhost:26336/rest/data/v1/join/storage?pageNo=1&pageSize=100&nameAttr=sn&valueAttr=sn&condition={"constraint":[{"logOp":"and","simple":{"name":"id","operator":"equal","value":"${option.Storage.value}"}}]}
   - label: Search LUN Name
     name: LUN_Search
   - delimiter: ','
     enforced: true
     multivalued: true
     name: Select_LUN
-    valuesUrl: http://localhost:26336/rest/data/v1/join/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"${option.Mapped.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}}]}&relations=[{"obj":"tier","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Class.value}"}}]}}]
+    valuesUrl: http://localhost:26336/rest/data/v1/join/volume?pageNo=1&pageSize=100&nameAttr=name&valueAttr=name&condition={"constraint":[{"simple":{"name":"name","operator":"begin%20with","value":"${option.Country.value}_${option.OS_Type.value}"}},{"logOp":"and","simple":{"name":"name","operator":"contain","value":"${option.LUN_Search.value}"}},{"logOp":"and","simple":{"name":"mapped","operator":"equal","value":"${option.Mapped.value}"}},{"logOp":"and","simple":{"name":"dataStatus","operator":"equal","value":"normal"}},{"logOp":"and","simple":{"name":"storageDeviceId","operator":"equal","value":"${option.Storage.value}"}}]}&relations=[{"obj":"tier","condition":{"constraint":[{"logOp":"and","simple":{"name":"name","operator":"equal","value":"${option.Class.value}"}}]}}]
   - name: Upload_LUN
     description: Upload CSV file contains a filed 'name'
     type: file
@@ -62,6 +67,8 @@
           Upload_LUN: ${file.Upload_LUN}
           Delimiter: "${option.Delimiter}"
           Target_Class: ${option.Target_Class}
+          Storage: ${option.Storage}
+          Storage_Sn: ${option.Storage_Sn}
         ansible-playbook: /var/lib/rundeck/ansible/rundeck/workflow/project001/17_change_class.yml
       nodeStep: false
       type: com.batix.rundeck.plugins.AnsiblePlaybookWorkflowStep

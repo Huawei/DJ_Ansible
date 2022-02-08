@@ -30,7 +30,7 @@
               Host_WWN: "{{ checked_host_wwns|unique == [True] }}"
               Class_1: "{{ Class_1 in ['A','B','C','D'] }}"
               Cluster_Name: "{{ (Cluster_Name is none) or (Cluster_Name[0:2] == Country and Cluster_Name[3:6] == OS_Type and Cluster_Name[-1:] == '1' ) }}"
-              Session_Name: "{{ (Session_Name is none) or (Session_Name|length <= 13 and '_' not in Session_Name) }}"
+              Session_Name: "{{ (Session_Name is none) or (Session_Name|length <= 16 and '_' not in Session_Name) }}"
               Enable_HyperMetro: "{{ Enable_HyperMetro in ['Y','N'] }}"
               Protection_Level: "{{ Protection_Level|int in [1,2,3] }}"
               Check_Result_1: "{{ ('host' in Check_Result_1) and ('wwn' in Check_Result_1) and ('cluster' in Check_Result_1 if Cluster_Name is not none else True) }}"
@@ -54,7 +54,6 @@
           failed_when: checked_metro_params.values()|unique != [True]
 
       when: Enable_HyperMetro == 'Y'
-
 
     # Check DR Host Params
     - block:
@@ -100,11 +99,9 @@
 
       when: Protection_Level|int == 3
 
-
     # Set Params
-
     - set_fact:
-        sessionName: "{{Country}}0{{ Session_Name if (Session_Name is not none) else Host_Name }}"
+        sessionName: "{{ Session_Name }}"
         protectType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['enum'] }}"              # See ../../config/project001.yml
         replicaType: "{{ REPTYPE[Enable_HyperMetro+Protection_Level|string]['type'] }}"              # See ../../config/project001.yml
     
@@ -126,20 +123,21 @@
     - set_fact:
         metroDeviceSn: "{{ Metro_Storage|string if (Metro_Storage is not none) else none }}"
         metroHostLocation: "{{ Site }}_{{ Room }}_{{ Host_Rack|string if (Host_Rack is not none) else '' }}_{{Metro_Storage}}"
-        metroCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}1"
+        metroCgName: "HM_{{ Room }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Enable_HyperMetro == 'Y'
 
     - set_fact:
         drHostName: "{{Country}}_{{OS_Type}}_{{DR_Host_Name}}_2"
         drDeviceSn: "{{ DR_Storage|string if (DR_Storage is not none) else none }}"
+        drRoom: "{{ DR_Storage_Room }}"
         drHostAlua: "{{ 1 if (OS_Type == 'SOL') else 0 }}"             # Enable ALUA for Solaris
         drHostHyperMetro: "{{ 1 if (OS_Type == 'SOL') else 0 }}"
         drHostWwns: "{{ (DR_Host_WWN|string).split(',') }}"
         drHostDesc: "{{ DR_Host_Description if (DR_Host_Description is not none) else '' }}"
         drLgDesc: "N{{ Protection_Level }}{{ Class_1 }}{{Class_2}}{{Class_3 if Protection_Level|int >= 3 else '0'}}_{{ sessionName }}"
         drHostLocation: "{{ AZ[DR_Storage_Room].dc }}_{{ DR_Storage_Room }}_{{ DR_Host_Rack|string if (DR_Host_Rack is not none) else '' }}_{{ DR_Storage }}"
-        drCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}2"
+        drCgName: "HR_{{ Room }}_{{ sessionName }}_{{ protectType }}1"
         drSyncMode: "{{ DR_Sync_Mode }}"
         drClusterName: "{{ DR_Cluster_Name }}"
       when:
@@ -152,7 +150,7 @@
         - Protection_Level|int >= 2
 
     - set_fact:
-        standbyCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}4"
+        standbyCgName: "HR_{{ Metro_Storage_Room }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Enable_HyperMetro == 'Y'
         - Protection_Level|int >= 2
@@ -165,7 +163,7 @@
 
     - set_fact:
         drTestLgName: "{{ drTestHostName }}_LG00"
-        drTestCgName: "{{ replicaType }}_{{ Site }}_{{ sessionName }}_{{ protectType }}3"
+        drTestCgName: "DR_{{ drRoom }}_{{ sessionName }}_{{ protectType }}1"
       when:
         - Protection_Level|int == 3
 

@@ -60,7 +60,7 @@
     multivalued: true
     name: Check_Result_1
     required: true
-    valuesUrl: http://localhost:26336/rest/data/v1/echo?snap=Activate%20DR%20Test%20Snapshot%20CG%20"${option.DR_Test_CG.value}"
+    valuesUrl: http://localhost:26336/rest/data/v1/echo?snap=Deactivate%20DR%20Test%20Snapshot%20CG%20"${option.DR_Test_CG.value}"
     description: Select to confirm the result <BR><BR><h2>Additional Info</h2>
   - enforced: true
     name: Session_Name

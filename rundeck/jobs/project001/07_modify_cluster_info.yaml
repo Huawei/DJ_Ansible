@@ -167,6 +167,9 @@
     name: DR_Protection_Group
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.Storage.value}/data/v1/search/CONSISTENTGROUP?nameAttr=rmtPgName&valueAttr=rmtPgName&range=[0-100]&filter=NAME::${option.DR_CG.value}
   - enforced: true
+    name: DR_Test_CG
+    valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/associate/snapshot_consistency_group?nameAttr=NAME&valueAttr=NAME&matchAttr=NAME&match=${option.Session_Name.value}&range=[0-4096]&obj=protectgroup&objIdAttr=protectGroupId&filter=protectGroupName::${option.DR_Protection_Group.value}
+  - enforced: true
     name: DR_LUN_Group
     valuesUrl: http://localhost:26337/deviceManager/rest/${option.DR_Storage.value}/data/v1/search/protectgroup?nameAttr=lunGroupName&valueAttr=lunGroupName&range=[0-100]&filter=protectGroupName::${option.DR_Protection_Group.value}
   - enforced: true
@@ -238,6 +241,7 @@
           DR_CG: ${option.DR_CG}
           DR_CG_ID: ${option.DR_CG_ID}
           DR_Protection_Group: ${option.DR_Protection_Group}
+          DR_Test_CG: ${option.DR_Test_CG}
           DR_LUN_Group: ${option.DR_LUN_Group}
           DR_Test_LUN_Group: ${option.DR_Test_LUN_Group}
           DR_Star: ${option.DR_Star}

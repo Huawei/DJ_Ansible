@@ -30,7 +30,7 @@
     valuesUrl: http://localhost:26336/rest/data/v1/enum/DC?nameAttr=desc&valueAttr=key
     description: <BR><h2>Protection Settings</h2>
   - name: Session_Name
-    description: Input Session Name used for CGs (optional, max 13 chars, '_' not permitted)
+    description: Input Session Name used for CGs (optional, max 16 chars, '_' not permitted)
     required: true
   - enforced: true
     name: Enable_HyperMetro

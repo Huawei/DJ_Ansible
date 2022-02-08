@@ -3,16 +3,26 @@
 # Required parameters:
 #   volumeNames:            # a list of volume names, can be replaced with volumeIds
 #
+# Optional parameters
+#   filterDeviceId:         # query volume filter parameters
+#
 # Generated parameters (can be overwritten):
 #   volumeIds:              # a list of volume IDs
 
 - block:
     - set_fact:
         volumeIds: []
+        filterByStorage: ""
+
+    - set_fact:
+        filterByStorage: "&storage_id={{filterDeviceId}}"
+      when:
+        - filterDeviceId is defined
+        - filterDeviceId is not none
 
     - name: Query Volumes by Name
       uri:
-        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}"
+        url: "https://{{djHost}}:{{djPort}}{{ DJSERVICE.API.volumes }}?name={{item}}{{filterByStorage}}"
         method: GET
         validate_certs: no
         headers:
